@@ -1,0 +1,483 @@
+openapi: 3.1.0
+info:
+  title: muni API
+  version: 0.1.0
+  description: Offline-first collaborative document REST API. Mutating browser requests use an HttpOnly session cookie; integrations use a scoped personal bearer key.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+  - bearerKey: []
+paths:
+  /system/public:
+    get:
+      security: []
+      summary: Login page service and version information
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /system/capabilities:
+    get:
+      summary: Feature flags available to the current user interface
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /auth/login:
+    post:
+      security: []
+      summary: Create a local browser session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identity, password]
+              properties:
+                identity: { type: string }
+                password: { type: string, format: password }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+  /auth/me:
+    get:
+      summary: Current user and build version
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /auth/logout:
+    post:
+      summary: Delete the browser session
+      responses:
+        '204': { description: Logged out }
+  /workspaces:
+    get:
+      summary: List accessible workspaces
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Create a team workspace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string, maxLength: 80 }
+                slug: { type: string, pattern: '^[a-z0-9][a-z0-9-]{1,46}[a-z0-9]$' }
+                description: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /workspaces/{workspaceId}/documents:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      summary: List accessible documents in a workspace
+      parameters:
+        - { name: trash, in: query, schema: { type: boolean } }
+        - { name: folderId, in: query, schema: { type: string, format: uuid } }
+        - { name: status, in: query, schema: { type: string, enum: [DRAFT, REVIEW, PUBLISHED, ARCHIVED] } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /workspaces/{workspaceId}/folders:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      summary: List the workspace folder tree
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Create a root or nested folder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 120 }
+                parentId: { type: [string, 'null'], format: uuid }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /workspaces/{workspaceId}/members:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+    get:
+      summary: List workspace members
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    put:
+      summary: Add a member or change a non-owner role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, role]
+              properties:
+                userId: { type: string, format: uuid }
+                role: { type: string, enum: [MANAGER, MEMBER, VIEWER] }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /workspaces/{workspaceId}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/WorkspaceId'
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Remove a non-owner workspace member
+      responses:
+        '204': { description: Member removed }
+  /documents:
+    get:
+      summary: List recent, favorite, shared, owned, or trashed documents
+      parameters:
+        - { name: scope, in: query, schema: { type: string, enum: [recent, favorites, shared, owned, trash] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Create a document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceId]
+              properties:
+                workspaceId: { type: string, format: uuid }
+                folderId: { type: [string, 'null'], format: uuid }
+                title: { type: string, maxLength: 240 }
+                content: { $ref: '#/components/schemas/TiptapDocument' }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /import:
+    post:
+      summary: Import DOCX, Markdown, TXT, or HTML as a document
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [workspaceId, file]
+              properties:
+                workspaceId: { type: string, format: uuid }
+                folderId: { type: string, format: uuid }
+                title: { type: string, maxLength: 240 }
+                file: { type: string, format: binary }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      summary: Read a document after ACL evaluation
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    put:
+      summary: Save document content or metadata using optimistic revision control
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedRevision: { type: integer, minimum: 1 }
+                title: { type: string, maxLength: 240 }
+                content: { $ref: '#/components/schemas/TiptapDocument' }
+                status: { type: string, enum: [DRAFT, REVIEW, PUBLISHED, ARCHIVED] }
+                visibility: { type: string, enum: [RESTRICTED, WORKSPACE, ORGANIZATION, LINK] }
+                reason: { type: string, maxLength: 100 }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+    delete:
+      summary: Soft-delete a document
+      responses:
+        '204': { description: Moved to trash }
+  /documents/{documentId}/comments:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      summary: List comment threads
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Add a range-linked comment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                parentId: { type: [string, 'null'], format: uuid }
+                anchor: { type: [object, 'null'] }
+                body: { type: string, minLength: 1, maxLength: 5000 }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/permissions:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      summary: List explicit document permissions
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    put:
+      summary: Grant or update a user document permission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subjectType, subjectId, role]
+              properties:
+                subjectType: { const: USER }
+                subjectId: { type: string, format: uuid }
+                role: { type: string, enum: [EDITOR, COMMENTER, VIEWER] }
+                expiresAt: { type: [string, 'null'], format: date-time }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/suggestions:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      summary: List document suggestions
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Create a range-based change suggestion
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      summary: List immutable document revisions
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/export/{format}:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - name: format
+        in: path
+        required: true
+        schema: { type: string, enum: [docx, pdf, html, md, txt] }
+    get:
+      summary: Export a document
+      responses:
+        '200':
+          description: Exported binary or text document
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+  /documents/{documentId}/workflow/submit:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    post:
+      summary: Submit the current revision when approval workflow is enabled
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+  /search:
+    get:
+      summary: ACL-filtered PostgreSQL full-text search
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /approvals:
+    get:
+      summary: List approval requests visible to the current reviewer
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, APPROVED, REJECTED] } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /approvals/{approvalId}/decision:
+    parameters:
+      - { name: approvalId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Approve or reject a pending request
+      responses:
+        '204': { description: Decision recorded }
+  /ai/chat:
+    post:
+      summary: Stream an OpenAI-compatible chat response using SSE
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [messages]
+              properties:
+                documentId: { type: [string, 'null'], format: uuid }
+                action: { type: string }
+                maxTokens: { type: integer, minimum: 1, maximum: 262144 }
+                messages:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    required: [role, content]
+                    properties:
+                      role: { type: string, enum: [system, user, assistant, tool] }
+                      content: {}
+      responses:
+        '200':
+          description: Server-Sent Events from the configured model
+          content:
+            text/event-stream: { schema: { type: string } }
+  /me/keys:
+    get:
+      summary: List personal envelope-key versions without key material
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /me/keys/rotate:
+    post:
+      summary: Atomically retire and replace the active personal key
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /me/keys/{keyId}:
+    parameters:
+      - { name: keyId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke one retired personal envelope-key version
+      responses:
+        '204': { description: Retired key revoked }
+        '409': { $ref: '#/components/responses/Error' }
+  /me/api-keys:
+    get:
+      summary: List personal integration keys without secrets
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Create a scoped key; the secret is returned once
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+  /me/api-keys/{keyId}:
+    parameters:
+      - { name: keyId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke a personal integration key
+      responses:
+        '204': { description: Integration key revoked }
+  /admin/settings:
+    get:
+      summary: Read all non-secret administrative settings
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+    put:
+      summary: Validate and atomically update administrative settings
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/audit:
+    get:
+      summary: Read immutable operational audit events
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/users:
+    get:
+      summary: Search and list service users
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/users/{userId}:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    patch:
+      summary: Change a service user's role or account status
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/users/{userId}/keys:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: List another user's envelope-key versions when key:read:any is granted
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/users/{userId}/keys/rotate:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Rotate another user's envelope key when key:rotate:any is granted
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/users/{userId}/keys/{keyId}:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: keyId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke another user's retired envelope key when key:revoke:any is granted
+      responses:
+        '204': { description: Retired key revoked }
+        '403': { $ref: '#/components/responses/Error' }
+  /admin/key-policies:
+    get:
+      summary: List mutable role-based personal-key permissions
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /admin/key-policies/{role}:
+    parameters:
+      - { name: role, in: path, required: true, schema: { type: string, enum: [ADMIN, USER] } }
+    put:
+      summary: Replace a role's personal-key permission set
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: muni_session
+    bearerKey:
+      type: http
+      scheme: bearer
+      bearerFormat: muni personal API key
+  parameters:
+    DocumentId: { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    WorkspaceId: { name: workspaceId, in: path, required: true, schema: { type: string, format: uuid } }
+  schemas:
+    TiptapDocument:
+      type: object
+      required: [type]
+      properties:
+        type: { const: doc }
+        content:
+          type: array
+          items: { type: object, additionalProperties: true }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+  responses:
+    Success:
+      description: Successful envelope
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data: {}
+    Error:
+      description: Structured API error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

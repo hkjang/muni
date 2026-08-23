@@ -1,0 +1,19 @@
+services:
+  muni:
+    image: muni:v0.1.0
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      POSTGRES_DSN: ${POSTGRES_DSN:?required}
+      BOOTSTRAP_ADMIN: ${BOOTSTRAP_ADMIN:?required}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?required}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?required}
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s

@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+webui/dist/*
+!webui/dist/index.html
+coverage/
+*.out
+*.test
+/muni
+release/
+.DS_Store
+*.swp

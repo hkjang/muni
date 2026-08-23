@@ -1,0 +1,10 @@
+.git
+.github
+.env*
+frontend/node_modules
+frontend/dist
+release
+coverage
+*.tar.gz
+README.md
+docs

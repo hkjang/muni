@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#5151c6" />
+    <title>muni frontend build required</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        color: #292a3a;
+        background: #f5f5fa;
+        font: 16px/1.65 system-ui, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 24px;
+        padding: 32px;
+        border: 1px solid #dedee9;
+        border-radius: 18px;
+        background: white;
+        box-shadow: 0 16px 45px rgb(44 44 70 / 8%);
+      }
+      code {
+        display: block;
+        padding: 12px 14px;
+        border-radius: 9px;
+        background: #eeeef7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>muni</h1>
+      <p>프런트엔드 자산이 아직 빌드되지 않았습니다.</p>
+      <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code>
+      <p>Docker 빌드와 GitHub Release workflow는 이 과정을 자동으로 실행합니다.</p>
+    </main>
+  </body>
+</html>
