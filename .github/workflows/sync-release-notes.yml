@@ -1,0 +1,28 @@
+name: Sync release notes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/releases/v*.md"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Update matching GitHub Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          for file in docs/releases/v*.md; do
+            tag="$(basename "$file" .md)"
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --verify-tag --notes-file "$file"
+            fi
+          done
