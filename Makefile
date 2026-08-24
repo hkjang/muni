@@ -6,7 +6,7 @@ IMAGE := muni:v$(VERSION)
 test:
 	scripts/check-webui-placeholder.sh
 	go test ./...
-	cd frontend && npm run lint
+	cd frontend && npm run lint && npm test
 
 hooks:
 	git config core.hooksPath scripts/git-hooks

@@ -30,6 +30,9 @@ jobs:
       - name: Frontend typecheck and build
         run: npm run build
         working-directory: frontend
+      - name: Frontend unit tests
+        run: npm test
+        working-directory: frontend
       - name: Go tests
         run: go test ./...
       - name: Build Linux binary

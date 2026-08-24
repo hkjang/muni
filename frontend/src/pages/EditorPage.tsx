@@ -7,6 +7,7 @@ import {
   type Editor,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -569,6 +570,12 @@ export function EditorPage() {
               </Alert>
             )}
             <EditorContent editor={editor} />
+            <AISelectionMenu
+              editor={editor}
+              enabled={Boolean(capabilities.data?.aiEnabled)}
+              canEdit={canEdit && mode === "editing"}
+              maxTokens={capabilities.data?.maxAiTokens}
+            />
           </Paper>
         </Box>
         {!compact && sideOpen && (
