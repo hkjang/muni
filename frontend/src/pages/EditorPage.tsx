@@ -8,6 +8,7 @@ import {
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
+import { BlockId } from "../features/editor/extensions/blockId";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -189,6 +190,7 @@ export function EditorPage() {
       TaskItem.configure({ nested: true }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TextStyleKit,
+      BlockId,
     ],
     [collaboration.provider, collaboration.ydoc, user?.displayName, user?.id],
   );

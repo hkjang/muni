@@ -37,7 +37,7 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 	case "doc":
 		renderHTMLBlocks(out, node.Content)
 	case "paragraph":
-		out.WriteString("<p" + styleAttribute(node) + ">")
+		out.WriteString("<p" + blockIDAttribute(node) + styleAttribute(node) + ">")
 		renderHTMLInline(out, node.Content)
 		out.WriteString("</p>")
 	case "heading":
@@ -45,7 +45,7 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 		if level < 1 || level > 6 {
 			level = 1
 		}
-		fmt.Fprintf(out, "<h%d%s>", level, styleAttribute(node))
+		fmt.Fprintf(out, "<h%d%s%s>", level, blockIDAttribute(node), styleAttribute(node))
 		renderHTMLInline(out, node.Content)
 		fmt.Fprintf(out, "</h%d>", level)
 	case "bulletList":
@@ -62,7 +62,7 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 		renderHTMLBlocks(out, node.Content)
 		out.WriteString("</ol>")
 	case "listItem":
-		out.WriteString("<li>")
+		out.WriteString("<li" + blockIDAttribute(node) + ">")
 		renderHTMLBlocks(out, node.Content)
 		out.WriteString("</li>")
 	case "taskList":
@@ -76,24 +76,24 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 			glyph = "&#9746;"
 			checked = ` data-checked="true"`
 		}
-		out.WriteString(`<li` + checked + `><span aria-hidden="true">` + glyph + `</span><div>`)
+		out.WriteString(`<li` + blockIDAttribute(node) + checked + `><span aria-hidden="true">` + glyph + `</span><div>`)
 		renderHTMLBlocks(out, node.Content)
 		out.WriteString("</div></li>")
 	case "blockquote":
-		out.WriteString("<blockquote>")
+		out.WriteString("<blockquote" + blockIDAttribute(node) + ">")
 		renderHTMLBlocks(out, node.Content)
 		out.WriteString("</blockquote>")
 	case "codeBlock":
 		language := node.AttrString("language")
-		out.WriteString("<pre><code")
+		out.WriteString("<pre" + blockIDAttribute(node) + "><code")
 		if language != "" && isSafeToken(language) {
 			out.WriteString(` class="language-` + html.EscapeString(language) + `"`)
 		}
 		out.WriteString(">" + html.EscapeString(codeText(node)) + "</code></pre>")
 	case "horizontalRule":
-		out.WriteString("<hr>")
+		out.WriteString("<hr" + blockIDAttribute(node) + ">")
 	case "table":
-		out.WriteString("<table>")
+		out.WriteString("<table" + blockIDAttribute(node) + ">")
 		renderHTMLTableRows(out, node.Content)
 		out.WriteString("</table>")
 	case "tableRow":
@@ -150,6 +150,34 @@ func isHeaderRow(row *richdoc.Node) bool {
 	return true
 }
 
+// blockIDAttribute carries a block's stable identity into the exported HTML so
+// the same anchor survives an export/import round trip and can back a deep link.
+func blockIDAttribute(node *richdoc.Node) string {
+	value := node.AttrString(richdoc.BlockIDAttr)
+	if !isBlockIDToken(value) {
+		return ""
+	}
+	return ` data-block-id="` + value + `"`
+}
+
+// isBlockIDToken accepts the identifier shape muni writes and the ones other
+// producers use, while keeping anything that would need escaping out of the
+// attribute. isSafeToken is deliberately not reused: it guards code language
+// classes and does not allow the underscore block ids carry.
+func isBlockIDToken(value string) bool {
+	if value == "" || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '_', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func styleAttribute(node *richdoc.Node) string {
 	switch strings.ToLower(node.AttrString("textAlign")) {
 	case "center":
@@ -190,7 +218,7 @@ func imageHTML(node *richdoc.Node) string {
 	if !safeImageSource(src) {
 		return ""
 	}
-	out := `<img src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(node.AttrString("alt")) + `"`
+	out := `<img` + blockIDAttribute(node) + ` src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(node.AttrString("alt")) + `"`
 	if width := node.AttrInt("width", 0); width > 0 {
 		out += ` width="` + strconv.Itoa(width) + `"`
 	}

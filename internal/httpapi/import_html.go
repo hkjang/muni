@@ -222,6 +222,16 @@ func (h *htmlConverter) block(node *xhtml.Node, depth int) []*richdoc.Node {
 	if depth > maxHTMLDepth {
 		return nil
 	}
+	blocks := h.blockOfType(node, depth)
+	// Restore the identity the exporter wrote, so a document exported and
+	// imported again keeps the anchors its comments and citations point at.
+	if id := strings.TrimSpace(htmlAttr(node, "data-block-id")); isBlockIDToken(id) && len(blocks) == 1 {
+		blocks[0].SetAttr(richdoc.BlockIDAttr, id)
+	}
+	return blocks
+}
+
+func (h *htmlConverter) blockOfType(node *xhtml.Node, depth int) []*richdoc.Node {
 	name := strings.ToLower(node.Data)
 	switch name {
 	case "h1", "h2", "h3", "h4", "h5", "h6":
@@ -391,6 +401,9 @@ func (h *htmlConverter) list(node *xhtml.Node, depth int) []*richdoc.Node {
 			inner = []*richdoc.Node{richdoc.Paragraph()}
 		}
 		item := &richdoc.Node{Type: itemType, Content: inner}
+		if id := strings.TrimSpace(htmlAttr(child, "data-block-id")); isBlockIDToken(id) {
+			item.SetAttr(richdoc.BlockIDAttr, id)
+		}
 		if task {
 			checked := strings.EqualFold(htmlAttr(child, "data-checked"), "true")
 			if !checked {

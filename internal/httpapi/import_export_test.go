@@ -271,3 +271,96 @@ func TestChromiumCommandGivesTheBrowserAWritableHome(t *testing.T) {
 		}
 	}
 }
+
+func TestImportedDocumentsCarryBlockIDs(t *testing.T) {
+	source := json.RawMessage(`{"type":"doc","content":[
+		{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"제목"}]},
+		{"type":"paragraph","content":[{"type":"text","text":"본문"}]}]}`)
+	stamped, err := withBlockIDs(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := richdoc.Parse(stamped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, block := range document.Content {
+		if value, _ := block.Attr(richdoc.BlockIDAttr).(string); value == "" {
+			t.Fatalf("%s has no block id: %s", block.Type, stamped)
+		}
+	}
+	// Running it again must not churn the ids the first pass handed out.
+	again, err := withBlockIDs(stamped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(stamped) {
+		t.Fatalf("re-stamping changed the document:\n%s\n%s", stamped, again)
+	}
+}
+
+func TestExportersIgnoreBlockIDs(t *testing.T) {
+	source := json.RawMessage(`{"type":"doc","content":[
+		{"type":"paragraph","attrs":{"blockId":"blk_abc"},"content":[{"type":"text","text":"본문"}]}]}`)
+	if rendered := renderHTML(source); !strings.Contains(rendered, "본문") {
+		t.Fatalf("HTML export broke on a block id: %s", rendered)
+	}
+	if markdown := renderMarkdown("", source); !strings.Contains(markdown, "본문") {
+		t.Fatalf("Markdown export broke on a block id: %s", markdown)
+	}
+	document, err := richdoc.Parse(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := docx.Build(document, docx.Options{Title: "T"})
+	if err != nil {
+		t.Fatalf("DOCX export broke on a block id: %v", err)
+	}
+	imported, _, err := docxImport(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(extractDocumentText(imported), "본문") {
+		t.Fatalf("DOCX round trip lost the text: %s", imported)
+	}
+}
+
+func TestBlockIDsSurviveTheHTMLRoundTrip(t *testing.T) {
+	source := json.RawMessage(`{"type":"doc","content":[
+		{"type":"heading","attrs":{"level":2,"blockId":"blk_head"},"content":[{"type":"text","text":"제목"}]},
+		{"type":"paragraph","attrs":{"blockId":"blk_body"},"content":[{"type":"text","text":"본문"}]},
+		{"type":"bulletList","content":[
+			{"type":"listItem","attrs":{"blockId":"blk_item"},"content":[
+				{"type":"paragraph","attrs":{"blockId":"blk_inner"},"content":[{"type":"text","text":"항목"}]}]}]}
+	]}`)
+	rendered := renderHTML(source)
+	for _, expected := range []string{`data-block-id="blk_head"`, `data-block-id="blk_body"`, `data-block-id="blk_item"`} {
+		if !strings.Contains(rendered, expected) {
+			t.Fatalf("export dropped %s:\n%s", expected, rendered)
+		}
+	}
+	content, _, err := htmlDocument([]byte(fullHTML("", rendered)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]bool{}
+	var walk func(*richdoc.Node)
+	walk = func(node *richdoc.Node) {
+		if value := node.AttrString(richdoc.BlockIDAttr); value != "" {
+			found[value] = true
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(document)
+	for _, expected := range []string{"blk_head", "blk_body", "blk_item", "blk_inner"} {
+		if !found[expected] {
+			t.Errorf("round trip lost %s: %s", expected, content)
+		}
+	}
+}

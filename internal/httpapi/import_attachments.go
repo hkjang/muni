@@ -109,6 +109,13 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "IMPORT_PARSE_FAILED", "가져온 문서를 변환하지 못했습니다: "+err.Error())
 		return
 	}
+	// An imported document has never been through the editor, so stamp the
+	// block identities that comments, citations and diffs anchor to.
+	content, err = withBlockIDs(content)
+	if err != nil {
+		writeError(w, 400, "IMPORT_PARSE_FAILED", "가져온 문서를 변환하지 못했습니다: "+err.Error())
+		return
+	}
 	if !validDocumentJSON(content) {
 		writeError(w, 400, "IMPORT_TOO_LARGE", "가져온 문서가 너무 큽니다. 파일을 나눠서 가져와 주세요.")
 		return
@@ -423,4 +430,17 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, &p.User.ID, "DELETE_ATTACHMENT", "DOCUMENT", &documentID, map[string]any{"attachmentId": id})
 	w.WriteHeader(204)
+}
+
+// withBlockIDs stamps stable block identities onto document content that did
+// not come from the editor.
+func withBlockIDs(content json.RawMessage) (json.RawMessage, error) {
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return nil, err
+	}
+	if richdoc.AssignBlockIDs(document, time.Now().UTC()) == 0 {
+		return content, nil
+	}
+	return document.JSON()
 }

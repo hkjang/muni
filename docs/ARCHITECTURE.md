@@ -20,7 +20,19 @@ Browser (React + Tiptap + Yjs + IndexedDB)
                          PostgreSQL 15+
 ```
 
-React assets, Korean web fonts, Go API, the OOXML reader/writer, the pure-Go PDF text extractor and the headless Chromium used for PDF rendering are all present in `muni:v<version>`. Runtime egress is needed only when an administrator intentionally configures an internal OIDC issuer or AI gateway.
+React assets, Korean web fonts, Go API, the OOXML reader/writer, the pure-Go PDF text extractor and the headless Chromium used for PDF rendering are all present in `muni:v<version>`.
+
+Every anchorable block — paragraph, heading, quote, code block, rule, image,
+list item, task item and table — carries a `blockId` attribute. Comments,
+citations, AI patches, revision diffs and deep links need an anchor that
+survives editing, and a document position does not: inserting a paragraph
+shifts every offset below it. The editor stamps ids in an `appendTransaction`
+so that splitting or pasting a block, both of which copy the source node's
+attributes, cannot leave two blocks claiming the same identity; the first block
+in document order keeps the id and later copies are re-stamped. Documents that
+never pass through the editor — imports, API writes — are stamped server side by
+`richdoc.AssignBlockIDs`, and the HTML exporter writes the id as
+`data-block-id` so the anchor survives an export and re-import. Runtime egress is needed only when an administrator intentionally configures an internal OIDC issuer or AI gateway.
 
 ## Configuration boundary
 
