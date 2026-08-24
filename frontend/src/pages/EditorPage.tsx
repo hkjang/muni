@@ -10,6 +10,8 @@ import StarterKit from "@tiptap/starter-kit";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { CommentsPanel } from "../features/editor/comments/CommentsPanel";
+import { SuggestionsPanel } from "../features/editor/suggestions/SuggestionsPanel";
+import { HistoryPanel } from "../features/editor/history/HistoryPanel";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -24,8 +26,6 @@ import {
   AddCommentOutlined,
   ArrowBack,
   AutoAwesome,
-  Check,
-  Close,
   CloudDoneOutlined,
   CloudOffOutlined,
   Code,
@@ -63,7 +63,6 @@ import {
   Avatar,
   Box,
   Button,
-  ButtonGroup,
   Chip,
   CircularProgress,
   Dialog,
@@ -97,13 +96,12 @@ import { Brand } from "../components/Brand";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { useAuth } from "../contexts/AuthContext";
 import { useCollaboration } from "../hooks/useCollaboration";
-import { ApiError, api, errorMessage, formatDate, jsonBody } from "../lib/api";
-import type { DocumentItem, RevisionItem } from "../types";
+import { ApiError, api, errorMessage, jsonBody } from "../lib/api";
+import type { DocumentItem } from "../types";
 import type {
   Capability,
   Permission,
   SideTab,
-  Suggestion,
   UserSearch,
 } from "../features/editor/types";
 
@@ -1318,194 +1316,6 @@ function AIPanel({
           커서 위치에 삽입
         </Button>
       )}
-    </Stack>
-  );
-}
-
-function SuggestionsPanel({
-  document,
-  editor,
-  canComment,
-  canEdit,
-}: {
-  document: DocumentItem;
-  editor: Editor;
-  canComment: boolean;
-  canEdit: boolean;
-}) {
-  const client = useQueryClient();
-  const [replacement, setReplacement] = useState("");
-  const query = useQuery({
-    queryKey: ["suggestions", document.id],
-    queryFn: () =>
-      api<Suggestion[]>(`/api/v1/documents/${document.id}/suggestions`),
-  });
-  const create = useMutation({
-    mutationFn: () => {
-      const { from, to } = editor.state.selection;
-      return api(`/api/v1/documents/${document.id}/suggestions`, {
-        method: "POST",
-        ...jsonBody({
-          range: { from, to },
-          previousValue: editor.state.doc.textBetween(from, to, " "),
-          newValue: replacement,
-        }),
-      });
-    },
-    onSuccess: () => {
-      setReplacement("");
-      void client.invalidateQueries({ queryKey: ["suggestions", document.id] });
-    },
-  });
-  const decide = useMutation({
-    mutationFn: ({
-      item,
-      decision,
-    }: {
-      item: Suggestion;
-      decision: "ACCEPTED" | "REJECTED";
-    }) => {
-      if (
-        decision === "ACCEPTED" &&
-        typeof item.newValue === "string" &&
-        item.range.from &&
-        item.range.to
-      )
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(
-            { from: item.range.from, to: item.range.to },
-            item.newValue,
-          )
-          .run();
-      return api(`/api/v1/suggestions/${item.id}/decision`, {
-        method: "POST",
-        ...jsonBody({ decision }),
-      });
-    },
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: ["suggestions", document.id] }),
-  });
-  return (
-    <Stack gap={1.5}>
-      {canComment && (
-        <>
-          <Typography variant="h3">변경 제안</Typography>
-          <Typography variant="body2" color="text.secondary">
-            본문의 교체할 범위를 선택하고 새 문구를 입력하세요.
-          </Typography>
-          <TextField
-            multiline
-            minRows={2}
-            value={replacement}
-            onChange={(e) => setReplacement(e.target.value)}
-            placeholder="제안할 문구"
-          />
-          <Button
-            variant="contained"
-            disabled={!replacement.trim()}
-            onClick={() => create.mutate()}
-          >
-            제안 등록
-          </Button>
-          <Divider />
-        </>
-      )}
-      {(query.data ?? []).map((item) => (
-        <Paper key={item.id} variant="outlined" sx={{ p: 1.75 }}>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography fontWeight={700}>{item.author.displayName}</Typography>
-            <Chip size="small" label={item.status} />
-          </Stack>
-          <Typography variant="body2" color="text.secondary" mt={1}>
-            제안
-          </Typography>
-          <Typography sx={{ whiteSpace: "pre-wrap" }}>
-            {typeof item.newValue === "string"
-              ? item.newValue
-              : JSON.stringify(item.newValue)}
-          </Typography>
-          {canEdit && item.status === "PENDING" && (
-            <ButtonGroup size="small" sx={{ mt: 1.5 }}>
-              <Button
-                color="error"
-                startIcon={<Close />}
-                onClick={() => decide.mutate({ item, decision: "REJECTED" })}
-              >
-                거절
-              </Button>
-              <Button
-                color="success"
-                startIcon={<Check />}
-                onClick={() => decide.mutate({ item, decision: "ACCEPTED" })}
-              >
-                적용
-              </Button>
-            </ButtonGroup>
-          )}
-        </Paper>
-      ))}
-      {!(query.data ?? []).length && (
-        <Typography color="text.secondary" textAlign="center" py={4}>
-          대기 중인 제안이 없습니다.
-        </Typography>
-      )}
-    </Stack>
-  );
-}
-
-function HistoryPanel({ document }: { document: DocumentItem }) {
-  const client = useQueryClient();
-  const query = useQuery({
-    queryKey: ["revisions", document.id],
-    queryFn: () =>
-      api<RevisionItem[]>(`/api/v1/documents/${document.id}/revisions`),
-  });
-  const restore = useMutation({
-    mutationFn: (revision: number) =>
-      api(`/api/v1/documents/${document.id}/revisions/${revision}/restore`, {
-        method: "POST",
-      }),
-    onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["document", document.id] });
-      window.location.reload();
-    },
-  });
-  return (
-    <Stack gap={1}>
-      <Typography variant="h3" mb={1}>
-        버전 기록
-      </Typography>
-      {(query.data ?? []).map((item) => (
-        <Paper variant="outlined" key={item.id} sx={{ p: 1.5 }}>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-          >
-            <Box>
-              <Typography fontWeight={700}>Revision {item.revision}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {item.author.displayName} · {formatDate(item.createdAt)}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                {item.reason}
-              </Typography>
-            </Box>
-            {item.revision !== document.revision &&
-              document.permission !== "VIEWER" && (
-                <Button
-                  size="small"
-                  startIcon={<History />}
-                  onClick={() => restore.mutate(item.revision)}
-                >
-                  복원
-                </Button>
-              )}
-          </Stack>
-        </Paper>
-      ))}
     </Stack>
   );
 }
