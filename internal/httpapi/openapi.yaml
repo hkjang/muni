@@ -362,6 +362,22 @@ paths:
         '200': { $ref: '#/components/responses/Success' }
         '409': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /documents/{documentId}/presentations/{presentationId}/citations:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - { name: presentationId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Write the document and revision each slide came from onto the slide
+      description: >-
+        A deck that states a number and cannot say where it came from is the
+        first thing anyone asks about. muni knows which heading each slide was
+        built from, so it writes that as the slide's source line. Cover and
+        closing slides make no claim and are skipped, slides that already cite
+        something are left alone, and running this twice adds nothing.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/presentations/{presentationId}:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

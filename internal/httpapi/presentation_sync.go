@@ -154,3 +154,60 @@ func (s *Server) revisionContent(ctx context.Context, documentID uuid.UUID, revi
 		documentID, revision).Scan(&content)
 	return content, err
 }
+
+// citePresentation writes the document and revision each slide came from onto
+// the slide itself.
+//
+// A deck that states a number and cannot say where it came from is the first
+// thing anyone in a company asks about. muni knows which heading each slide was
+// built from, so it answers that rather than leaving it to the model to
+// remember. Slides that already cite something are left alone.
+func (s *Server) citePresentation(w http.ResponseWriter, r *http.Request) {
+	link, config, ok := s.presentationForRequest(w, r, "EDITOR")
+	if !ok {
+		return
+	}
+	var title string
+	var revision int
+	var content json.RawMessage
+	if err := s.db.QueryRow(r.Context(), `SELECT title,revision_no,content_json FROM documents WHERE id=$1`, link.DocumentID).
+		Scan(&title, &revision, &content); err != nil {
+		writeError(w, 404, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
+		return
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		writeError(w, 500, "DOCUMENT_UNREADABLE", "문서 내용을 읽지 못했습니다.")
+		return
+	}
+	brief := ptium.BuildBrief(document, ptium.BriefSource{
+		Type: "muni", DocumentID: link.DocumentID.String(), Revision: revision, Title: title,
+	}, ptium.Options{})
+
+	client := ptium.NewClient(config)
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(config.TimeoutSeconds)*time.Second)
+	defer cancel()
+	presentation, err := client.Get(ctx, link.PresentationID)
+	if err != nil {
+		writeError(w, ptium.HTTPStatus(err), "PTIUM_REQUEST_FAILED", err.Error())
+		return
+	}
+	source, err := client.Source(ctx, link.PresentationID)
+	if err != nil {
+		writeError(w, ptium.HTTPStatus(err), "PTIUM_REQUEST_FAILED", err.Error())
+		return
+	}
+	deck, added := ptium.AddCitations(ptium.SplitSlides(source), brief)
+	if added == 0 {
+		writeData(w, 200, map[string]any{"added": 0, "applied": false})
+		return
+	}
+	if err := client.ApplySource(ctx, link.PresentationID, deck.Source(), presentation.Version, false); err != nil {
+		writeError(w, ptium.HTTPStatus(err), "PTIUM_REQUEST_FAILED", err.Error())
+		return
+	}
+	p, _ := principalFrom(r.Context())
+	s.audit(r, &p.User.ID, "CITE_PRESENTATION", "DOCUMENT", &link.DocumentID,
+		map[string]any{"presentationId": link.PresentationID, "added": added, "revision": revision})
+	writeData(w, 200, map[string]any{"added": added, "applied": true})
+}
