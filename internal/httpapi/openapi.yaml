@@ -273,6 +273,80 @@ paths:
       summary: List immutable document revisions
       responses:
         '200': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/presentations:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    get:
+      summary: List the presentations made from this document
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Turn the document into a presentation
+      description: >-
+        The document's structure — headings, lists, tables, figures — is sent to
+        the configured presentation service, which designs and builds the deck.
+        muni stores only the link between the document revision and the deck;
+        the slides and the built file stay with that service.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 200 }
+                audience: { type: string }
+                purpose: { type: string }
+                tone: { type: string }
+                language: { type: string }
+                slideCount: { type: integer, minimum: 1, maximum: 50 }
+                minutes: { type: integer, description: how long the presentation has to run }
+                detail: { type: string }
+                theme: { type: string }
+                templateId: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /documents/{documentId}/presentations/{presentationId}/status:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - { name: presentationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Ask the presentation service how generation is going
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /documents/{documentId}/presentations/{presentationId}/download:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - { name: presentationId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: format, in: query, schema: { type: string, enum: [pptx, pdf], default: pptx } }
+    get:
+      summary: Download the built presentation
+      description: >-
+        Streamed from the presentation service on request. muni keeps no copy:
+        the deck can be edited there afterwards, and a stored file would go
+        stale the moment that happens.
+      responses:
+        '200':
+          description: PowerPoint or PDF file
+          content:
+            application/octet-stream: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
+  /documents/{documentId}/presentations/{presentationId}:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - { name: presentationId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: keepRemote, in: query, schema: { type: boolean, default: false }, description: leave the deck in the presentation service }
+    delete:
+      summary: Unlink a presentation from the document
+      responses:
+        '204': { description: Unlinked }
+        '404': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/ai/patch:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

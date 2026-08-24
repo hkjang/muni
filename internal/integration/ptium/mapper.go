@@ -235,11 +235,15 @@ func metricsFromItems(items []string) []Metric {
 		if len(found) != 1 {
 			return nil
 		}
-		metric := found[0]
-		if metric.Label == "" {
-			metric.Label = strings.TrimSpace(strings.Replace(item, metric.Value, "", 1))
+		// The label is everything except the figure, not just the words in
+		// front of it: "운영 비용 18% 절감" and "운영 비용 18% 증가" mean opposite
+		// things, and keeping only the prefix loses the difference.
+		label := collapse(strings.TrimSpace(strings.Replace(item, found[0].Value, " ", 1)))
+		label = strings.Trim(label, " ·,:-")
+		if label == "" {
+			label = found[0].Label
 		}
-		metrics = append(metrics, metric)
+		metrics = append(metrics, Metric{Label: label, Value: found[0].Value})
 	}
 	return metrics
 }

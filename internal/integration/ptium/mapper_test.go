@@ -169,3 +169,26 @@ func TestRenderPromptStaysWithinTheProviderLimit(t *testing.T) {
 		t.Error("a truncated prompt should say so")
 	}
 }
+
+// "18% 절감" and "18% 증가" mean opposite things; a metric that keeps only the
+// words before the figure loses the difference.
+func TestMetricLabelsKeepTheirDirection(t *testing.T) {
+	document := parse(t, `{"type":"doc","content":[
+		{"type":"bulletList","content":[
+			{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"운영 비용 18% 절감"}]}]},
+			{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"장애 건수 12건 증가"}]}]}]}
+	]}`)
+	block := BuildBrief(document, source(), Options{}).Sections[0].Blocks[0]
+	if block.Kind != BlockMetrics {
+		t.Fatalf("expected measures: %+v", block)
+	}
+	if block.Metrics[0].Label != "운영 비용 절감" {
+		t.Errorf("label = %q, want the direction kept", block.Metrics[0].Label)
+	}
+	if block.Metrics[1].Label != "장애 건수 증가" {
+		t.Errorf("label = %q, want the direction kept", block.Metrics[1].Label)
+	}
+	if block.Metrics[0].Value != "18%" || block.Metrics[1].Value != "12건" {
+		t.Errorf("values = %+v", block.Metrics)
+	}
+}

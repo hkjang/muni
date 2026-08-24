@@ -5,6 +5,7 @@ import {
   AutoAwesome,
   CommentOutlined,
   History,
+  SlideshowOutlined,
 } from "@mui/icons-material";
 import type { DocumentItem } from "../../types";
 import type { Capability, SideTab } from "./types";
@@ -12,6 +13,7 @@ import { AgentPanel } from "./ai/AgentPanel";
 import { CommentsPanel } from "./comments/CommentsPanel";
 import { SuggestionsPanel } from "./suggestions/SuggestionsPanel";
 import { HistoryPanel } from "./history/HistoryPanel";
+import { PresentationList } from "./presentations/PresentationList";
 
 export function EditorSidebar({
   tab,
@@ -61,6 +63,14 @@ export function EditorSidebar({
           iconPosition="start"
           label="제안"
         />
+        {capabilities?.presentations && (
+          <Tab
+            value="presentations"
+            icon={<SlideshowOutlined />}
+            iconPosition="start"
+            label="발표자료"
+          />
+        )}
         <Tab
           value="history"
           icon={<History />}
@@ -94,6 +104,9 @@ export function EditorSidebar({
             aiEnabled={Boolean(capabilities?.aiEnabled)}
           />
         )}{" "}
+        {tab === "presentations" && (
+          <PresentationList documentId={document.id} canEdit={canEdit} />
+        )}
         {tab === "history" && <HistoryPanel document={document} />}
       </Box>
     </Box>

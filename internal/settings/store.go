@@ -65,6 +65,19 @@ type Export struct {
 	EnableDOCX bool `json:"enableDocx"`
 }
 
+// Ptium connects muni to a presentation service. muni sends documents there
+// and keeps the link; it never reads Ptium's database.
+type Ptium struct {
+	Enabled        bool   `json:"enabled"`
+	BaseURL        string `json:"baseUrl"`
+	WebURL         string `json:"webUrl"`
+	APIKey         string `json:"apiKey,omitempty"`
+	APIKeySet      bool   `json:"apiKeySet"`
+	DefaultTheme   string `json:"defaultTheme"`
+	DefaultLocale  string `json:"defaultLocale"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+}
+
 type All struct {
 	General  General  `json:"general"`
 	OIDC     OIDC     `json:"oidc"`
@@ -72,6 +85,7 @@ type All struct {
 	Workflow Workflow `json:"workflow"`
 	Security Security `json:"security"`
 	Export   Export   `json:"export"`
+	Ptium    Ptium    `json:"ptium"`
 }
 
 type Store struct {
@@ -137,9 +151,16 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "security.audit_reads", &out.Security.AuditReads)
 	decode(values, "export.enable_pdf", &out.Export.EnablePDF)
 	decode(values, "export.enable_docx", &out.Export.EnableDOCX)
+	decode(values, "ptium.enabled", &out.Ptium.Enabled)
+	decode(values, "ptium.base_url", &out.Ptium.BaseURL)
+	decode(values, "ptium.web_url", &out.Ptium.WebURL)
+	decode(values, "ptium.default_theme", &out.Ptium.DefaultTheme)
+	decode(values, "ptium.default_locale", &out.Ptium.DefaultLocale)
+	decode(values, "ptium.timeout_seconds", &out.Ptium.TimeoutSeconds)
 
 	out.OIDC.SecretSet = len(secrets["oidc.client_secret"]) > 0
 	out.AI.APIKeySet = len(secrets["ai.api_key"]) > 0
+	out.Ptium.APIKeySet = len(secrets["ptium.api_key"]) > 0
 	if includeSecrets {
 		if out.OIDC.SecretSet {
 			plain, err := s.sealer.Open(secrets["oidc.client_secret"], "setting:oidc.client_secret")
@@ -154,6 +175,13 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 				return All{}, err
 			}
 			out.AI.APIKey = string(plain)
+		}
+		if out.Ptium.APIKeySet {
+			plain, err := s.sealer.Open(secrets["ptium.api_key"], "setting:ptium.api_key")
+			if err != nil {
+				return All{}, err
+			}
+			out.Ptium.APIKey = string(plain)
 		}
 	}
 	return out, nil
@@ -181,6 +209,9 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"security.session_hours": all.Security.SessionHours, "security.api_key_max_days": all.Security.APIKeyMaxDays,
 		"security.allow_public_links": all.Security.AllowPublicLinks, "security.max_upload_mb": all.Security.MaxUploadMB,
 		"security.audit_reads": all.Security.AuditReads, "export.enable_pdf": all.Export.EnablePDF, "export.enable_docx": all.Export.EnableDOCX,
+		"ptium.enabled": all.Ptium.Enabled, "ptium.base_url": all.Ptium.BaseURL, "ptium.web_url": all.Ptium.WebURL,
+		"ptium.default_theme": all.Ptium.DefaultTheme, "ptium.default_locale": all.Ptium.DefaultLocale,
+		"ptium.timeout_seconds": all.Ptium.TimeoutSeconds,
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -199,7 +230,7 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 			return err
 		}
 	}
-	for key, value := range map[string]string{"oidc.client_secret": all.OIDC.ClientSecret, "ai.api_key": all.AI.APIKey} {
+	for key, value := range map[string]string{"oidc.client_secret": all.OIDC.ClientSecret, "ai.api_key": all.AI.APIKey, "ptium.api_key": all.Ptium.APIKey} {
 		if value == "" { // Empty input preserves an already configured secret.
 			continue
 		}
@@ -275,6 +306,24 @@ func Validate(all All) error {
 	}
 	if all.Security.MaxUploadMB < 1 || all.Security.MaxUploadMB > 1024 {
 		return errors.New("업로드 한도는 1~1024MB여야 합니다")
+	}
+	if all.Ptium.Enabled {
+		base, err := url.Parse(all.Ptium.BaseURL)
+		if err != nil || base.Scheme == "" || base.Host == "" {
+			return errors.New("Ptium 주소가 올바르지 않습니다")
+		}
+		if all.Ptium.WebURL != "" {
+			web, err := url.Parse(all.Ptium.WebURL)
+			if err != nil || web.Scheme == "" || web.Host == "" {
+				return errors.New("Ptium 편집기 주소가 올바르지 않습니다")
+			}
+		}
+		if !all.Ptium.APIKeySet && strings.TrimSpace(all.Ptium.APIKey) == "" {
+			return errors.New("Ptium API key가 필요합니다")
+		}
+	}
+	if all.Ptium.TimeoutSeconds != 0 && (all.Ptium.TimeoutSeconds < 5 || all.Ptium.TimeoutSeconds > 900) {
+		return errors.New("Ptium 제한 시간은 5~900초여야 합니다")
 	}
 	return nil
 }

@@ -1,6 +1,11 @@
 /** Types shared by the editor page and the panels it hosts. */
 
-export type SideTab = "ai" | "comments" | "history" | "suggestions";
+export type SideTab =
+  | "ai"
+  | "comments"
+  | "history"
+  | "suggestions"
+  | "presentations";
 
 export type Suggestion = {
   id: string;
@@ -21,6 +26,8 @@ export type Capability = {
   aiEnabled: boolean;
   pdfExport: boolean;
   docxExport: boolean;
+  /** An administrator has connected a presentation service. */
+  presentations: boolean;
   maxAiTokens: number;
 };
 

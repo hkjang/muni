@@ -18,9 +18,11 @@ import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
+import { PresentationDialog } from "../features/editor/presentations/PresentationDialog";
 import {
   ArrowBack,
   AutoAwesome,
+  SlideshowOutlined,
   CommentOutlined,
   DownloadOutlined,
   DeleteOutline,
@@ -77,6 +79,7 @@ export function EditorPage() {
   >("saved");
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
+  const [deckOpen, setDeckOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [mobileTools, setMobileTools] = useState(false);
   const revisionRef = useRef(0);
@@ -543,11 +546,36 @@ export function EditorPage() {
         document={document}
         onVisibilityChange={(visibility) => updateMetadata({ visibility })}
       />
+      {document && (
+        <PresentationDialog
+          open={deckOpen}
+          onClose={() => setDeckOpen(false)}
+          documentId={documentId}
+          documentTitle={document.title}
+        />
+      )}
       <Menu
         anchorEl={exportAnchor}
         open={Boolean(exportAnchor)}
         onClose={() => setExportAnchor(null)}
       >
+        {capabilities.data?.presentations && [
+          <MenuItem
+            key="make-deck"
+            onClick={() => {
+              setExportAnchor(null);
+              setSideTab("presentations");
+              setSideOpen(true);
+              setDeckOpen(true);
+            }}
+          >
+            <ListItemIcon>
+              <SlideshowOutlined />
+            </ListItemIcon>
+            발표자료 만들기
+          </MenuItem>,
+          <Divider key="deck-divider" />,
+        ]}
         {capabilities.data?.docxExport && (
           <MenuItem
             component="a"

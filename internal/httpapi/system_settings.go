@@ -48,6 +48,7 @@ func (s *Server) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 		"aiEnabled":       all.AI.Enabled,
 		"pdfExport":       all.Export.EnablePDF,
 		"docxExport":      all.Export.EnableDOCX,
+		"presentations":   all.Ptium.Enabled && strings.TrimSpace(all.Ptium.BaseURL) != "",
 		"maxAiTokens":     all.AI.MaxTokens,
 	})
 }
