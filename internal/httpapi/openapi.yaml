@@ -337,6 +337,31 @@ paths:
             application/octet-stream: { schema: { type: string, format: binary } }
         '404': { $ref: '#/components/responses/Error' }
         '502': { $ref: '#/components/responses/Error' }
+  /documents/{documentId}/presentations/{presentationId}/sync:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - { name: presentationId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: What a document change means for this presentation
+      description: >-
+        Compares the revision the deck was built from with the current one and
+        reports, per slide, whether it should be kept, redrafted, added or
+        removed. Nothing is changed; this is what a person reviews first.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Redraft only the slides the document change reached
+      description: >-
+        Rebuilding a whole deck discards the work someone did in the
+        presentation editor. Only the slides whose section changed are put in
+        front of the model again; the rest keep their exact text. A conflict
+        means the deck was edited in the presentation service meanwhile and the
+        request should be retried.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '409': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/presentations/{presentationId}:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

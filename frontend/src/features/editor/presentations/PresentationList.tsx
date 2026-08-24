@@ -17,6 +17,7 @@ import {
 } from "@mui/icons-material";
 import { api, errorMessage, formatDate } from "../../../lib/api";
 import { isBusy, statusLabel, type PresentationLink } from "./types";
+import { PresentationSync } from "./PresentationSync";
 
 /**
  * PresentationList shows the decks made from this document. Generation happens
@@ -139,6 +140,18 @@ export function PresentationList({
             >
               상태 확인
             </Button>
+            {item.stale && item.status === "completed" && (
+              <PresentationSync
+                documentId={documentId}
+                linkId={item.id}
+                canEdit={canEdit}
+                onDone={() =>
+                  client.invalidateQueries({
+                    queryKey: ["presentations", documentId],
+                  })
+                }
+              />
+            )}
             {canEdit && (
               <Button
                 size="small"

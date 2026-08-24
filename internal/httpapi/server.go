@@ -92,6 +92,8 @@ func (s *Server) routes() {
 	s.mux.Handle("GET /api/v1/documents/{id}/presentations", s.requireAuth(http.HandlerFunc(s.listPresentations)))
 	s.mux.Handle("GET /api/v1/documents/{id}/presentations/{presentationId}/status", s.requireAuth(http.HandlerFunc(s.refreshPresentation)))
 	s.mux.Handle("GET /api/v1/documents/{id}/presentations/{presentationId}/download", s.requireAuth(http.HandlerFunc(s.downloadPresentation)))
+	s.mux.Handle("GET /api/v1/documents/{id}/presentations/{presentationId}/sync", s.requireAuth(http.HandlerFunc(s.planPresentationSync)))
+	s.mux.Handle("POST /api/v1/documents/{id}/presentations/{presentationId}/sync", s.requireAuth(http.HandlerFunc(s.applyPresentationSync)))
 	s.mux.Handle("DELETE /api/v1/documents/{id}/presentations/{presentationId}", s.requireAuth(http.HandlerFunc(s.unlinkPresentation)))
 	s.mux.Handle("GET /api/v1/documents/{id}/attachments", s.requireAuth(http.HandlerFunc(s.listAttachments)))
 	s.mux.Handle("POST /api/v1/documents/{id}/attachments", s.requireAuth(http.HandlerFunc(s.uploadAttachment)))

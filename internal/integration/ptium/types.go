@@ -114,6 +114,8 @@ type Presentation struct {
 	TemplateName    string   `json:"templateName"`
 	GenerationNotes []string `json:"generationNotes"`
 	UpdatedAt       string   `json:"updatedAt"`
+	// Version guards a write against an edit someone made in Ptium meanwhile.
+	Version int64 `json:"version"`
 }
 
 // Terminal reports whether generation has finished, either way.

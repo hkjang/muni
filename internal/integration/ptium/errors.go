@@ -28,7 +28,7 @@ func (e *APIError) Error() string {
 // Retryable reports whether trying again could plausibly work. A rejected
 // credential or a malformed request will not fix itself.
 func (e *APIError) Retryable() bool {
-	return e.Status == http.StatusTooManyRequests || e.Status >= 500
+	return e.Status == http.StatusTooManyRequests || e.Status == http.StatusConflict || e.Status >= 500
 }
 
 // HTTPStatus maps a Ptium failure onto the status muni should answer with, so
@@ -43,6 +43,10 @@ func HTTPStatus(err error) int {
 			return http.StatusNotFound
 		case http.StatusBadRequest, http.StatusUnprocessableEntity:
 			return http.StatusBadRequest
+		case http.StatusConflict:
+			// Someone edited the deck in Ptium first. Retrying reads the new
+			// version and works, so this is not an outage.
+			return http.StatusConflict
 		}
 	}
 	if errors.Is(err, ErrNotConfigured) {

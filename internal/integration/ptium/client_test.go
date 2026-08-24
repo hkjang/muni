@@ -64,7 +64,9 @@ func TestGenerateSendsTheBriefAsAPrompt(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(body, &seen)
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"id":"pres-1","title":"사업 추진 계획","status":"queued"}`)
+		// Ptium wraps every response in {"data": …}; a client that reads the
+		// bare object silently produces an empty presentation.
+		io.WriteString(w, `{"data":{"id":"pres-1","title":"사업 추진 계획","status":"queued","version":3},"requestId":"req-1"}`)
 	}))
 	defer server.Close()
 
@@ -81,6 +83,9 @@ func TestGenerateSendsTheBriefAsAPrompt(t *testing.T) {
 	}
 	if presentation.ID != "pres-1" || presentation.Status != "queued" {
 		t.Fatalf("unexpected presentation: %+v", presentation)
+	}
+	if presentation.Version != 3 {
+		t.Errorf("the version used to guard writes was lost: %+v", presentation)
 	}
 	if key != "ptium_test" {
 		t.Errorf("the api key was not sent: %q", key)
@@ -177,5 +182,91 @@ func TestPresentationTerminal(t *testing.T) {
 		if got := (Presentation{Status: status}).Terminal(); got != want {
 			t.Errorf("%s: Terminal() = %v", status, got)
 		}
+	}
+}
+
+func TestSourceAndReviseUnwrapTheEnvelope(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/source") && r.Method == http.MethodGet:
+			io.WriteString(w, `{"data":{"source":"# 표지\n@cover\n","slideCount":1},"requestId":"r"}`)
+		case strings.HasSuffix(r.URL.Path, "/revise"):
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), "instruction") {
+				t.Errorf("the instruction was not sent: %s", body)
+			}
+			io.WriteString(w, `{"data":{"slide":2,"source":"# 추진 배경\n- 51개 시스템\n"},"requestId":"r"}`)
+		default:
+			w.WriteHeader(404)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient(testConfig(server.URL))
+	source, err := client.Source(context.Background(), "pres-1")
+	if err != nil || !strings.Contains(source, "@cover") {
+		t.Fatalf("source = %q, err = %v", source, err)
+	}
+	revised, err := client.ReviseSlide(context.Background(), "pres-1", 2, "바뀐 내용 반영")
+	if err != nil || !strings.Contains(revised, "51개") {
+		t.Fatalf("revised = %q, err = %v", revised, err)
+	}
+}
+
+func TestApplySourceGuardsAgainstAConcurrentEdit(t *testing.T) {
+	var sent map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		// A fresh map per request: unmarshalling into the previous one keeps
+		// keys the new request never sent.
+		sent = map[string]any{}
+		_ = json.Unmarshal(body, &sent)
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"data":{},"requestId":"r"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(testConfig(server.URL))
+	if err := client.ApplySource(context.Background(), "pres-1", "# 표지\n", 7, false); err != nil {
+		t.Fatal(err)
+	}
+	if sent["version"] != float64(7) {
+		t.Errorf("the version was not sent: %+v", sent)
+	}
+	// A dry run must not claim a version, or Ptium would reject the preview.
+	if err := client.ApplySource(context.Background(), "pres-1", "# 표지\n", 7, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := sent["version"]; ok {
+		t.Errorf("a dry run should not send a version: %+v", sent)
+	}
+	if sent["dryRun"] != true {
+		t.Errorf("dryRun was not sent: %+v", sent)
+	}
+}
+
+// Someone editing the deck in Ptium first is a conflict a retry resolves, not
+// an outage the person should be told to report.
+func TestAConcurrentDeckEditIsReportedAsAConflict(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(409)
+		io.WriteString(w, `{"error":{"message":"이 발표자료가 그사이 수정되었습니다"}}`)
+	}))
+	defer server.Close()
+
+	err := NewClient(testConfig(server.URL)).ApplySource(context.Background(), "pres-1", "# 표지\n", 3, false)
+	var apiError *APIError
+	if !errors.As(err, &apiError) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if HTTPStatus(err) != http.StatusConflict {
+		t.Errorf("status = %d, want 409", HTTPStatus(err))
+	}
+	if !apiError.Retryable() {
+		t.Error("a conflict is worth retrying")
+	}
+	if !strings.Contains(err.Error(), "그사이 수정") {
+		t.Errorf("the reason was lost: %v", err)
 	}
 }

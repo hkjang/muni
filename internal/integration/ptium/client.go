@@ -42,6 +42,11 @@ func NewClient(config Config) *Client {
 
 func (c *Client) Config() Config { return c.config }
 
+// envelope unwraps the {"data": …} Ptium wraps its responses in.
+type envelope struct {
+	Data any `json:"data"`
+}
+
 // generateRequest is the body Ptium accepts to create and queue a deck.
 type generateRequest struct {
 	Title               string `json:"title"`
@@ -68,7 +73,7 @@ func (c *Client) Generate(ctx context.Context, brief Brief, options Options) (Pr
 		RequestedSlideCount: options.SlideCount,
 	}
 	var presentation Presentation
-	if err := c.do(ctx, http.MethodPost, "/api/v1/presentations/generate", body, &presentation); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/api/v1/presentations/generate", body, &envelope{Data: &presentation}); err != nil {
 		return Presentation{}, err
 	}
 	return presentation, nil
@@ -77,7 +82,7 @@ func (c *Client) Generate(ctx context.Context, brief Brief, options Options) (Pr
 // Get reads a presentation, which is how muni learns that generation finished.
 func (c *Client) Get(ctx context.Context, id string) (Presentation, error) {
 	var presentation Presentation
-	if err := c.do(ctx, http.MethodGet, "/api/v1/presentations/"+id, nil, &presentation); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/api/v1/presentations/"+id, nil, &envelope{Data: &presentation}); err != nil {
 		return Presentation{}, err
 	}
 	return presentation, nil
@@ -96,10 +101,49 @@ func (c *Client) Regenerate(ctx context.Context, id string, brief Brief, options
 		RequestedSlideCount: options.SlideCount,
 	}
 	var presentation Presentation
-	if err := c.do(ctx, http.MethodPost, "/api/v1/presentations/"+id+"/generate", body, &presentation); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/api/v1/presentations/"+id+"/generate", body, &envelope{Data: &presentation}); err != nil {
 		return Presentation{}, err
 	}
 	return presentation, nil
+}
+
+// Source reads the deck as text. The round trip is exact, so slides muni does
+// not touch come back byte for byte.
+func (c *Client) Source(ctx context.Context, id string) (string, error) {
+	var payload struct {
+		Source     string `json:"source"`
+		SlideCount int    `json:"slideCount"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/api/v1/presentations/"+id+"/source", nil, &envelope{Data: &payload}); err != nil {
+		return "", err
+	}
+	return payload.Source, nil
+}
+
+// ApplySource compiles edited deck source back into slides. version guards
+// against overwriting an edit someone made in Ptium while muni was working.
+func (c *Client) ApplySource(ctx context.Context, id, source string, version int64, dryRun bool) error {
+	body := map[string]any{"source": source, "dryRun": dryRun}
+	if version > 0 && !dryRun {
+		body["version"] = version
+	}
+	return c.do(ctx, http.MethodPut, "/api/v1/presentations/"+id+"/source", body, nil)
+}
+
+// ReviseSlide asks the model for another draft of one slide. Ptium saves
+// nothing: the answer is a proposal, which is what lets muni show it before
+// anything in the deck moves.
+func (c *Client) ReviseSlide(ctx context.Context, id string, position int, instruction string) (string, error) {
+	var payload struct {
+		Slide  int    `json:"slide"`
+		Source string `json:"source"`
+	}
+	body := map[string]any{"action": "rewrite", "instruction": instruction}
+	path := fmt.Sprintf("/api/v1/presentations/%s/slides/%d/revise", id, position)
+	if err := c.do(ctx, http.MethodPost, path, body, &envelope{Data: &payload}); err != nil {
+		return "", err
+	}
+	return payload.Source, nil
 }
 
 // Delete removes a deck from Ptium.
