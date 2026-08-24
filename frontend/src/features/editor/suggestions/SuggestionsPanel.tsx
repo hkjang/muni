@@ -11,21 +11,25 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Check, Close } from "@mui/icons-material";
+import { AutoAwesome, Check, Close } from "@mui/icons-material";
 import { api, jsonBody } from "../../../lib/api";
 import type { DocumentItem } from "../../../types";
 import type { Suggestion } from "../types";
+import { applySuggestion } from "./applySuggestion";
+import { AIPatchRequest } from "./AIPatchRequest";
 
 export function SuggestionsPanel({
   document,
   editor,
   canComment,
   canEdit,
+  aiEnabled,
 }: {
   document: DocumentItem;
   editor: Editor;
   canComment: boolean;
   canEdit: boolean;
+  aiEnabled: boolean;
 }) {
   const client = useQueryClient();
   const [replacement, setReplacement] = useState("");
@@ -59,20 +63,17 @@ export function SuggestionsPanel({
       item: Suggestion;
       decision: "ACCEPTED" | "REJECTED";
     }) => {
-      if (
-        decision === "ACCEPTED" &&
-        typeof item.newValue === "string" &&
-        item.range.from &&
-        item.range.to
-      )
-        editor
-          .chain()
-          .focus()
-          .insertContentAt(
-            { from: item.range.from, to: item.range.to },
-            item.newValue,
-          )
-          .run();
+      if (decision === "ACCEPTED") {
+        const outcome = applySuggestion(editor, item);
+        if (!outcome.applied) {
+          // Refusing beats resolving a suggestion that was never applied.
+          throw new Error(
+            outcome.reason === "block-gone"
+              ? "제안이 가리키는 부분이 문서에서 사라졌습니다."
+              : "이 제안은 본문에 적용할 수 없습니다.",
+          );
+        }
+      }
       return api(`/api/v1/suggestions/${item.id}/decision`, {
         method: "POST",
         ...jsonBody({ decision }),
@@ -104,14 +105,35 @@ export function SuggestionsPanel({
             제안 등록
           </Button>
           <Divider />
+          <AIPatchRequest documentId={document.id} enabled={aiEnabled} />
+          <Divider />
         </>
       )}
       {(query.data ?? []).map((item) => (
         <Paper key={item.id} variant="outlined" sx={{ p: 1.75 }}>
-          <Stack direction="row" justifyContent="space-between">
-            <Typography fontWeight={700}>{item.author.displayName}</Typography>
+          <Stack direction="row" justifyContent="space-between" alignItems="center">
+            <Stack direction="row" gap={0.75} alignItems="center">
+              {item.origin === "AI" ? (
+                <Chip size="small" color="secondary" icon={<AutoAwesome />} label="AI" />
+              ) : (
+                <Typography fontWeight={700}>{item.author.displayName}</Typography>
+              )}
+            </Stack>
             <Chip size="small" label={item.status} />
           </Stack>
+          {item.note && (
+            <Typography variant="caption" color="text.secondary" display="block" mt={0.75}>
+              {item.note}
+            </Typography>
+          )}
+          {typeof item.previousValue === "string" && item.previousValue && (
+            <Typography
+              variant="body2"
+              sx={{ whiteSpace: "pre-wrap", mt: 1, textDecoration: "line-through", opacity: 0.7 }}
+            >
+              {item.previousValue}
+            </Typography>
+          )}
           <Typography variant="body2" color="text.secondary" mt={1}>
             제안
           </Typography>

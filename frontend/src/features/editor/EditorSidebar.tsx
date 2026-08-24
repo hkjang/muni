@@ -91,6 +91,7 @@ export function EditorSidebar({
             editor={editor}
             canComment={canComment}
             canEdit={canEdit}
+            aiEnabled={Boolean(capabilities?.aiEnabled)}
           />
         )}{" "}
         {tab === "history" && <HistoryPanel document={document} />}

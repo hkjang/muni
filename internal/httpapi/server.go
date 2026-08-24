@@ -81,6 +81,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/v1/comments/{id}/reopen", s.requireAuth(http.HandlerFunc(s.reopenComment)))
 	s.mux.Handle("GET /api/v1/documents/{id}/suggestions", s.requireAuth(http.HandlerFunc(s.listSuggestions)))
 	s.mux.Handle("POST /api/v1/documents/{id}/suggestions", s.requireAuth(http.HandlerFunc(s.createSuggestion)))
+	s.mux.Handle("POST /api/v1/documents/{id}/ai/patch", s.requireAuth(http.HandlerFunc(s.proposeDocumentPatch)))
 	s.mux.Handle("POST /api/v1/suggestions/{id}/decision", s.requireAuth(http.HandlerFunc(s.decideSuggestion)))
 	s.mux.Handle("POST /api/v1/documents/{id}/workflow/submit", s.requireAuth(http.HandlerFunc(s.submitApproval)))
 	s.mux.Handle("POST /api/v1/approvals/{id}/decision", s.requireAuth(http.HandlerFunc(s.decideApproval)))

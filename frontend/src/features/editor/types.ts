@@ -5,7 +5,11 @@ export type SideTab = "ai" | "comments" | "history" | "suggestions";
 export type Suggestion = {
   id: string;
   author: { id: string; displayName: string };
-  range: { from?: number; to?: number };
+  /** Older suggestions carry a document position; newer ones a block anchor. */
+  range: { from?: number; to?: number; blockId?: string };
+  blockId?: string | null;
+  origin?: "USER" | "AI";
+  note?: string | null;
   previousValue?: unknown;
   newValue: unknown;
   status: "PENDING" | "ACCEPTED" | "REJECTED";

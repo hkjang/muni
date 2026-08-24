@@ -273,6 +273,36 @@ paths:
       summary: List immutable document revisions
       responses:
         '200': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/ai/patch:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+    post:
+      summary: Ask the model to propose block level edits
+      description: >-
+        The model rewrites whole blocks and the result is stored as pending
+        suggestions anchored to the block each one is about. Nothing is applied:
+        the proposals join the same review queue a colleague's suggestion does,
+        and a person accepts or rejects each one. Only blocks that carry a
+        stable id can be proposed against.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [instruction]
+              properties:
+                instruction: { type: string, description: how the document should be changed }
+                blockIds:
+                  type: array
+                  description: limit the proposal to these blocks
+                  items: { type: string }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '502': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/revisions/{from}/diff/{to}:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

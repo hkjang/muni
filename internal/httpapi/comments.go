@@ -130,7 +130,7 @@ func (s *Server) listSuggestions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "DOCUMENT_PERMISSION_DENIED", "제안을 볼 권한이 없습니다.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT s.id,s.author_id,u.display_name,s.range_data,s.previous_value,s.new_value,s.status,s.decided_by,s.decided_at,s.created_at FROM suggestions s JOIN users u ON u.id=s.author_id WHERE s.document_id=$1 ORDER BY s.created_at DESC`, documentID)
+	rows, err := s.db.Query(r.Context(), `SELECT s.id,s.author_id,u.display_name,s.range_data,s.previous_value,s.new_value,s.status,s.decided_by,s.decided_at,s.created_at,s.block_id,s.origin,s.note FROM suggestions s JOIN users u ON u.id=s.author_id WHERE s.document_id=$1 ORDER BY s.created_at DESC`, documentID)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "제안을 불러오지 못했습니다.")
 		return
@@ -144,8 +144,10 @@ func (s *Server) listSuggestions(w http.ResponseWriter, r *http.Request) {
 		var decidedBy *uuid.UUID
 		var decidedAt *time.Time
 		var created time.Time
-		if rows.Scan(&id, &authorID, &author, &rangeData, &previous, &newValue, &status, &decidedBy, &decidedAt, &created) == nil {
-			items = append(items, map[string]any{"id": id, "author": map[string]any{"id": authorID, "displayName": author}, "range": rangeData, "previousValue": previous, "newValue": newValue, "status": status, "decidedBy": decidedBy, "decidedAt": decidedAt, "createdAt": created})
+		var blockID, note *string
+		var origin string
+		if rows.Scan(&id, &authorID, &author, &rangeData, &previous, &newValue, &status, &decidedBy, &decidedAt, &created, &blockID, &origin, &note) == nil {
+			items = append(items, map[string]any{"id": id, "author": map[string]any{"id": authorID, "displayName": author}, "range": rangeData, "previousValue": previous, "newValue": newValue, "status": status, "decidedBy": decidedBy, "decidedAt": decidedAt, "createdAt": created, "blockId": blockID, "origin": origin, "note": note})
 		}
 	}
 	writeData(w, 200, items)
@@ -164,6 +166,7 @@ func (s *Server) createSuggestion(w http.ResponseWriter, r *http.Request) {
 		Range         json.RawMessage `json:"range"`
 		PreviousValue json.RawMessage `json:"previousValue"`
 		NewValue      json.RawMessage `json:"newValue"`
+		BlockID       string          `json:"blockId"`
 	}
 	if !decodeJSON(w, r, &input) {
 		return
@@ -172,8 +175,12 @@ func (s *Server) createSuggestion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "INVALID_SUGGESTION", "변경 범위와 제안 값이 필요합니다.")
 		return
 	}
+	if input.BlockID != "" && !isBlockIDToken(input.BlockID) {
+		writeError(w, 400, "INVALID_SUGGESTION", "블록 식별자가 올바르지 않습니다.")
+		return
+	}
 	id := uuid.New()
-	_, err = s.db.Exec(r.Context(), `INSERT INTO suggestions(id,document_id,author_id,range_data,previous_value,new_value) VALUES($1,$2,$3,$4,$5,$6)`, id, documentID, p.User.ID, input.Range, nullJSON(input.PreviousValue), input.NewValue)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO suggestions(id,document_id,author_id,range_data,previous_value,new_value,block_id) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, documentID, p.User.ID, input.Range, nullJSON(input.PreviousValue), input.NewValue, nullString(input.BlockID))
 	if err != nil {
 		writeError(w, 400, "SUGGESTION_CREATE_FAILED", "제안을 등록하지 못했습니다.")
 		return
@@ -215,6 +222,13 @@ func (s *Server) decideSuggestion(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, &p.User.ID, "DECIDE_SUGGESTION", "DOCUMENT", &documentID, map[string]any{"suggestionId": suggestionID, "decision": input.Decision})
 	w.WriteHeader(204)
 }
+func nullString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
 func nullJSON(raw json.RawMessage) any {
 	if len(raw) == 0 {
 		return nil
