@@ -74,6 +74,7 @@ func (s *Server) routes() {
 	s.mux.Handle("DELETE /api/v1/documents/{id}/permissions/{permissionId}", s.requireAuth(http.HandlerFunc(s.deleteDocumentPermission)))
 	s.mux.Handle("GET /api/v1/documents/{id}/revisions", s.requireAuth(http.HandlerFunc(s.listRevisions)))
 	s.mux.Handle("POST /api/v1/documents/{id}/revisions/{revision}/restore", s.requireAuth(http.HandlerFunc(s.restoreRevision)))
+	s.mux.Handle("GET /api/v1/documents/{id}/revisions/{from}/diff/{to}", s.requireAuth(http.HandlerFunc(s.compareRevisions)))
 	s.mux.Handle("GET /api/v1/documents/{id}/comments", s.requireAuth(http.HandlerFunc(s.listComments)))
 	s.mux.Handle("POST /api/v1/documents/{id}/comments", s.requireAuth(http.HandlerFunc(s.createComment)))
 	s.mux.Handle("POST /api/v1/comments/{id}/resolve", s.requireAuth(http.HandlerFunc(s.resolveComment)))

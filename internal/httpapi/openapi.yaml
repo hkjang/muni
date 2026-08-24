@@ -273,6 +273,44 @@ paths:
       summary: List immutable document revisions
       responses:
         '200': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/revisions/{from}/diff/{to}:
+    parameters:
+      - $ref: '#/components/parameters/DocumentId'
+      - { name: from, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      - { name: to, in: path, required: true, schema: { type: integer, minimum: 1 } }
+    get:
+      summary: Compare two revisions block by block
+      description: >-
+        Blocks are paired by their stable blockId, so inserting a paragraph does
+        not make everything below it read as changed. Each block is reported as
+        unchanged, added, removed, changed or moved; a changed block carries a
+        word-level breakdown.
+      responses:
+        '200':
+          description: Block level comparison
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      from: { $ref: '#/components/schemas/RevisionRef' }
+                      to: { $ref: '#/components/schemas/RevisionRef' }
+                      summary:
+                        type: object
+                        properties:
+                          added: { type: integer }
+                          removed: { type: integer }
+                          changed: { type: integer }
+                          moved: { type: integer }
+                          unchanged: { type: integer }
+                      blocks:
+                        type: array
+                        items: { $ref: '#/components/schemas/BlockDiff' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/export/{format}:
     parameters:
       - $ref: '#/components/parameters/DocumentId'
@@ -464,6 +502,36 @@ components:
     DocumentId: { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
     WorkspaceId: { name: workspaceId, in: path, required: true, schema: { type: string, format: uuid } }
   schemas:
+    RevisionRef:
+      type: object
+      properties:
+        revision: { type: integer }
+        createdAt: { type: string, format: date-time }
+        reason: { type: [string, 'null'] }
+        name: { type: [string, 'null'] }
+        author:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            displayName: { type: string }
+    BlockDiff:
+      type: object
+      properties:
+        status: { type: string, enum: [unchanged, added, removed, changed, moved] }
+        blockId: { type: string }
+        type: { type: string, description: paragraph, heading, codeBlock, image, horizontalRule or table }
+        before: { type: string }
+        after: { type: string }
+        fromIndex: { type: integer, description: position in the older revision, -1 when the block was added }
+        toIndex: { type: integer, description: position in the newer revision, -1 when the block was removed }
+        inline:
+          type: array
+          description: word level breakdown, present on changed blocks
+          items:
+            type: object
+            properties:
+              op: { type: string, enum: [equal, insert, delete] }
+              text: { type: string }
     TiptapDocument:
       type: object
       required: [type]
