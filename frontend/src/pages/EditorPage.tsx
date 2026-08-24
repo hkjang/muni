@@ -9,6 +9,7 @@ import {
 import StarterKit from "@tiptap/starter-kit";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { BlockId } from "../features/editor/extensions/blockId";
+import { CommentsPanel } from "../features/editor/comments/CommentsPanel";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -97,39 +98,14 @@ import { LoadingScreen } from "../components/LoadingScreen";
 import { useAuth } from "../contexts/AuthContext";
 import { useCollaboration } from "../hooks/useCollaboration";
 import { ApiError, api, errorMessage, formatDate, jsonBody } from "../lib/api";
-import type { CommentItem, DocumentItem, RevisionItem } from "../types";
-
-type SideTab = "ai" | "comments" | "history" | "suggestions";
-type Suggestion = {
-  id: string;
-  author: { id: string; displayName: string };
-  range: { from?: number; to?: number };
-  previousValue?: unknown;
-  newValue: unknown;
-  status: "PENDING" | "ACCEPTED" | "REJECTED";
-  createdAt: string;
-};
-type Capability = {
-  workflowEnabled: boolean;
-  aiEnabled: boolean;
-  pdfExport: boolean;
-  docxExport: boolean;
-  maxAiTokens: number;
-};
-type Permission = {
-  id: string;
-  subjectType: string;
-  subjectId?: string;
-  role: string;
-  label: string;
-  expiresAt?: string;
-};
-type UserSearch = {
-  id: string;
-  displayName: string;
-  username: string;
-  email: string;
-};
+import type { DocumentItem, RevisionItem } from "../types";
+import type {
+  Capability,
+  Permission,
+  SideTab,
+  Suggestion,
+  UserSearch,
+} from "../features/editor/types";
 
 export function EditorPage() {
   const { documentId = "" } = useParams();
@@ -1341,109 +1317,6 @@ function AIPanel({
         >
           커서 위치에 삽입
         </Button>
-      )}
-    </Stack>
-  );
-}
-
-function CommentsPanel({
-  document,
-  editor,
-  canComment,
-}: {
-  document: DocumentItem;
-  editor: Editor;
-  canComment: boolean;
-}) {
-  const client = useQueryClient();
-  const [body, setBody] = useState("");
-  const query = useQuery({
-    queryKey: ["comments", document.id],
-    queryFn: () =>
-      api<CommentItem[]>(`/api/v1/documents/${document.id}/comments`),
-  });
-  const create = useMutation({
-    mutationFn: () => {
-      const { from, to } = editor.state.selection;
-      return api(`/api/v1/documents/${document.id}/comments`, {
-        method: "POST",
-        ...jsonBody({
-          body,
-          anchor: {
-            from,
-            to,
-            selectedText: editor.state.doc.textBetween(from, to, " "),
-          },
-        }),
-      });
-    },
-    onSuccess: () => {
-      setBody("");
-      void client.invalidateQueries({ queryKey: ["comments", document.id] });
-    },
-  });
-  const resolve = useMutation({
-    mutationFn: (id: string) =>
-      api(`/api/v1/comments/${id}/resolve`, { method: "POST" }),
-    onSuccess: () =>
-      client.invalidateQueries({ queryKey: ["comments", document.id] }),
-  });
-  return (
-    <Stack gap={1.5}>
-      {canComment && (
-        <>
-          <Typography variant="h3">선택 영역에 댓글</Typography>
-          <TextField
-            multiline
-            minRows={2}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder="@아이디로 멘션할 수 있습니다."
-          />
-          <Button
-            variant="contained"
-            disabled={!body.trim()}
-            onClick={() => create.mutate()}
-          >
-            댓글 등록
-          </Button>
-          <Divider />
-        </>
-      )}
-      {(query.data ?? []).map((comment) => (
-        <Paper
-          key={comment.id}
-          variant="outlined"
-          sx={{ p: 1.75, opacity: comment.resolvedAt ? 0.8 : 1 }}
-        >
-          <Stack direction="row" justifyContent="space-between">
-            <Typography fontWeight={700}>
-              {comment.author.displayName}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {formatDate(comment.createdAt)}
-            </Typography>
-          </Stack>
-          <Typography sx={{ whiteSpace: "pre-wrap", my: 1 }}>
-            {comment.body}
-          </Typography>
-          {comment.resolvedAt ? (
-            <Chip size="small" label="해결됨" />
-          ) : (
-            <Button
-              size="small"
-              startIcon={<Check />}
-              onClick={() => resolve.mutate(comment.id)}
-            >
-              해결
-            </Button>
-          )}
-        </Paper>
-      ))}
-      {!(query.data ?? []).length && (
-        <Typography color="text.secondary" textAlign="center" py={4}>
-          등록된 댓글이 없습니다.
-        </Typography>
       )}
     </Stack>
   );
