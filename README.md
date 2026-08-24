@@ -115,6 +115,8 @@ go run ./cmd/muni
 go test ./internal/pdfx -run FuzzImport -fuzz FuzzImport -fuzztime=60s
 ```
 
+공동편집 이력은 문서마다 하나의 병합 상태(`collab_snapshots`)로 압축됩니다. 누적된 update가 임계값(400건 또는 4MiB)을 넘으면 서버가 접속 중인 편집자 한 명에게 압축을 요청하고, 그 클라이언트가 되돌려 준 전체 상태로 이전 update를 대체합니다. 문서를 열 때 내려받는 양이 이력 길이에 비례해 늘어나지 않습니다.
+
 실제 PostgreSQL과 브라우저가 준비된 개발 환경에서는 `cd frontend && npm run test:e2e`로 로그인·문서 저장·새로고침 라우트 복원·관리 화면·두 세션 실시간 동기화를 검증합니다.
 
 Docker가 설치된 환경에서는 다음으로 릴리스와 같은 이미지를 만듭니다.

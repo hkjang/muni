@@ -452,6 +452,9 @@ func (s *Server) restoreRevision(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.Exec(r.Context(), `DELETE FROM collab_updates WHERE document_id=$1`, id); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(r.Context(), `DELETE FROM collab_snapshots WHERE document_id=$1`, id); err != nil {
+			return err
+		}
 		_, err := tx.Exec(r.Context(), `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,$2,$3,$4,$5,$6)`, id, next, content, text, p.User.ID, fmt.Sprintf("restore:%d", revision))
 		return err
 	})

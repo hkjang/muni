@@ -22,6 +22,22 @@ Browser (React + Tiptap + Yjs + IndexedDB)
 
 React assets, Korean web fonts, Go API, the OOXML reader/writer, the pure-Go PDF text extractor and the headless Chromium used for PDF rendering are all present in `muni:v<version>`.
 
+Yjs updates were append-only, so a document's history — and the payload every
+client downloaded on open — grew without bound, and each client pushed a full
+document state back on connect. `collab_snapshots` now holds one merged state
+per document generation that stands in for every update up to `base_seq`; only
+the tail after it is stored and replayed.
+
+The merge itself happens on a client, because merging Yjs binary updates needs a
+Yjs implementation and the server has none. When the tail crosses a threshold
+the server marks the sync message `compact`, and one writer replies on the
+snapshot channel with `Y.encodeStateAsUpdate` of the document it just rebuilt.
+That state covers at least everything the server sent, so deleting the updates
+up to `base_seq` cannot lose content even when another client wrote concurrently
+— the newer updates keep a higher `seq`, and Yjs treats a re-applied update as a
+no-op. On connect a client now sends only what the server is missing, computed
+from the state vector of the updates it received, instead of the whole document.
+
 Every anchorable block — paragraph, heading, quote, code block, rule, image,
 list item, task item and table — carries a `blockId` attribute. Comments,
 citations, AI patches, revision diffs and deep links need an anchor that

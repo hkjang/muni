@@ -9,6 +9,13 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// Binary frames carry a one byte channel prefix.
+const (
+	channelUpdate    = 0
+	channelAwareness = 1
+	channelSnapshot  = 2
+)
+
 var collabUpgrader = websocket.Upgrader{
 	ReadBufferSize:  32 << 10,
 	WriteBufferSize: 32 << 10,
@@ -34,19 +41,19 @@ func (s *Server) collaboration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT update_data FROM collab_updates WHERE document_id=$1 AND generation=$2 ORDER BY seq`, documentID, generation)
+	state, err := s.loadCollabState(r.Context(), documentID, generation)
 	if err != nil {
 		writeError(w, 500, "COLLAB_LOAD_FAILED", "공동편집 상태를 불러오지 못했습니다.")
 		return
 	}
-	updates := make([]string, 0)
-	for rows.Next() {
-		var update []byte
-		if rows.Scan(&update) == nil {
-			updates = append(updates, base64.StdEncoding.EncodeToString(update))
-		}
+	updates := make([]string, 0, len(state.updates))
+	for _, update := range state.updates {
+		updates = append(updates, base64.StdEncoding.EncodeToString(update))
 	}
-	rows.Close()
+	snapshot := ""
+	if len(state.snapshot) > 0 {
+		snapshot = base64.StdEncoding.EncodeToString(state.snapshot)
+	}
 
 	conn, err := collabUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -55,7 +62,16 @@ func (s *Server) collaboration(w http.ResponseWriter, r *http.Request) {
 	leave := s.hub.Join(documentID, conn)
 	defer leave()
 	writeAllowed := roleRank[role] >= roleRank["EDITOR"] && workflowStatus != "PENDING"
-	initial, _ := json.Marshal(map[string]any{"type": "sync", "generation": generation, "updates": updates, "permission": role, "writeAllowed": writeAllowed, "user": map[string]any{"id": p.User.ID, "displayName": p.User.DisplayName}})
+	// Only a client that may write is asked to compact: the snapshot it sends
+	// back replaces the stored history.
+	compact := writeAllowed && shouldCompact(len(state.updates), state.bytes)
+	initial, _ := json.Marshal(map[string]any{
+		"type": "sync", "generation": generation,
+		"snapshot": snapshot, "updates": updates,
+		"baseSeq": state.maxSeq, "compact": compact,
+		"permission": role, "writeAllowed": writeAllowed,
+		"user": map[string]any{"id": p.User.ID, "displayName": p.User.DisplayName},
+	})
 	if err := s.hub.Send(documentID, conn, websocket.TextMessage, initial); err != nil {
 		return
 	}
@@ -76,7 +92,9 @@ func (s *Server) collaboration(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	conn.SetReadLimit((1 << 20) + 1)
+	// A compaction snapshot is a whole document state, so it needs more room
+	// than a single incremental update; per-channel limits are enforced below.
+	conn.SetReadLimit(maxSnapshotBytes + 8)
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	conn.SetPongHandler(func(string) error { return conn.SetReadDeadline(time.Now().Add(90 * time.Second)) })
 	for {
@@ -90,20 +108,32 @@ func (s *Server) collaboration(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			channel := payload[0]
-			if channel == 0 {
-				if !writeAllowed {
+			body := payload[1:]
+			switch channel {
+			case channelUpdate:
+				if !writeAllowed || len(body) > maxUpdateBytes {
 					continue
 				}
-				if len(payload)-1 > 1<<20 {
-					continue
-				}
-				if _, err := s.db.Exec(r.Context(), `INSERT INTO collab_updates(document_id,generation,author_id,update_data) VALUES($1,$2,$3,$4)`, documentID, generation, p.User.ID, payload[1:]); err != nil {
+				if _, err := s.db.Exec(r.Context(), `INSERT INTO collab_updates(document_id,generation,author_id,update_data) VALUES($1,$2,$3,$4)`, documentID, generation, p.User.ID, body); err != nil {
 					s.logger.Warn("collaboration update was not persisted", "document_id", documentID, "error", err)
 					continue
 				}
-			}
-			if channel == 0 || channel == 1 {
 				s.hub.Broadcast(documentID, conn, websocket.BinaryMessage, payload)
+			case channelAwareness:
+				s.hub.Broadcast(documentID, conn, websocket.BinaryMessage, payload)
+			case channelSnapshot:
+				// The client merged everything the server sent into one state.
+				// It is not a delta, so the other clients already have it and
+				// it is never broadcast.
+				if !compact || !writeAllowed || len(body) == 0 || len(body) > maxSnapshotBytes {
+					continue
+				}
+				if err := s.storeCollabSnapshot(r.Context(), documentID, generation, state.maxSeq, p.User.ID, body); err != nil {
+					s.logger.Warn("collaboration snapshot was not stored", "document_id", documentID, "error", err)
+					continue
+				}
+				s.logger.Info("collaboration history compacted", "document_id", documentID, "generation", generation, "base_seq", state.maxSeq, "updates", len(state.updates), "bytes", len(body))
+				compact = false
 			}
 		} else if messageType == websocket.TextMessage {
 			// Text presence/status messages are ephemeral and never persisted.
