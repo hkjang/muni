@@ -8,12 +8,10 @@ import {
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
-import { AgentPanel } from "../features/editor/ai/AgentPanel";
 import { BlockId } from "../features/editor/extensions/blockId";
-import { CommentsPanel } from "../features/editor/comments/CommentsPanel";
-import { SuggestionsPanel } from "../features/editor/suggestions/SuggestionsPanel";
-import { HistoryPanel } from "../features/editor/history/HistoryPanel";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
+import { EditorStatus } from "../features/editor/EditorStatus";
+import { EditorSidebar } from "../features/editor/EditorSidebar";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -25,11 +23,8 @@ import TaskItem from "@tiptap/extension-task-item";
 import TextAlign from "@tiptap/extension-text-align";
 import { TextStyleKit } from "@tiptap/extension-text-style";
 import {
-  AddCommentOutlined,
   ArrowBack,
   AutoAwesome,
-  CloudDoneOutlined,
-  CloudOffOutlined,
   Code,
   CommentOutlined,
   DownloadOutlined,
@@ -47,7 +42,6 @@ import {
   FormatQuote,
   FormatUnderlined,
   BorderColor,
-  History,
   HorizontalRule,
   ImageOutlined,
   InsertLink,
@@ -66,7 +60,6 @@ import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   Divider,
   Drawer,
   FormControl,
@@ -77,8 +70,6 @@ import {
   Paper,
   Select,
   Stack,
-  Tab,
-  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
@@ -310,7 +301,7 @@ export function EditorPage() {
       </Box>
     );
   const side = (
-    <SidePanel
+    <EditorSidebar
       tab={sideTab}
       setTab={setSideTab}
       document={document}
@@ -374,7 +365,7 @@ export function EditorPage() {
             }}
             sx={{ flex: { xs: 1, md: "0 1 480px" } }}
           />
-          <SaveIndicator state={saveState} />
+          <EditorStatus state={saveState} />
           <Box sx={{ flex: 1 }} />
           <Stack
             direction="row"
@@ -665,34 +656,6 @@ export function EditorPage() {
         </Box>
       </Menu>
     </Box>
-  );
-}
-
-function SaveIndicator({
-  state,
-}: {
-  state: "saved" | "saving" | "offline" | "error";
-}) {
-  const values = {
-    saved: [<CloudDoneOutlined key="i" fontSize="small" />, "저장됨"],
-    saving: [<CircularProgress key="i" size={16} />, "저장 중"],
-    offline: [<CloudOffOutlined key="i" fontSize="small" />, "오프라인"],
-    error: [
-      <CloudOffOutlined key="i" color="error" fontSize="small" />,
-      "저장 오류",
-    ],
-  } as const;
-  return (
-    <Stack
-      direction="row"
-      gap={0.5}
-      alignItems="center"
-      color={state === "error" ? "error.main" : "text.secondary"}
-      sx={{ display: { xs: "none", sm: "flex" } }}
-    >
-      {values[state][0]}
-      <Typography variant="caption">{values[state][1]}</Typography>
-    </Stack>
   );
 }
 
@@ -1042,91 +1005,5 @@ function EditorToolbar({
         </IconButton>
       </Tooltip>
     </Toolbar>
-  );
-}
-
-function SidePanel({
-  tab,
-  setTab,
-  document,
-  editor,
-  canComment,
-  canEdit,
-  capabilities,
-}: {
-  tab: SideTab;
-  setTab: (value: SideTab) => void;
-  document: DocumentItem;
-  editor: Editor;
-  canComment: boolean;
-  canEdit: boolean;
-  capabilities?: Capability;
-}) {
-  return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        variant="scrollable"
-        scrollButtons={false}
-        sx={{
-          borderBottom: "1px solid",
-          borderColor: "divider",
-          minHeight: 49,
-        }}
-      >
-        <Tab
-          value="ai"
-          icon={<AutoAwesome />}
-          iconPosition="start"
-          label="AI"
-        />
-        <Tab
-          value="comments"
-          icon={<CommentOutlined />}
-          iconPosition="start"
-          label="댓글"
-        />
-        <Tab
-          value="suggestions"
-          icon={<AddCommentOutlined />}
-          iconPosition="start"
-          label="제안"
-        />
-        <Tab
-          value="history"
-          icon={<History />}
-          iconPosition="start"
-          label="버전"
-        />
-      </Tabs>
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
-        {tab === "ai" && (
-          <AgentPanel
-            document={document}
-            editor={editor}
-            enabled={capabilities?.aiEnabled ?? true}
-            canEdit={canEdit}
-            maxTokens={capabilities?.maxAiTokens ?? 32768}
-          />
-        )}{" "}
-        {tab === "comments" && (
-          <CommentsPanel
-            document={document}
-            editor={editor}
-            canComment={canComment}
-          />
-        )}{" "}
-        {tab === "suggestions" && (
-          <SuggestionsPanel
-            document={document}
-            editor={editor}
-            canComment={canComment}
-            canEdit={canEdit}
-          />
-        )}{" "}
-        {tab === "history" && <HistoryPanel document={document} />}
-      </Box>
-    </Box>
   );
 }
