@@ -8,6 +8,7 @@ import {
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
+import { AgentPanel } from "../features/editor/ai/AgentPanel";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { CommentsPanel } from "../features/editor/comments/CommentsPanel";
 import { SuggestionsPanel } from "../features/editor/suggestions/SuggestionsPanel";
@@ -1110,7 +1111,7 @@ function SidePanel({
       </Tabs>
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
         {tab === "ai" && (
-          <AIPanel
+          <AgentPanel
             document={document}
             editor={editor}
             enabled={capabilities?.aiEnabled ?? true}
@@ -1136,187 +1137,6 @@ function SidePanel({
         {tab === "history" && <HistoryPanel document={document} />}
       </Box>
     </Box>
-  );
-}
-
-function AIPanel({
-  document,
-  editor,
-  enabled,
-  canEdit,
-  maxTokens,
-}: {
-  document: DocumentItem;
-  editor: Editor;
-  enabled: boolean;
-  canEdit: boolean;
-  maxTokens: number;
-}) {
-  const [prompt, setPrompt] = useState("");
-  const [answer, setAnswer] = useState("");
-  const [running, setRunning] = useState(false);
-  const [error, setError] = useState("");
-  const controller = useRef<AbortController | null>(null);
-  const ask = async (value = prompt) => {
-    if (!value.trim() || running) return;
-    setPrompt(value);
-    setAnswer("");
-    setError("");
-    setRunning(true);
-    controller.current = new AbortController();
-    try {
-      const response = await fetch("/api/v1/ai/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "text/event-stream",
-        },
-        body: JSON.stringify({
-          documentId: document.id,
-          action: "document_agent",
-          messages: [{ role: "user", content: value }],
-          maxTokens: Math.min(262144, maxTokens),
-        }),
-        signal: controller.current.signal,
-      });
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(body.error?.message ?? "AI 요청에 실패했습니다.");
-      }
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("스트리밍 응답을 읽을 수 없습니다.");
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value: chunk, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(chunk, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
-          const data = line.slice(5).trim();
-          if (data === "[DONE]") continue;
-          try {
-            const json = JSON.parse(data);
-            const content = json.choices?.[0]?.delta?.content;
-            if (typeof content === "string")
-              setAnswer((current) => current + content);
-            else if (Array.isArray(content))
-              setAnswer(
-                (current) =>
-                  current +
-                  content
-                    .map((part: { text?: string }) => part.text ?? "")
-                    .join(""),
-              );
-          } catch {
-            /* ignore provider heartbeat */
-          }
-        }
-      }
-    } catch (cause) {
-      if ((cause as Error).name !== "AbortError") setError(errorMessage(cause));
-    } finally {
-      setRunning(false);
-    }
-  };
-  if (!enabled)
-    return (
-      <Alert severity="info">
-        관리자가 AI 연결을 활성화하면 문서 Agent를 사용할 수 있습니다.
-      </Alert>
-    );
-  return (
-    <Stack gap={1.5}>
-      <Typography variant="h3">Document Agent</Typography>
-      <Typography variant="body2" color="text.secondary">
-        현재 문서 ACL을 확인한 본문만 AI 컨텍스트에 포함합니다.
-      </Typography>
-      <Stack direction="row" gap={0.75} flexWrap="wrap">
-        <Chip
-          clickable
-          label="문서 요약"
-          onClick={() => void ask("이 문서를 핵심 항목 중심으로 요약해줘.")}
-        />
-        <Chip
-          clickable
-          label="내용 검토"
-          onClick={() =>
-            void ask("이 문서의 논리, 누락, 모호한 표현을 검토해줘.")
-          }
-        />
-        <Chip
-          clickable
-          label="목차 제안"
-          onClick={() => void ask("이 문서에 적절한 목차와 구조를 제안해줘.")}
-        />
-      </Stack>
-      <TextField
-        multiline
-        minRows={3}
-        placeholder="이 문서에 대해 질문하거나 작업을 요청하세요"
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
-      />
-      <Stack direction="row" gap={1}>
-        {running ? (
-          <Button
-            color="error"
-            variant="outlined"
-            onClick={() => controller.current?.abort()}
-          >
-            중지
-          </Button>
-        ) : (
-          <Button
-            variant="contained"
-            startIcon={<AutoAwesome />}
-            disabled={!prompt.trim()}
-            onClick={() => void ask()}
-          >
-            스트리밍 실행
-          </Button>
-        )}
-      </Stack>
-      {error && <Alert severity="error">{error}</Alert>}
-      {(answer || running) && (
-        <Paper
-          variant="outlined"
-          sx={{
-            p: 2,
-            bgcolor: "#fafafe",
-            whiteSpace: "pre-wrap",
-            fontSize: 15,
-            lineHeight: 1.7,
-          }}
-        >
-          {answer}
-          {running && (
-            <Box
-              component="span"
-              sx={{
-                display: "inline-block",
-                width: 7,
-                height: 17,
-                bgcolor: "primary.main",
-                ml: 0.4,
-                verticalAlign: "text-bottom",
-                animation: "blink 1s infinite",
-              }}
-            />
-          )}
-        </Paper>
-      )}
-      {answer && canEdit && (
-        <Button
-          variant="outlined"
-          onClick={() => editor.chain().focus().insertContent(answer).run()}
-        >
-          커서 위치에 삽입
-        </Button>
-      )}
-    </Stack>
   );
 }
 
