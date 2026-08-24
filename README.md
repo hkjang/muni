@@ -50,7 +50,7 @@ docker compose -f compose.example.yaml --env-file .env up -d
 
 PostgreSQL은 미리 준비되어 있어야 하며 DSN 계정에는 최초 실행 시 schema와 `pgcrypto`, `citext` extension을 만들 권한이 필요합니다. 서비스는 고정 포트 `8080`을 사용합니다. TLS는 사내 ingress/reverse proxy에서 종료하는 구성을 권장합니다.
 
-PDF Export는 이미지 안의 headless Chromium과 Noto CJK 글꼴을 사용하므로 외부 네트워크가 필요하지 않습니다. `/tmp`에 임시 렌더링 파일을 만들기 때문에 read-only 컨테이너에서는 제공된 tmpfs 설정을 유지하세요. Chromium 실행 파일 경로는 `MUNI_CHROMIUM_PATH`로 바꿀 수 있습니다. Chromium 한 프로세스가 수백 MB를 쓰기 때문에 동시 실행 수를 `MUNI_PDF_CONCURRENCY`(기본 2)로 제한하며, 자리가 나기를 60초 넘게 기다리면 재시도 안내와 함께 거절합니다. 표는 페이지가 넘어가도 머리글 행이 반복되고 행 중간에서 잘리지 않습니다.
+PDF Export는 이미지 안의 headless Chromium과 Noto CJK 글꼴을 사용하므로 외부 네트워크가 필요하지 않습니다. 렌더링마다 `/tmp` 아래에 임시 디렉터리를 만들고 Chromium의 `HOME`도 그 안으로 지정하기 때문에(비 root 계정의 홈이 없는 환경에서 Chromium이 기동하지 못하는 문제를 피합니다) read-only 컨테이너에서는 제공된 tmpfs 설정을 유지하세요. Chromium 실행 파일 경로는 `MUNI_CHROMIUM_PATH`로 바꿀 수 있습니다. Chromium 한 프로세스가 수백 MB를 쓰기 때문에 동시 실행 수를 `MUNI_PDF_CONCURRENCY`(기본 2)로 제한하며, 자리가 나기를 60초 넘게 기다리면 재시도 안내와 함께 거절합니다. 표는 페이지가 넘어가도 머리글 행이 반복되고 행 중간에서 잘리지 않습니다.
 
 ## 문서 Import·Export
 
@@ -99,9 +99,18 @@ API 키 scope는 `api:read`, `api:write`, `mcp:read`, `mcp:write`, `ai:use`입�
 ## 개발과 검증
 
 ```bash
+make test                     # placeholder 확인 + Go 테스트 + 프런트엔드 타입체크
+make hooks                    # 같은 확인을 pre-commit 훅으로 설치(선택)
 cd frontend && npm ci && npm run build
-go test ./...
 go run ./cmd/muni
+```
+
+`webui/dist`에는 프런트엔드를 빌드하지 않은 체크아웃에서도 `go build`가 되도록 placeholder `index.html`만 커밋되어 있습니다. `npm run build`가 이 파일을 덮어쓰는데 옆에 생기는 asset은 gitignore 대상이라, 빌드된 `index.html`을 커밋하면 저장소에 없는 파일을 가리키게 됩니다. `scripts/check-webui-placeholder.sh`가 CI와 `make test`에서 이를 막아 줍니다.
+
+업로드 파서(PDF·DOCX·Markdown·HTML)에는 퍼즈 타깃이 있습니다.
+
+```bash
+go test ./internal/pdfx -run FuzzImport -fuzz FuzzImport -fuzztime=60s
 ```
 
 실제 PostgreSQL과 브라우저가 준비된 개발 환경에서는 `cd frontend && npm run test:e2e`로 로그인·문서 저장·새로고침 라우트 복원·관리 화면·두 세션 실시간 동기화를 검증합니다.
@@ -109,7 +118,7 @@ go run ./cmd/muni
 Docker가 설치된 환경에서는 다음으로 릴리스와 같은 이미지를 만듭니다.
 
 ```bash
-./scripts/package-offline.sh v0.1.0
+./scripts/package-offline.sh v$(cat VERSION)
 ```
 
 Git tag `vMAJOR.MINOR.PATCH`를 `https://github.com/hkjang/muni`에 push하면 GitHub Actions가 `muni:v버전` 이미지를 만들고 `muni-v버전.tar.gz` 하나를 Release asset으로 게시합니다.

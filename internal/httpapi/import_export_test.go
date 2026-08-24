@@ -235,3 +235,39 @@ func TestPDFExportGivesUpWhenSlotsAreBusy(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// TestChromiumCommandGivesTheBrowserAWritableHome pins the fix for PDF export
+// failing in the container: muni runs as a user whose home directory does not
+// exist, and Chromium's crash handler aborts the browser when it cannot create
+// its database under HOME.
+func TestChromiumCommandGivesTheBrowserAWritableHome(t *testing.T) {
+	tempDir := t.TempDir()
+	command := chromiumCommand(context.Background(), "/usr/bin/chromium", tempDir, tempDir+"/in.html", tempDir+"/out.pdf")
+
+	home := ""
+	for _, entry := range command.Env {
+		if value, ok := strings.CutPrefix(entry, "HOME="); ok {
+			home = value
+		}
+	}
+	if home != tempDir {
+		t.Fatalf("HOME = %q, want the per-render temp dir %q", home, tempDir)
+	}
+	for _, expected := range []string{"XDG_CONFIG_HOME=", "XDG_CACHE_HOME="} {
+		found := false
+		for _, entry := range command.Env {
+			if strings.HasPrefix(entry, expected) && strings.Contains(entry, tempDir) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s is not pointed inside the temp dir", expected)
+		}
+	}
+	joined := strings.Join(command.Args, " ")
+	for _, flag := range []string{"--headless=new", "--no-sandbox", "--print-to-pdf=" + tempDir + "/out.pdf", "file://" + tempDir + "/in.html"} {
+		if !strings.Contains(joined, flag) {
+			t.Errorf("missing flag %s in %s", flag, joined)
+		}
+	}
+}

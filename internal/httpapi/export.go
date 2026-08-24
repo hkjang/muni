@@ -184,11 +184,7 @@ func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	command := exec.CommandContext(ctx, binary,
-		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
-		"--no-pdf-header-footer", "--print-to-pdf-no-header",
-		"--user-data-dir="+filepath.Join(tempDir, "profile"),
-		"--print-to-pdf="+pdfPath, "file://"+htmlPath)
+	command := chromiumCommand(ctx, binary, tempDir, htmlPath, pdfPath)
 	if output, runErr := command.CombinedOutput(); runErr != nil {
 		if _, statErr := os.Stat(pdfPath); statErr != nil {
 			return nil, fmt.Errorf("Chromium PDF: %v (%s)", runErr, truncate(string(output), 300))
@@ -202,6 +198,24 @@ func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error)
 		return nil, errors.New("Chromium이 빈 PDF를 생성했습니다")
 	}
 	return body, nil
+}
+
+// chromiumCommand builds the headless render invocation. muni runs as a user
+// whose home directory does not exist, and Chromium's crash handler aborts the
+// browser when it cannot create its database under HOME — so the child gets a
+// writable HOME inside the per-render temporary directory.
+func chromiumCommand(ctx context.Context, binary, tempDir, htmlPath, pdfPath string) *exec.Cmd {
+	command := exec.CommandContext(ctx, binary,
+		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+		"--no-pdf-header-footer", "--print-to-pdf-no-header",
+		"--user-data-dir="+filepath.Join(tempDir, "profile"),
+		"--print-to-pdf="+pdfPath, "file://"+htmlPath)
+	command.Env = append(os.Environ(),
+		"HOME="+tempDir,
+		"XDG_CONFIG_HOME="+filepath.Join(tempDir, "config"),
+		"XDG_CACHE_HOME="+filepath.Join(tempDir, "cache"),
+	)
+	return command
 }
 
 // chromiumBinary locates a headless browser, allowing operators to override
