@@ -154,7 +154,13 @@ paths:
         '201': { $ref: '#/components/responses/Success' }
   /import:
     post:
-      summary: Import DOCX, Markdown, TXT, or HTML as a document
+      summary: Import PDF, DOCX, Markdown, TXT, or HTML as a document
+      description: >-
+        Headings, lists (including nesting and task lists), tables with merged
+        cells, inline formatting, links and embedded images are preserved for
+        every format. Images become attachments on the created document.
+        Remote image URLs are not fetched. PDFs without a text layer are
+        rejected with IMPORT_PARSE_FAILED.
       requestBody:
         required: true
         content:
@@ -166,9 +172,14 @@ paths:
                 workspaceId: { type: string, format: uuid }
                 folderId: { type: string, format: uuid }
                 title: { type: string, maxLength: 240 }
-                file: { type: string, format: binary }
+                file:
+                  type: string
+                  format: binary
+                  description: .pdf, .docx, .md, .markdown, .txt, .html or .htm
       responses:
         '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
   /documents/{documentId}:
     parameters:
       - $ref: '#/components/parameters/DocumentId'
@@ -271,11 +282,17 @@ paths:
         schema: { type: string, enum: [docx, pdf, html, md, txt] }
     get:
       summary: Export a document
+      description: >-
+        DOCX exports carry styles, numbering, tables, images and hyperlinks.
+        PDF export renders the document through headless Chromium. Both can be
+        disabled by administrator policy.
       responses:
         '200':
           description: Exported binary or text document
           content:
             application/octet-stream: { schema: { type: string, format: binary } }
+        '403': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/workflow/submit:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

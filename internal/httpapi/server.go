@@ -24,10 +24,11 @@ type Server struct {
 	logger   *slog.Logger
 	hub      *realtime.Hub
 	mux      *http.ServeMux
+	aiCompat *aiCompatibility
 }
 
 func New(db *pgxpool.Pool, sealer *cryptoutil.Sealer, info BuildInfo, logger *slog.Logger) *Server {
-	s := &Server{db: db, sealer: sealer, settings: settings.NewStore(db, sealer), info: info, logger: logger, hub: realtime.NewHub(), mux: http.NewServeMux()}
+	s := &Server{db: db, sealer: sealer, settings: settings.NewStore(db, sealer), info: info, logger: logger, hub: realtime.NewHub(), mux: http.NewServeMux(), aiCompat: newAICompatibility()}
 	s.routes()
 	return s
 }

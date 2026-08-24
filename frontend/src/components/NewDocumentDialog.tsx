@@ -142,11 +142,11 @@ export function NewDocumentDialog({
           variant="outlined"
           startIcon={<UploadFileOutlined />}
         >
-          {file ? file.name : "DOCX · Markdown · TXT · HTML 가져오기"}
+          {file ? file.name : "PDF · DOCX · Markdown · TXT · HTML 가져오기"}
           <input
             hidden
             type="file"
-            accept=".docx,.md,.markdown,.txt,.html,.htm"
+            accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Button>

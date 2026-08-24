@@ -20,7 +20,7 @@ Browser (React + Tiptap + Yjs + IndexedDB)
                          PostgreSQL 15+
 ```
 
-React assets, Korean web fonts, Go API, DOCX writer and PDF rendering dependencies are all present in `muni:v<version>`. Runtime egress is needed only when an administrator intentionally configures an internal OIDC issuer or AI gateway.
+React assets, Korean web fonts, Go API, the OOXML reader/writer, the pure-Go PDF text extractor and the headless Chromium used for PDF rendering are all present in `muni:v<version>`. Runtime egress is needed only when an administrator intentionally configures an internal OIDC issuer or AI gateway.
 
 ## Configuration boundary
 

@@ -1,22 +1,23 @@
 package httpapi
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hkjang/muni/internal/docx"
+	"github.com/hkjang/muni/internal/richdoc"
 )
 
 func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
@@ -43,9 +44,9 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "DOCX_EXPORT_DISABLED", "관리자 정책에서 DOCX 내보내기가 비활성화되어 있습니다.")
 		return
 	}
-	var title, text string
+	var title string
 	var content json.RawMessage
-	if err := s.db.QueryRow(r.Context(), `SELECT title,content_text,content_json FROM documents WHERE id=$1`, id).Scan(&title, &text, &content); err != nil {
+	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json FROM documents WHERE id=$1`, id).Scan(&title, &content); err != nil {
 		writeError(w, 404, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
 		return
 	}
@@ -55,16 +56,16 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 	var err error
 	switch format {
 	case "txt":
-		body = []byte(text)
+		body = []byte(renderPlainText(title, content))
 		contentType = "text/plain; charset=utf-8"
 	case "md":
-		body = []byte(renderMarkdown(content))
+		body = []byte(renderMarkdown(title, content))
 		contentType = "text/markdown; charset=utf-8"
 	case "html":
 		body = []byte(fullHTML(title, s.renderHTMLWithAttachments(r.Context(), id, content)))
 		contentType = "text/html; charset=utf-8"
 	case "docx":
-		body, err = makeDOCX(title, content)
+		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName)
 		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	case "pdf":
 		body, err = makePDF(r.Context(), title, s.renderHTMLWithAttachments(r.Context(), id, content))
@@ -79,7 +80,48 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
 	w.WriteHeader(200)
 	_, _ = w.Write(body)
-	s.audit(r, &p.User.ID, "EXPORT_DOCUMENT", "DOCUMENT", &id, map[string]any{"format": format})
+	s.audit(r, &p.User.ID, "EXPORT_DOCUMENT", "DOCUMENT", &id, map[string]any{"format": format, "bytes": len(body)})
+}
+
+// makeDOCX renders a Word file that keeps the document's headings, lists,
+// tables, inline formatting and images.
+func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, author string) ([]byte, error) {
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return nil, fmt.Errorf("문서 구조를 읽지 못했습니다: %w", err)
+	}
+	images := s.attachmentImages(ctx, documentID)
+	return docx.Build(document, docx.Options{
+		Title:     title,
+		Author:    author,
+		Generator: "muni " + s.info.Version,
+		Created:   time.Now().UTC(),
+		ResolveImage: func(src string) (docx.Image, bool) {
+			if picture, ok := images[src]; ok {
+				return picture, true
+			}
+			return docx.DecodeDataURI(src)
+		},
+	})
+}
+
+func (s *Server) attachmentImages(ctx context.Context, documentID uuid.UUID) map[string]docx.Image {
+	images := map[string]docx.Image{}
+	rows, err := s.db.Query(ctx, `SELECT id,name,media_type,data FROM attachments WHERE document_id=$1`, documentID)
+	if err != nil {
+		return images
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var name, mediaType string
+		var data []byte
+		if rows.Scan(&id, &name, &mediaType, &data) != nil || !safeInlineImageType(mediaType) {
+			continue
+		}
+		images["/api/v1/attachments/"+id.String()] = docx.Image{Data: data, MediaType: baseMediaType(mediaType), Name: name}
+	}
+	return images
 }
 
 func (s *Server) renderHTMLWithAttachments(ctx context.Context, documentID uuid.UUID, content json.RawMessage) string {
@@ -103,159 +145,29 @@ func (s *Server) renderHTMLWithAttachments(ctx context.Context, documentID uuid.
 	return value
 }
 
-func renderHTML(raw json.RawMessage) string {
-	var root map[string]any
-	if json.Unmarshal(raw, &root) != nil {
-		return ""
-	}
-	return renderHTMLNode(root)
-}
-func renderHTMLNode(node map[string]any) string {
-	kind, _ := node["type"].(string)
-	attrs, _ := node["attrs"].(map[string]any)
-	children := ""
-	if items, ok := node["content"].([]any); ok {
-		for _, item := range items {
-			if child, ok := item.(map[string]any); ok {
-				children += renderHTMLNode(child)
-			}
-		}
-	}
-	if kind == "text" {
-		value := html.EscapeString(fmt.Sprint(node["text"]))
-		if marks, ok := node["marks"].([]any); ok {
-			for _, mark := range marks {
-				m, _ := mark.(map[string]any)
-				switch m["type"] {
-				case "bold":
-					value = "<strong>" + value + "</strong>"
-				case "italic":
-					value = "<em>" + value + "</em>"
-				case "underline":
-					value = "<u>" + value + "</u>"
-				case "strike":
-					value = "<s>" + value + "</s>"
-				case "code":
-					value = "<code>" + value + "</code>"
-				case "link":
-					a, _ := m["attrs"].(map[string]any)
-					href := html.EscapeString(fmt.Sprint(a["href"]))
-					if strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://") {
-						value = `<a href="` + href + `">` + value + `</a>`
-					}
-				}
-			}
-		}
+// pdfSlots bounds how many headless browsers run at once. Each Chromium
+// instance costs a few hundred megabytes, so an unbounded queue of exports
+// would exhaust a container long before the CPU is busy.
+var pdfSlots = make(chan struct{}, pdfConcurrency())
+
+func pdfConcurrency() int {
+	if value, err := strconv.Atoi(strings.TrimSpace(os.Getenv("MUNI_PDF_CONCURRENCY"))); err == nil && value >= 1 && value <= 32 {
 		return value
 	}
-	switch kind {
-	case "doc":
-		return children
-	case "paragraph":
-		return "<p>" + children + "</p>"
-	case "heading":
-		level := intFrom(attrs["level"], 1)
-		if level < 1 || level > 6 {
-			level = 1
-		}
-		return fmt.Sprintf("<h%d>%s</h%d>", level, children, level)
-	case "bulletList":
-		return "<ul>" + children + "</ul>"
-	case "orderedList":
-		return "<ol>" + children + "</ol>"
-	case "listItem":
-		return "<li>" + children + "</li>"
-	case "blockquote":
-		return "<blockquote>" + children + "</blockquote>"
-	case "codeBlock":
-		return "<pre><code>" + children + "</code></pre>"
-	case "hardBreak":
-		return "<br>"
-	case "horizontalRule":
-		return "<hr>"
-	case "table":
-		return "<table>" + children + "</table>"
-	case "tableRow":
-		return "<tr>" + children + "</tr>"
-	case "tableCell":
-		return "<td>" + children + "</td>"
-	case "tableHeader":
-		return "<th>" + children + "</th>"
-	case "image":
-		src := html.EscapeString(fmt.Sprint(attrs["src"]))
-		alt := html.EscapeString(fmt.Sprint(attrs["alt"]))
-		if strings.HasPrefix(src, "data:image/") || strings.HasPrefix(src, "/api/v1/attachments/") {
-			return `<img src="` + src + `" alt="` + alt + `">`
-		}
-		return ""
-	default:
-		return children
-	}
-}
-func renderMarkdown(raw json.RawMessage) string {
-	htmlValue := renderHTML(raw)
-	replacer := strings.NewReplacer("<p>", "", "</p>", "\n\n", "<strong>", "**", "</strong>", "**", "<em>", "*", "</em>", "*", "<u>", "", "</u>", "", "<s>", "~~", "</s>", "~~", "<code>", "`", "</code>", "`", "<br>", "\n", "<hr>", "\n---\n", "<blockquote>", "> ", "</blockquote>", "\n", "<ul>", "", "</ul>", "\n", "<ol>", "", "</ol>", "\n", "<li>", "- ", "</li>", "\n")
-	value := replacer.Replace(htmlValue)
-	for i := 1; i <= 6; i++ {
-		value = strings.ReplaceAll(value, fmt.Sprintf("<h%d>", i), strings.Repeat("#", i)+" ")
-		value = strings.ReplaceAll(value, fmt.Sprintf("</h%d>", i), "\n\n")
-	}
-	return strings.TrimSpace(stripTags(value)) + "\n"
-}
-func stripTags(value string) string {
-	var out strings.Builder
-	inside := false
-	for _, r := range value {
-		if r == '<' {
-			inside = true
-			continue
-		}
-		if r == '>' {
-			inside = false
-			continue
-		}
-		if !inside {
-			out.WriteRune(r)
-		}
-	}
-	return html.UnescapeString(out.String())
-}
-func fullHTML(title, body string) string {
-	return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>` + html.EscapeString(title) + `</title><style>@page{margin:20mm}body{font-family:"Noto Sans CJK KR","Noto Sans KR",sans-serif;font-size:11pt;line-height:1.65;color:#202124;max-width:190mm;margin:auto}h1{font-size:24pt}h2{font-size:19pt}h3{font-size:16pt}table{border-collapse:collapse;width:100%}td,th{border:1px solid #c7c9d1;padding:6px 8px}img{max-width:100%}blockquote{border-left:3px solid #6b6bd6;margin-left:0;padding-left:14px;color:#555}</style></head><body><h1>` + html.EscapeString(title) + `</h1>` + body + `</body></html>`
+	return 2
 }
 
-func makeDOCX(title string, content json.RawMessage) ([]byte, error) {
-	var buffer bytes.Buffer
-	archive := zip.NewWriter(&buffer)
-	files := map[string]string{"[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`, "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`, "word/document.xml": docxDocument(title, content)}
-	for name, value := range files {
-		writer, err := archive.Create(name)
-		if err != nil {
-			return nil, err
-		}
-		if _, err = io.WriteString(writer, value); err != nil {
-			return nil, err
-		}
-	}
-	if err := archive.Close(); err != nil {
-		return nil, err
-	}
-	return buffer.Bytes(), nil
-}
-func docxDocument(title string, raw json.RawMessage) string {
-	text := extractDocumentText(raw)
-	paragraphs := strings.Split(text, "\n")
-	var body strings.Builder
-	body.WriteString(`<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>` + xmlEscape(title) + `</w:t></w:r></w:p>`)
-	for _, p := range paragraphs {
-		body.WriteString(`<w:p><w:r><w:t xml:space="preserve">` + xmlEscape(p) + `</w:t></w:r></w:p>`)
-	}
-	return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>` + body.String() + `<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`
-}
-func xmlEscape(value string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;").Replace(value)
-}
 func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error) {
+	// Wait for a rendering slot, but never longer than the caller allows.
+	waitCtx, cancelWait := context.WithTimeout(parent, 60*time.Second)
+	defer cancelWait()
+	select {
+	case pdfSlots <- struct{}{}:
+		defer func() { <-pdfSlots }()
+	case <-waitCtx.Done():
+		return nil, errors.New("PDF 변환 요청이 많아 처리하지 못했습니다. 잠시 후 다시 시도해 주세요")
+	}
+
 	tempDir, err := os.MkdirTemp("", "muni-pdf-")
 	if err != nil {
 		return nil, err
@@ -266,18 +178,47 @@ func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error)
 	if err = os.WriteFile(htmlPath, []byte(fullHTML(title, renderedHTML)), 0600); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(parent, 60*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
 	defer cancel()
-	binary := "chromium"
-	if _, err = exec.LookPath(binary); err != nil {
-		binary = "chromium-browser"
+	binary, err := chromiumBinary()
+	if err != nil {
+		return nil, err
 	}
-	command := exec.CommandContext(ctx, binary, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage", "--no-pdf-header-footer", "--print-to-pdf="+pdfPath, "file://"+htmlPath)
+	command := exec.CommandContext(ctx, binary,
+		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+		"--no-pdf-header-footer", "--print-to-pdf-no-header",
+		"--user-data-dir="+filepath.Join(tempDir, "profile"),
+		"--print-to-pdf="+pdfPath, "file://"+htmlPath)
 	if output, runErr := command.CombinedOutput(); runErr != nil {
-		return nil, fmt.Errorf("Chromium PDF: %v (%s)", runErr, truncate(string(output), 300))
+		if _, statErr := os.Stat(pdfPath); statErr != nil {
+			return nil, fmt.Errorf("Chromium PDF: %v (%s)", runErr, truncate(string(output), 300))
+		}
 	}
-	return os.ReadFile(pdfPath)
+	body, err := os.ReadFile(pdfPath)
+	if err != nil {
+		return nil, fmt.Errorf("Chromium이 PDF를 생성하지 못했습니다: %w", err)
+	}
+	if len(body) == 0 {
+		return nil, errors.New("Chromium이 빈 PDF를 생성했습니다")
+	}
+	return body, nil
 }
+
+// chromiumBinary locates a headless browser, allowing operators to override
+// the choice through MUNI_CHROMIUM_PATH.
+func chromiumBinary() (string, error) {
+	candidates := []string{os.Getenv("MUNI_CHROMIUM_PATH"), "chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome"}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if path, err := exec.LookPath(candidate); err == nil {
+			return path, nil
+		}
+	}
+	return "", errors.New("PDF 변환에 필요한 Chromium을 찾을 수 없습니다. 서버에 chromium을 설치하거나 MUNI_CHROMIUM_PATH를 설정하세요")
+}
+
 func safeFilename(value string) string {
 	value = strings.TrimSpace(value)
 	value = strings.NewReplacer("/", "-", "\\", "-", "\r", " ", "\n", " ", "\x00", "").Replace(value)
@@ -286,10 +227,12 @@ func safeFilename(value string) string {
 	}
 	return truncateRunes(value, 100)
 }
+
 func urlPathEscape(value string) string {
 	replacer := strings.NewReplacer("%", "%25", " ", "%20", "#", "%23", "?", "%3F", "\"", "%22")
 	return replacer.Replace(value)
 }
+
 func intFrom(value any, fallback int) int {
 	switch n := value.(type) {
 	case float64:
@@ -300,3 +243,32 @@ func intFrom(value any, fallback int) int {
 		return fallback
 	}
 }
+
+func fullHTML(title, body string) string {
+	return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>` + html.EscapeString(title) + `</title><style>` + exportStylesheet + `</style></head><body><h1 class="doc-title">` + html.EscapeString(title) + `</h1>` + body + `</body></html>`
+}
+
+const exportStylesheet = `@page{margin:20mm}
+*{box-sizing:border-box}
+body{font-family:"Noto Sans CJK KR","Noto Sans KR","Malgun Gothic",sans-serif;font-size:11pt;line-height:1.65;color:#202124;max-width:190mm;margin:auto}
+h1{font-size:24pt;margin:0 0 12pt}h2{font-size:19pt;margin:18pt 0 8pt}h3{font-size:16pt;margin:16pt 0 6pt}
+h4{font-size:13pt;margin:14pt 0 6pt}h5,h6{font-size:11.5pt;margin:12pt 0 6pt}
+h1,h2,h3,h4,h5,h6{page-break-after:avoid;color:#14142b}
+p{margin:0 0 8pt}
+table{border-collapse:collapse;width:100%;margin:10pt 0}
+thead{display:table-header-group}
+tr{page-break-inside:avoid}
+td,th{border:1px solid #c7c9d1;padding:6px 8px;vertical-align:top}
+th{background:#f3f4fa;text-align:left}
+img{max-width:100%;height:auto;page-break-inside:avoid}
+blockquote{border-left:3px solid #6b6bd6;margin:10pt 0;padding-left:14px;color:#555;font-style:italic}
+pre{background:#f5f6fa;border:1px solid #d8dae5;border-radius:4px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font-family:Consolas,"D2Coding",monospace;font-size:9.5pt}
+code{font-family:Consolas,"D2Coding",monospace;font-size:9.5pt;background:#f2f2f7;border-radius:3px;padding:0 3px}
+pre code{background:none;padding:0}
+hr{border:none;border-top:1px solid #c7c9d1;margin:14pt 0}
+ul,ol{margin:0 0 8pt;padding-left:22pt}
+li{margin:0 0 3pt}
+ul[data-type="taskList"]{list-style:none;padding-left:4pt}
+ul[data-type="taskList"] li{display:flex;gap:6px;align-items:flex-start}
+mark{padding:0 2px;border-radius:2px}
+a{color:#1155cc}`

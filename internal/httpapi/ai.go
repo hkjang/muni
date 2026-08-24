@@ -2,9 +2,9 @@ package httpapi
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -50,16 +50,33 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "AI_DISABLED", "관리자가 AI 기능을 설정하지 않았습니다.")
 		return
 	}
-	maxTokens := input.MaxTokens
-	if maxTokens == 0 {
-		maxTokens = all.AI.MaxTokens
-	}
-	if maxTokens < 1 || maxTokens > all.AI.MaxTokens || maxTokens > settings.MaxAITokens {
-		writeError(w, 400, "INVALID_MAX_TOKENS", fmt.Sprintf("max token은 1~%d 범위여야 합니다.", min(all.AI.MaxTokens, settings.MaxAITokens)))
+	config := normalizeAI(all.AI)
+	if config.BaseURL == "" || config.Model == "" {
+		writeError(w, 409, "AI_NOT_CONFIGURED", "관리자 설정에서 AI API 주소와 모델 이름을 입력해 주세요.")
 		return
 	}
+	if input.MaxTokens < 0 {
+		writeError(w, 400, "INVALID_MAX_TOKENS", "max token은 1 이상이어야 합니다.")
+		return
+	}
+	// Requests above the configured ceiling are clamped rather than rejected:
+	// the client cannot know the administrator's limit ahead of time.
+	maxTokens := input.MaxTokens
+	if maxTokens < 1 || maxTokens > config.MaxTokens {
+		maxTokens = config.MaxTokens
+	}
+	if maxTokens > settings.MaxAITokens {
+		maxTokens = settings.MaxAITokens
+	}
+	if input.Temperature != nil && (*input.Temperature < 0 || *input.Temperature > 2) {
+		writeError(w, 400, "INVALID_TEMPERATURE", "temperature는 0~2 사이여야 합니다.")
+		return
+	}
+
 	messages := make([]aiMessage, 0, len(input.Messages)+2)
-	messages = append(messages, aiMessage{Role: "system", Content: all.AI.SystemPrompt})
+	if prompt := strings.TrimSpace(config.SystemPrompt); prompt != "" {
+		messages = append(messages, aiMessage{Role: "system", Content: prompt})
+	}
 	if input.DocumentID != nil {
 		role, err := s.documentRole(r.Context(), p.User, *input.DocumentID, false)
 		if err != nil || roleRank[role] < roleRank["VIEWER"] {
@@ -75,68 +92,79 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		messages = append(messages, aiMessage{Role: "system", Content: "현재 문서 제목: " + title + "\n\n현재 문서 본문:\n" + text + "\n\n문서 밖의 정보라고 추정하지 말고, 답변에서 문서 기반인지 명확히 하세요."})
 	}
 	messages = append(messages, input.Messages...)
-	payload := map[string]any{"model": all.AI.Model, "messages": messages, "stream": true, "stream_options": map[string]any{"include_usage": true}, "max_tokens": maxTokens}
-	if input.Temperature != nil {
-		payload["temperature"] = *input.Temperature
-	}
-	encoded, _ := json.Marshal(payload)
-	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(all.AI.TimeoutSeconds)*time.Second)
+
+	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(config.TimeoutSeconds)*time.Second)
 	defer cancel()
-	endpoint := strings.TrimRight(all.AI.BaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	response, quirks, err := s.call(ctx, aiRequest{
+		config:      config,
+		messages:    messages,
+		maxTokens:   maxTokens,
+		temperature: input.Temperature,
+		stream:      true,
+	})
 	if err != nil {
-		writeError(w, 500, "AI_REQUEST_FAILED", "AI 요청을 만들지 못했습니다.")
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	if all.AI.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+all.AI.APIKey)
-	}
-	response, err := (&http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, MaxIdleConns: 20, IdleConnTimeout: 90 * time.Second, TLSHandshakeTimeout: 10 * time.Second}}).Do(req)
-	if err != nil {
-		writeError(w, 502, "AI_UPSTREAM_UNAVAILABLE", "AI API에 연결할 수 없습니다: "+err.Error())
+		var upstream *aiUpstreamError
+		status, code := 502, "AI_UPSTREAM_UNAVAILABLE"
+		if errors.As(err, &upstream) {
+			code = "AI_UPSTREAM_ERROR"
+			s.audit(r, &p.User.ID, "AI_ERROR", "AI", input.DocumentID, map[string]any{"status": upstream.status, "model": config.Model})
+			if upstream.status == 401 || upstream.status == 403 {
+				code = "AI_UPSTREAM_UNAUTHORIZED"
+			}
+		}
+		s.logger.Warn("ai upstream failed", "model", config.Model, "error", err.Error())
+		writeError(w, status, code, err.Error())
 		return
 	}
 	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-		s.audit(r, &p.User.ID, "AI_ERROR", "AI", input.DocumentID, map[string]any{"status": response.StatusCode, "model": all.AI.Model})
-		writeError(w, 502, "AI_UPSTREAM_ERROR", fmt.Sprintf("AI API가 %d 상태를 반환했습니다: %s", response.StatusCode, truncate(string(body), 500)))
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, 500, "STREAMING_UNAVAILABLE", "이 서버에서는 스트리밍을 사용할 수 없습니다.")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		writeError(w, 500, "STREAMING_UNAVAILABLE", "이 서버에서는 스트리밍을 사용할 수 없습니다.")
-		return
-	}
 	w.WriteHeader(200)
-	reader := bufio.NewReader(response.Body)
-	for {
-		line, readErr := reader.ReadBytes('\n')
-		if len(line) > 0 {
-			_, _ = w.Write(line)
-			flusher.Flush()
-		}
+
+	if quirks.NoStreaming || !strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "event-stream") {
+		// The provider answered with a single JSON completion; replay it as one
+		// SSE chunk so the editor's reader works unchanged.
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 		if readErr != nil {
-			if readErr != io.EOF {
-				event, _ := json.Marshal(map[string]any{"error": "upstream_stream_interrupted"})
-				_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
+			event, _ := json.Marshal(map[string]any{"error": "upstream_read_failed"})
+			fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
+			flusher.Flush()
+			return
+		}
+		writeSSEFromJSON(w, flusher, body)
+	} else {
+		reader := bufio.NewReader(response.Body)
+		for {
+			line, readErr := reader.ReadBytes('\n')
+			if len(line) > 0 {
+				_, _ = w.Write(line)
 				flusher.Flush()
 			}
-			break
+			if readErr != nil {
+				if readErr != io.EOF {
+					event, _ := json.Marshal(map[string]any{"error": "upstream_stream_interrupted"})
+					_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
+					flusher.Flush()
+				}
+				break
+			}
 		}
 	}
+
 	action := input.Action
 	if action == "" {
 		action = "chat"
 	}
-	_, _ = s.db.Exec(r.Context(), `INSERT INTO ai_actions(session_id,user_id,document_id,action,model,status,metadata) VALUES($1,$2,$3,$4,$5,'COMPLETED',$6)`, input.SessionID, p.User.ID, input.DocumentID, truncate(action, 80), all.AI.Model, map[string]any{"maxTokens": maxTokens, "stream": true})
-	s.audit(r, &p.User.ID, "AI_"+strings.ToUpper(action), "DOCUMENT", input.DocumentID, map[string]any{"model": all.AI.Model, "maxTokens": maxTokens, "stream": true})
+	_, _ = s.db.Exec(r.Context(), `INSERT INTO ai_actions(session_id,user_id,document_id,action,model,status,metadata) VALUES($1,$2,$3,$4,$5,'COMPLETED',$6)`, input.SessionID, p.User.ID, input.DocumentID, truncate(action, 80), config.Model, map[string]any{"maxTokens": maxTokens, "stream": !quirks.NoStreaming})
+	s.audit(r, &p.User.ID, "AI_"+strings.ToUpper(action), "DOCUMENT", input.DocumentID, map[string]any{"model": config.Model, "maxTokens": maxTokens, "stream": !quirks.NoStreaming})
 }
 
 func (s *Server) testAI(w http.ResponseWriter, r *http.Request) {
@@ -152,30 +180,33 @@ func (s *Server) testAI(w http.ResponseWriter, r *http.Request) {
 		all, _ := s.settings.GetAll(r.Context(), true)
 		input.APIKey = all.AI.APIKey
 	}
-	payload, _ := json.Marshal(map[string]any{"model": input.Model, "messages": []map[string]string{{"role": "user", "content": "Reply with OK."}}, "stream": false, "max_tokens": 8})
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	config := normalizeAI(input)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(input.BaseURL, "/")+"/chat/completions", bytes.NewReader(payload))
+	response, quirks, err := s.call(ctx, aiRequest{
+		config:    config,
+		messages:  []aiMessage{{Role: "user", Content: "Reply with OK."}},
+		maxTokens: 16,
+	})
 	if err != nil {
-		writeError(w, 400, "AI_TEST_FAILED", err.Error())
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	if input.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+input.APIKey)
-	}
-	response, err := http.DefaultClient.Do(req)
-	if err != nil {
-		writeError(w, 502, "AI_TEST_FAILED", "AI API에 연결할 수 없습니다: "+err.Error())
+		writeError(w, 502, "AI_TEST_FAILED", err.Error())
 		return
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 64<<10))
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		writeError(w, 502, "AI_TEST_FAILED", fmt.Sprintf("AI API %d: %s", response.StatusCode, truncate(string(body), 500)))
-		return
-	}
-	writeData(w, 200, map[string]any{"ok": true, "model": input.Model, "response": json.RawMessage(body)})
+	writeData(w, 200, map[string]any{
+		"ok":       true,
+		"model":    config.Model,
+		"endpoint": chatEndpoint(config.BaseURL, quirks.VersionedPath),
+		"adjustments": map[string]any{
+			"maxCompletionTokens": quirks.MaxCompletionTokens,
+			"noStreamOptions":     quirks.NoStreamOptions,
+			"noTemperature":       quirks.NoTemperature,
+			"noStreaming":         quirks.NoStreaming,
+			"tokenCap":            quirks.TokenCap,
+		},
+		"response": json.RawMessage(body),
+	})
 }
 
 func truncateRunes(value string, max int) string {

@@ -1,13 +1,11 @@
 package httpapi
 
 import (
-	"archive/zip"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"encoding/xml"
-	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -18,8 +16,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/database"
+	"github.com/hkjang/muni/internal/docx"
+	"github.com/hkjang/muni/internal/pdfx"
+	"github.com/hkjang/muni/internal/richdoc"
 	"github.com/jackc/pgx/v5"
-	xhtml "golang.org/x/net/html"
 )
 
 func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
@@ -72,25 +72,51 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	extension := strings.ToLower(filepath.Ext(header.Filename))
+	if extension == "" {
+		extension = extensionFromMediaType(header.Header.Get("Content-Type"), body)
+	}
 	var content json.RawMessage
+	var assets []richdoc.Asset
+	documentID := uuid.New()
+	embeddedTitle := ""
 	switch extension {
 	case ".txt":
 		content, err = plainTextDocument(string(body))
 	case ".md", ".markdown":
-		content, err = markdownDocument(string(body))
+		content, assets, err = markdownDocument(string(body))
 	case ".html", ".htm":
-		content, err = htmlDocument(body)
+		content, assets, err = htmlDocument(body)
 	case ".docx":
-		content, err = docxImport(body)
+		content, assets, err = docxImport(body)
+	case ".pdf":
+		// PDF interpretation is CPU bound; bound it so one upload cannot hold
+		// a worker for the whole request timeout.
+		parseCtx, cancelParse := context.WithTimeout(r.Context(), 90*time.Second)
+		content, assets, embeddedTitle, err = pdfImport(parseCtx, body)
+		cancelParse()
 	default:
-		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 DOCX, Markdown, TXT, HTML입니다.")
+		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 PDF, DOCX, Markdown, TXT, HTML입니다.")
 		return
 	}
 	if err != nil {
 		writeError(w, 400, "IMPORT_PARSE_FAILED", "파일 내용을 읽지 못했습니다: "+err.Error())
 		return
 	}
+	// Imported images become attachments so the editor can render them and
+	// the export path can embed them again.
+	attachments, content, err := prepareImportedAssets(assets, content)
+	if err != nil {
+		writeError(w, 400, "IMPORT_PARSE_FAILED", "가져온 문서를 변환하지 못했습니다: "+err.Error())
+		return
+	}
+	if !validDocumentJSON(content) {
+		writeError(w, 400, "IMPORT_TOO_LARGE", "가져온 문서가 너무 큽니다. 파일을 나눠서 가져와 주세요.")
+		return
+	}
 	title := strings.TrimSpace(r.FormValue("title"))
+	if title == "" {
+		title = strings.TrimSpace(embeddedTitle)
+	}
 	if title == "" {
 		title = strings.TrimSuffix(filepath.Base(header.Filename), filepath.Ext(header.Filename))
 	}
@@ -98,7 +124,6 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		title = "가져온 문서"
 	}
 	title = truncateRunes(title, 240)
-	documentID := uuid.New()
 	text := extractDocumentText(content)
 	visibility := "RESTRICTED"
 	if workspaceKind != "PERSONAL" {
@@ -108,199 +133,145 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1)`, documentID, workspaceID, folderID, p.User.ID, title, visibility, content, text); err != nil {
 			return err
 		}
-		_, err := tx.Exec(r.Context(), `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, documentID, content, text, p.User.ID, "import:"+strings.TrimPrefix(extension, "."))
-		return err
+		if _, err := tx.Exec(r.Context(), `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, documentID, content, text, p.User.ID, "import:"+strings.TrimPrefix(extension, ".")); err != nil {
+			return err
+		}
+		for _, attachment := range attachments {
+			sum := sha256.Sum256(attachment.Data)
+			if _, err := tx.Exec(r.Context(), `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+				attachment.ID, documentID, p.User.ID, truncateRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		writeError(w, 500, "IMPORT_FAILED", "가져온 문서를 저장하지 못했습니다.")
 		return
 	}
-	s.audit(r, &p.User.ID, "IMPORT_DOCUMENT", "DOCUMENT", &documentID, map[string]any{"format": strings.TrimPrefix(extension, "."), "bytes": len(body)})
+	s.audit(r, &p.User.ID, "IMPORT_DOCUMENT", "DOCUMENT", &documentID, map[string]any{"format": strings.TrimPrefix(extension, "."), "bytes": len(body), "images": len(attachments)})
 	s.getDocumentByID(w, r, documentID)
 }
 
-func plainTextDocument(value string) (json.RawMessage, error) {
-	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
-	content := make([]map[string]any, 0, len(lines))
-	for _, line := range lines {
-		content = append(content, textNodeBlock("paragraph", line, nil))
-	}
-	return json.Marshal(map[string]any{"type": "doc", "content": content})
-}
-
-func markdownDocument(value string) (json.RawMessage, error) {
-	lines := strings.Split(strings.ReplaceAll(value, "\r\n", "\n"), "\n")
-	content := make([]map[string]any, 0, len(lines))
-	inCode := false
-	code := make([]string, 0)
-	flushCode := func() {
-		if len(code) > 0 {
-			content = append(content, textNodeBlock("codeBlock", strings.Join(code, "\n"), nil))
-			code = nil
-		}
-	}
-	for _, raw := range lines {
-		line := strings.TrimRight(raw, " \t")
-		if strings.HasPrefix(line, "```") {
-			if inCode {
-				flushCode()
-			}
-			inCode = !inCode
-			continue
-		}
-		if inCode {
-			code = append(code, line)
-			continue
-		}
-		if strings.HasPrefix(line, "#") {
-			level := 0
-			for level < len(line) && line[level] == '#' {
-				level++
-			}
-			if level <= 6 && level < len(line) && line[level] == ' ' {
-				content = append(content, textNodeBlock("heading", strings.TrimSpace(line[level:]), map[string]any{"level": level}))
-				continue
-			}
-		}
-		if strings.HasPrefix(line, "> ") {
-			content = append(content, map[string]any{"type": "blockquote", "content": []map[string]any{textNodeBlock("paragraph", strings.TrimPrefix(line, "> "), nil)}})
-			continue
-		}
-		if strings.HasPrefix(line, "- [ ] ") || strings.HasPrefix(line, "- [x] ") {
-			checked := strings.HasPrefix(line, "- [x]")
-			content = append(content, map[string]any{"type": "taskList", "content": []map[string]any{{"type": "taskItem", "attrs": map[string]any{"checked": checked}, "content": []map[string]any{textNodeBlock("paragraph", line[6:], nil)}}}})
-			continue
-		}
-		content = append(content, textNodeBlock("paragraph", line, nil))
-	}
-	flushCode()
-	return json.Marshal(map[string]any{"type": "doc", "content": content})
-}
-
-func htmlDocument(body []byte) (json.RawMessage, error) {
-	root, err := xhtml.Parse(bytes.NewReader(body))
+// docxImport converts a Word file, keeping headings, lists, tables, inline
+// formatting and embedded images.
+func docxImport(body []byte) (json.RawMessage, []richdoc.Asset, error) {
+	document, assets, err := docx.Parse(body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	content := make([]map[string]any, 0)
-	var textContent func(*xhtml.Node) string
-	textContent = func(node *xhtml.Node) string {
-		if node.Type == xhtml.TextNode {
-			return node.Data
-		}
-		if node.Type == xhtml.ElementNode && (node.Data == "script" || node.Data == "style") {
-			return ""
-		}
-		var out strings.Builder
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			out.WriteString(textContent(child))
-		}
-		return out.String()
+	content, err := document.JSON()
+	if err != nil {
+		return nil, nil, err
 	}
-	var walk func(*xhtml.Node)
-	walk = func(node *xhtml.Node) {
-		if node.Type == xhtml.ElementNode {
-			name := strings.ToLower(node.Data)
-			text := strings.TrimSpace(textContent(node))
-			switch name {
-			case "h1", "h2", "h3", "h4", "h5", "h6":
-				level := int(name[1] - '0')
-				content = append(content, textNodeBlock("heading", text, map[string]any{"level": level}))
-				return
-			case "p", "div":
-				if text != "" {
-					content = append(content, textNodeBlock("paragraph", text, nil))
-					return
+	return content, assets, nil
+}
+
+// pdfImport reconstructs paragraphs, headings, lists, tables and images from
+// a PDF's text layer.
+func pdfImport(ctx context.Context, body []byte) (json.RawMessage, []richdoc.Asset, string, error) {
+	result, err := pdfx.Import(ctx, body)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	content, err := result.Document.JSON()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return content, result.Assets, result.Title, nil
+}
+
+type importedAttachment struct {
+	ID        uuid.UUID
+	Name      string
+	MediaType string
+	Data      []byte
+}
+
+// prepareImportedAssets allocates an attachment row per embedded image and
+// rewrites the placeholder sources in the document JSON to point at it. Images
+// in formats the editor cannot display are dropped along with their nodes.
+func prepareImportedAssets(assets []richdoc.Asset, content json.RawMessage) ([]importedAttachment, json.RawMessage, error) {
+	if len(assets) == 0 {
+		return nil, content, nil
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return nil, nil, err
+	}
+	sources := map[string]string{}
+	out := make([]importedAttachment, 0, len(assets))
+	for index, asset := range assets {
+		if len(asset.Data) == 0 || !safeInlineImageType(asset.MediaType) {
+			continue
+		}
+		id := uuid.New()
+		name := strings.TrimSpace(asset.Name)
+		if name == "" {
+			name = fmt.Sprintf("image-%d", index+1)
+		}
+		out = append(out, importedAttachment{ID: id, Name: name, MediaType: baseMediaType(asset.MediaType), Data: asset.Data})
+		sources[asset.Placeholder] = "/api/v1/attachments/" + id.String()
+	}
+	rewriteImageSources(document, sources)
+	rewritten, err := document.JSON()
+	if err != nil {
+		return nil, nil, err
+	}
+	return out, rewritten, nil
+}
+
+// rewriteImageSources points image nodes at their stored attachment and
+// removes the ones whose bytes could not be kept.
+func rewriteImageSources(node *richdoc.Node, sources map[string]string) {
+	if node == nil {
+		return
+	}
+	kept := node.Content[:0]
+	for _, child := range node.Content {
+		if child == nil {
+			continue
+		}
+		if child.Type == "image" {
+			source := child.AttrString("src")
+			if strings.HasPrefix(source, richdoc.AssetPlaceholderPrefix) {
+				replacement, ok := sources[source]
+				if !ok {
+					continue
 				}
-			case "blockquote":
-				content = append(content, map[string]any{"type": "blockquote", "content": []map[string]any{textNodeBlock("paragraph", text, nil)}})
-				return
-			case "pre":
-				content = append(content, textNodeBlock("codeBlock", text, nil))
-				return
+				child.SetAttr("src", replacement)
 			}
 		}
-		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			walk(child)
-		}
+		rewriteImageSources(child, sources)
+		kept = append(kept, child)
 	}
-	walk(root)
-	if len(content) == 0 {
-		content = append(content, textNodeBlock("paragraph", strings.TrimSpace(textContent(root)), nil))
-	}
-	return json.Marshal(map[string]any{"type": "doc", "content": content})
+	node.Content = kept
 }
 
-func docxImport(body []byte) (json.RawMessage, error) {
-	archive, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+func extensionFromMediaType(mediaType string, body []byte) string {
+	base, _, err := mime.ParseMediaType(mediaType)
 	if err != nil {
-		return nil, err
+		base = strings.ToLower(strings.TrimSpace(strings.SplitN(mediaType, ";", 2)[0]))
 	}
-	var document *zip.File
-	for _, file := range archive.File {
-		if file.Name == "word/document.xml" {
-			document = file
-			break
-		}
+	switch strings.ToLower(base) {
+	case "application/pdf":
+		return ".pdf"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return ".docx"
+	case "text/markdown":
+		return ".md"
+	case "text/html":
+		return ".html"
+	case "text/plain":
+		return ".txt"
 	}
-	if document == nil {
-		return nil, errors.New("word/document.xml이 없습니다")
+	switch {
+	case bytes.HasPrefix(body, []byte("%PDF-")):
+		return ".pdf"
+	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
+		return ".docx"
 	}
-	reader, err := document.Open()
-	if err != nil {
-		return nil, err
-	}
-	defer reader.Close()
-	decoder := xml.NewDecoder(reader)
-	paragraphs := make([]string, 0)
-	var current strings.Builder
-	paragraphDepth := 0
-	for {
-		token, err := decoder.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		switch value := token.(type) {
-		case xml.StartElement:
-			if value.Name.Local == "p" {
-				paragraphDepth++
-			}
-			if value.Name.Local == "t" {
-				var text string
-				if decoder.DecodeElement(&text, &value) == nil {
-					current.WriteString(text)
-				}
-			}
-		case xml.EndElement:
-			if value.Name.Local == "p" && paragraphDepth > 0 {
-				paragraphs = append(paragraphs, current.String())
-				current.Reset()
-				paragraphDepth--
-			}
-		}
-	}
-	content := make([]map[string]any, 0, len(paragraphs))
-	for _, paragraph := range paragraphs {
-		content = append(content, textNodeBlock("paragraph", paragraph, nil))
-	}
-	if len(content) == 0 {
-		content = append(content, textNodeBlock("paragraph", "", nil))
-	}
-	return json.Marshal(map[string]any{"type": "doc", "content": content})
-}
-
-func textNodeBlock(kind, value string, attrs map[string]any) map[string]any {
-	block := map[string]any{"type": kind}
-	if attrs != nil {
-		block["attrs"] = attrs
-	}
-	if value != "" {
-		block["content"] = []map[string]any{{"type": "text", "text": value}}
-	}
-	return block
+	return ""
 }
 
 func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
