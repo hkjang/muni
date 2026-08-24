@@ -6,6 +6,15 @@ export type AIStreamRequest = {
   action: string;
   documentId?: string;
   maxTokens?: number;
+  /** Let the model search and read documents before it answers. */
+  tools?: boolean;
+};
+
+/** A tool the agent ran on the way to its answer. */
+export type AIToolCall = {
+  tool: string;
+  arguments?: string;
+  error?: string;
 };
 
 /**
@@ -17,6 +26,7 @@ export function useAIStream() {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
+  const [toolCalls, setToolCalls] = useState<AIToolCall[]>([]);
   const controller = useRef<AbortController | null>(null);
 
   const stop = useCallback(() => {
@@ -28,6 +38,7 @@ export function useAIStream() {
     stop();
     setText("");
     setError("");
+    setToolCalls([]);
     setRunning(false);
   }, [stop]);
 
@@ -38,6 +49,7 @@ export function useAIStream() {
       controller.current = current;
       setText("");
       setError("");
+      setToolCalls([]);
       setRunning(true);
 
       let answer = "";
@@ -54,6 +66,7 @@ export function useAIStream() {
             documentId: request.documentId ?? null,
             messages: [{ role: "user", content: request.prompt }],
             ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
+            ...(request.tools ? { tools: true } : {}),
           }),
           signal: current.signal,
         });
@@ -72,6 +85,11 @@ export function useAIStream() {
           const lines = buffer.split("\n");
           buffer = lines.pop() ?? "";
           for (const line of lines) {
+            const call = readToolEvent(line);
+            if (call) {
+              setToolCalls((current) => [...current, call]);
+              continue;
+            }
             const chunk = readChunk(line);
             if (chunk) {
               answer += chunk;
@@ -92,7 +110,30 @@ export function useAIStream() {
     [],
   );
 
-  return { text, error, running, run, stop, reset };
+  return { text, error, running, toolCalls, run, stop, reset };
+}
+
+/**
+ * The agent reports each tool it ran as its own SSE event, so the reader can
+ * see what it looked at before the answer arrives.
+ */
+function readToolEvent(line: string): AIToolCall | null {
+  if (!line.startsWith("data:")) return null;
+  const payload = line.slice(5).trim();
+  if (!payload || payload === "[DONE]") return null;
+  try {
+    const parsed = JSON.parse(payload);
+    if (typeof parsed.tool === "string") {
+      return {
+        tool: parsed.tool,
+        arguments: parsed.arguments,
+        error: parsed.error || undefined,
+      };
+    }
+  } catch {
+    // Not JSON: a heartbeat or a comment.
+  }
+  return null;
 }
 
 function readChunk(line: string): string {

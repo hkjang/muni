@@ -364,6 +364,13 @@ paths:
   /ai/chat:
     post:
       summary: Stream an OpenAI-compatible chat response using SSE
+      description: >-
+        With `tools: true` the model may search and read documents before it
+        answers. Every tool applies the caller's own document ACL, so the agent
+        cannot reach anything the person asking would not be shown, and every
+        call is written to the audit log. Tools only read; changing a document
+        stays a proposal the author accepts. Each call is reported on the stream
+        as an `event: tool` frame before the answer arrives.
       requestBody:
         required: true
         content:
@@ -374,6 +381,9 @@ paths:
               properties:
                 documentId: { type: [string, 'null'], format: uuid }
                 action: { type: string }
+                tools:
+                  type: boolean
+                  description: let the model search and read documents before answering
                 maxTokens: { type: integer, minimum: 1, maximum: 262144 }
                 messages:
                   type: array

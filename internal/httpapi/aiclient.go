@@ -29,6 +29,7 @@ type aiQuirks struct {
 	DeveloperRole       bool
 	NoSystemRole        bool
 	NoStreaming         bool
+	NoTools             bool
 	TokenCap            int
 	VersionedPath       bool
 }
@@ -105,6 +106,7 @@ type aiRequest struct {
 	maxTokens   int
 	temperature *float64
 	stream      bool
+	tools       []map[string]any
 }
 
 type aiUpstreamError struct {
@@ -200,6 +202,10 @@ func buildAIPayload(config settings.AI, request aiRequest, quirks aiQuirks) map[
 	if request.temperature != nil && !quirks.NoTemperature {
 		payload["temperature"] = *request.temperature
 	}
+	if len(request.tools) > 0 && !quirks.NoTools {
+		payload["tools"] = request.tools
+		payload["tool_choice"] = "auto"
+	}
 	return payload
 }
 
@@ -209,10 +215,16 @@ func prepareMessages(messages []aiMessage, quirks aiQuirks) []map[string]any {
 	out := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
 		content := normalizeMessageContent(message.Content)
+		// An assistant turn that only calls tools carries no text, and a tool
+		// result must be kept even when it is an empty object.
+		carriesToolPlumbing := len(message.ToolCalls) > 0 || message.ToolCallID != ""
 		if content == nil {
-			continue
+			if !carriesToolPlumbing {
+				continue
+			}
+			content = ""
 		}
-		if text, ok := content.(string); ok && strings.TrimSpace(text) == "" {
+		if text, ok := content.(string); ok && strings.TrimSpace(text) == "" && !carriesToolPlumbing {
 			continue
 		}
 		role := message.Role
@@ -224,7 +236,14 @@ func prepareMessages(messages []aiMessage, quirks aiQuirks) []map[string]any {
 				role = "developer"
 			}
 		}
-		out = append(out, map[string]any{"role": role, "content": content})
+		entry := map[string]any{"role": role, "content": content}
+		if len(message.ToolCalls) > 0 {
+			entry["tool_calls"] = message.ToolCalls
+		}
+		if message.ToolCallID != "" {
+			entry["tool_call_id"] = message.ToolCallID
+		}
+		out = append(out, entry)
 	}
 	if len(out) == 0 {
 		out = append(out, map[string]any{"role": "user", "content": " "})
@@ -313,6 +332,12 @@ func adaptQuirks(quirks aiQuirks, status int, body string, request aiRequest) (a
 	}
 	if unsupported("stream") && !quirks.NoStreaming {
 		quirks.NoStreaming = true
+		return quirks, true
+	}
+	// A gateway without function calling should still answer in plain text
+	// rather than failing the request outright.
+	if (strings.Contains(lower, "tool") || strings.Contains(lower, "function")) && !quirks.NoTools && len(request.tools) > 0 {
+		quirks.NoTools = true
 		return quirks, true
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,7 @@ import (
 )
 
 func newAIServer() *Server {
-	return &Server{aiCompat: newAICompatibility()}
+	return &Server{aiCompat: newAICompatibility(), logger: slog.New(slog.DiscardHandler)}
 }
 
 func TestChatEndpointBuilding(t *testing.T) {

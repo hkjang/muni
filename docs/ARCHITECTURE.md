@@ -22,6 +22,16 @@ Browser (React + Tiptap + Yjs + IndexedDB)
 
 React assets, Korean web fonts, Go API, the OOXML reader/writer, the pure-Go PDF text extractor and the headless Chromium used for PDF rendering are all present in `muni:v<version>`.
 
+The document agent may call tools before it answers, and every tool resolves
+the caller's own document access first: search runs the same ACL-filtered query
+the search endpoint uses, and anything that names a document checks
+`documentRole` before reading it. Tool arguments come from the model, so a call
+that fails — a malformed id, a document the caller cannot see, a panic — is
+turned into an error the model is told about rather than one that ends the
+request. Rounds and total calls are capped, and running out of rounds asks once
+more without tools so the reader still gets an answer. Tools only read: a change
+to a document stays a proposal a person accepts.
+
 Yjs updates were append-only, so a document's history — and the payload every
 client downloaded on open — grew without bound, and each client pushed a full
 document state back on connect. `collab_snapshots` now holds one merged state

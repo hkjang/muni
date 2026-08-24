@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -526,16 +527,28 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	}
 	all, _ := s.settings.GetAll(r.Context(), false)
 	limit := parseLimit(r.URL.Query().Get("limit"), all.General.PageSize)
-	rows, err := s.db.Query(r.Context(), `SELECT d.id,d.workspace_id,d.title,d.status,d.updated_at,u.display_name,ts_headline('simple',d.content_text,websearch_to_tsquery('simple',$1),'MaxWords=24,MinWords=8') FROM documents d JOIN users u ON u.id=d.owner_id WHERE d.deleted_at IS NULL
+	items, err := s.searchVisibleDocuments(r.Context(), p.User, q, limit)
+	if err != nil {
+		writeError(w, 500, "SEARCH_FAILED", "검색하지 못했습니다.")
+		return
+	}
+	s.audit(r, &p.User.ID, "SEARCH_DOCUMENT", "SEARCH", nil, map[string]any{"queryLength": len([]rune(q))})
+	writeData(w, 200, items)
+}
+
+// searchVisibleDocuments runs the full-text search with the same access rules
+// everywhere it is used, so the AI agent cannot reach documents the person
+// asking would not be shown.
+func (s *Server) searchVisibleDocuments(ctx context.Context, user User, query string, limit int) ([]map[string]any, error) {
+	rows, err := s.db.Query(ctx, `SELECT d.id,d.workspace_id,d.title,d.status,d.updated_at,u.display_name,ts_headline('simple',d.content_text,websearch_to_tsquery('simple',$1),'MaxWords=24,MinWords=8') FROM documents d JOIN users u ON u.id=d.owner_id WHERE d.deleted_at IS NULL
 	AND (to_tsvector('simple',coalesce(d.title,'')||' '||coalesce(d.content_text,''))@@websearch_to_tsquery('simple',$1)
 		OR d.title ILIKE '%'||$1||'%' OR d.content_text ILIKE '%'||$1||'%' OR u.display_name ILIKE '%'||$1||'%'
 		OR EXISTS(SELECT 1 FROM comments c WHERE c.document_id=d.id AND c.deleted_at IS NULL AND c.body ILIKE '%'||$1||'%')
 		OR EXISTS(SELECT 1 FROM attachments a WHERE a.document_id=d.id AND a.name ILIKE '%'||$1||'%')
 		OR EXISTS(SELECT 1 FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=d.id AND t.name ILIKE '%'||$1||'%'))
-	AND (d.owner_id=$2 OR d.visibility='ORGANIZATION' OR EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=d.workspace_id AND wm.user_id=$2 AND d.visibility='WORKSPACE') OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id=d.id AND dp.subject_type='USER' AND dp.subject_id=$2 AND (dp.expires_at IS NULL OR dp.expires_at>now())) OR $3='ADMIN') ORDER BY ts_rank(to_tsvector('simple',coalesce(d.title,'')||' '||coalesce(d.content_text,'')),websearch_to_tsquery('simple',$1)) DESC,d.updated_at DESC LIMIT $4`, q, p.User.ID, p.User.Role, limit)
+	AND (d.owner_id=$2 OR d.visibility='ORGANIZATION' OR EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=d.workspace_id AND wm.user_id=$2 AND d.visibility='WORKSPACE') OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id=d.id AND dp.subject_type='USER' AND dp.subject_id=$2 AND (dp.expires_at IS NULL OR dp.expires_at>now())) OR $3='ADMIN') ORDER BY ts_rank(to_tsvector('simple',coalesce(d.title,'')||' '||coalesce(d.content_text,'')),websearch_to_tsquery('simple',$1)) DESC,d.updated_at DESC LIMIT $4`, query, user.ID, user.Role, limit)
 	if err != nil {
-		writeError(w, 500, "SEARCH_FAILED", "검색하지 못했습니다.")
-		return
+		return nil, err
 	}
 	defer rows.Close()
 	items := make([]map[string]any, 0)
@@ -547,6 +560,5 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 			items = append(items, map[string]any{"id": id, "workspaceId": wid, "title": title, "status": status, "updatedAt": updated, "ownerName": owner, "snippet": snippet})
 		}
 	}
-	s.audit(r, &p.User.ID, "SEARCH_DOCUMENT", "SEARCH", nil, map[string]any{"queryLength": len([]rune(q))})
-	writeData(w, 200, items)
+	return items, rows.Err()
 }

@@ -17,14 +17,17 @@ import (
 )
 
 type aiMessage struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role       string     `json:"role"`
+	Content    any        `json:"content"`
+	ToolCalls  []toolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
 type aiChatInput struct {
 	Messages    []aiMessage `json:"messages"`
 	DocumentID  *uuid.UUID  `json:"documentId"`
 	SessionID   *uuid.UUID  `json:"sessionId"`
 	Action      string      `json:"action"`
+	Tools       bool        `json:"tools"`
 	MaxTokens   int         `json:"maxTokens"`
 	Temperature *float64    `json:"temperature,omitempty"`
 }
@@ -95,6 +98,12 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(config.TimeoutSeconds)*time.Second)
 	defer cancel()
+
+	if input.Tools {
+		s.streamAgentAnswer(w, r, ctx, config, p, input, messages, maxTokens)
+		return
+	}
+
 	response, quirks, err := s.call(ctx, aiRequest{
 		config:      config,
 		messages:    messages,
@@ -215,4 +224,68 @@ func truncateRunes(value string, max int) string {
 	}
 	runes := []rune(value)
 	return string(runes[:max]) + "\n[…문서 컨텍스트가 길어 일부 생략됨…]"
+}
+
+// streamAgentAnswer runs the tool-using agent and reports it on the same event
+// stream a plain chat uses, so the editor reads one protocol either way.
+func (s *Server) streamAgentAnswer(
+	w http.ResponseWriter,
+	r *http.Request,
+	ctx context.Context,
+	config settings.AI,
+	p principal,
+	input aiChatInput,
+	messages []aiMessage,
+	maxTokens int,
+) {
+	messages = append([]aiMessage{{
+		Role: "system",
+		Content: "필요하면 제공된 도구로 문서를 찾아 읽은 뒤 답하세요. " +
+			"확인하지 않은 내용을 지어내지 말고, 근거가 된 문서의 제목을 답변에 밝히세요. " +
+			"도구는 사용자가 접근할 수 있는 문서만 돌려줍니다.",
+	}}, messages...)
+
+	calls := make([]agentCall, 0, 4)
+	run, err := s.runAgent(ctx, config, p.User, messages, maxTokens, input.Temperature,
+		func(call agentCall) {
+			calls = append(calls, call)
+			s.audit(r, &p.User.ID, "AI_TOOL_"+strings.ToUpper(call.Name), "DOCUMENT", input.DocumentID,
+				map[string]any{"tool": call.Name, "error": call.Error})
+		})
+	if err != nil {
+		var upstream *aiUpstreamError
+		code := "AI_UPSTREAM_UNAVAILABLE"
+		if errors.As(err, &upstream) {
+			code = "AI_UPSTREAM_ERROR"
+		}
+		s.logger.Warn("ai agent failed", "model", config.Model, "error", err.Error())
+		writeError(w, 502, code, err.Error())
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, 500, "STREAMING_UNAVAILABLE", "이 서버에서는 스트리밍을 사용할 수 없습니다.")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(200)
+	writeAgentEvents(w, flusher, run)
+
+	action := input.Action
+	if action == "" {
+		action = "agent"
+	}
+	names := make([]string, 0, len(run.Calls))
+	for _, call := range run.Calls {
+		names = append(names, call.Name)
+	}
+	_, _ = s.db.Exec(r.Context(), `INSERT INTO ai_actions(session_id,user_id,document_id,action,model,status,metadata) VALUES($1,$2,$3,$4,$5,'COMPLETED',$6)`,
+		input.SessionID, p.User.ID, input.DocumentID, truncate(action, 80), config.Model,
+		map[string]any{"maxTokens": maxTokens, "tools": names})
+	s.audit(r, &p.User.ID, "AI_"+strings.ToUpper(action), "DOCUMENT", input.DocumentID,
+		map[string]any{"model": config.Model, "maxTokens": maxTokens, "toolCalls": len(run.Calls)})
 }
