@@ -17,12 +17,14 @@ import { EditorStatus } from "../features/editor/EditorStatus";
 import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { EditorStatusBar } from "../features/editor/EditorStatusBar";
+import { LinkMenu } from "../features/editor/LinkMenu";
 import { ShortcutsDialog } from "../features/editor/ShortcutsDialog";
 import { TableTools } from "../features/editor/TableTools";
 import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
 import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { LineHeight } from "../features/editor/extensions/lineHeight";
+import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
 import { PresentationDialog } from "../features/editor/presentations/PresentationDialog";
@@ -144,6 +146,7 @@ export function EditorPage() {
       TextStyleKit,
       BlockId,
       LineHeight,
+      ParagraphIndent,
       SearchHighlight,
     ],
     [collaboration.provider, collaboration.ydoc, user?.displayName, user?.id],
@@ -604,6 +607,7 @@ export function EditorPage() {
               maxTokens={capabilities.data?.maxAiTokens}
             />
             <TableTools editor={editor} canEdit={canEdit && mode === "editing"} />
+            <LinkMenu editor={editor} canEdit={canEdit && mode === "editing"} />
           </Paper>
         </Box>
         {!compact && sideOpen && (

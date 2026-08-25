@@ -37,8 +37,8 @@ const groups: { title: string; items: [string, string][] }[] = [
     items: [
       ["Ctrl Alt 1~6", "제목 1~6"],
       ["Ctrl Alt 0", "본문"],
-      ["Tab", "목록 한 단계 안으로"],
-      ["Shift Tab", "목록 한 단계 밖으로"],
+      ["Tab", "들여쓰기 (목록은 한 단계 안으로)"],
+      ["Shift Tab", "내어쓰기 (목록은 한 단계 밖으로)"],
       ["Ctrl Z", "실행 취소"],
       ["Ctrl Shift Z", "다시 실행"],
     ],

@@ -15,6 +15,7 @@ import {
   BorderColor,
   Code,
   FormatAlignCenter,
+  FormatAlignJustify,
   FormatAlignLeft,
   FormatAlignRight,
   FormatBold,
@@ -23,6 +24,7 @@ import {
   FormatLineSpacing,
   FormatIndentDecrease,
   FormatIndentIncrease,
+  FormatTextdirectionLToR,
   FormatItalic,
   FormatListBulleted,
   FormatListNumbered,
@@ -38,6 +40,22 @@ import {
   Undo,
 } from "@mui/icons-material";
 import { api } from "../../lib/api";
+import { normalizeHref } from "./LinkMenu";
+
+/**
+ * indent moves a list item a level or a paragraph a step, whichever the caret
+ * is in — the two are the same gesture to the person pressing the button.
+ */
+function indent(editor: Editor, direction: 1 | -1) {
+  const listType = editor.isActive("taskItem") ? "taskItem" : "listItem";
+  if (editor.isActive(listType)) {
+    if (direction === 1) editor.chain().focus().sinkListItem(listType).run();
+    else editor.chain().focus().liftListItem(listType).run();
+    return;
+  }
+  if (direction === 1) editor.chain().focus().indentParagraph().run();
+  else editor.chain().focus().outdentParagraph().run();
+}
 
 export function EditorToolbar({
   editor,
@@ -65,17 +83,15 @@ export function EditorToolbar({
     }),
   });
   const link = () => {
-    const previous = editor.getAttributes("link").href as string | undefined;
-    const href = window.prompt(
-      "연결할 URL을 입력하세요.",
-      previous ?? "https://",
-    );
-    if (href === null) return;
-    if (!href) {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    // An existing link is edited in the menu that sits under it; this button
+    // is for turning the selection into one.
+    if (editor.isActive("link")) {
+      editor.chain().focus().extendMarkRange("link").run();
       return;
     }
-    editor.chain().focus().extendMarkRange("link").setLink({ href }).run();
+    const href = normalizeHref(window.prompt("연결할 주소를 입력하세요.", "") ?? "");
+    if (!href) return;
+    editor.chain().focus().setLink({ href }).run();
   };
   const uploadImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -271,6 +287,9 @@ export function EditorToolbar({
         <ToggleButton value="right">
           <FormatAlignRight />
         </ToggleButton>
+        <ToggleButton value="justify">
+          <FormatAlignJustify />
+        </ToggleButton>
       </ToggleButtonGroup>
       <ToggleButtonGroup size="small">
         <ToggleButton
@@ -309,53 +328,22 @@ export function EditorToolbar({
           <Code />
         </ToggleButton>
       </ToggleButtonGroup>
-      <Tooltip title="들여쓰기">
-        <span>
-          <IconButton
-            disabled={
-              !editor
-                .can()
-                .sinkListItem(
-                  editor.isActive("taskItem") ? "taskItem" : "listItem",
-                )
-            }
-            onClick={() =>
-              editor
-                .chain()
-                .focus()
-                .sinkListItem(
-                  editor.isActive("taskItem") ? "taskItem" : "listItem",
-                )
-                .run()
-            }
-          >
-            <FormatIndentIncrease />
-          </IconButton>
-        </span>
+      <Tooltip title="들여쓰기 (Tab)">
+        <IconButton onClick={() => indent(editor, 1)}>
+          <FormatIndentIncrease />
+        </IconButton>
       </Tooltip>
-      <Tooltip title="내어쓰기">
-        <span>
-          <IconButton
-            disabled={
-              !editor
-                .can()
-                .liftListItem(
-                  editor.isActive("taskItem") ? "taskItem" : "listItem",
-                )
-            }
-            onClick={() =>
-              editor
-                .chain()
-                .focus()
-                .liftListItem(
-                  editor.isActive("taskItem") ? "taskItem" : "listItem",
-                )
-                .run()
-            }
-          >
-            <FormatIndentDecrease />
-          </IconButton>
-        </span>
+      <Tooltip title="내어쓰기 (Shift+Tab)">
+        <IconButton onClick={() => indent(editor, -1)}>
+          <FormatIndentDecrease />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="첫 줄 들여쓰기">
+        <IconButton
+          onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+        >
+          <FormatTextdirectionLToR />
+        </IconButton>
       </Tooltip>
       <Tooltip title="링크">
         <IconButton onClick={link}>
