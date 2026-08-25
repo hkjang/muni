@@ -10,13 +10,16 @@ export type AIAction = {
  * straight back into the document, so any preamble would end up in the page.
  */
 const outputRule =
-  "설명, 인사말, 따옴표, 코드 블록 표시 없이 결과 텍스트만 출력하세요. 원문의 언어를 유지하세요.";
+  "설명, 인사말, 따옴표 없이 결과만 출력하세요. 원문의 언어를 유지하세요. " +
+  "원문은 Markdown이며 굵게(**), 기울임(*), 코드(`), 링크([text](url)), 목록, 표, 제목(#) 표시를 그대로 유지하세요. " +
+  "전체를 코드 블록으로 감싸지 마세요.";
 
 export const selectionActions: AIAction[] = [
   {
     id: "polish",
     label: "다듬기",
-    instruction: "다음 글을 뜻을 바꾸지 말고 자연스럽고 명확하게 다듬어 주세요.",
+    instruction:
+      "다음 글을 뜻을 바꾸지 말고 자연스럽고 명확하게 다듬어 주세요.",
   },
   {
     id: "shorten",

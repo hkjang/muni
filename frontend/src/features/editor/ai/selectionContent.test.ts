@@ -36,14 +36,31 @@ describe("toContent", () => {
   });
 
   it("builds a real bullet list when every line is a bullet", () => {
-    expect(toContent("- 첫째\n- 둘째\n* 셋째")).toEqual({
-      type: "bulletList",
-      content: [
-        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "첫째" }] }] },
-        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "둘째" }] }] },
-        { type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "셋째" }] }] },
-      ],
-    });
+    expect(toContent("- 첫째\n- 둘째\n* 셋째")).toEqual([
+      {
+        type: "bulletList",
+        content: [
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "첫째" }] },
+            ],
+          },
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "둘째" }] },
+            ],
+          },
+          {
+            type: "listItem",
+            content: [
+              { type: "paragraph", content: [{ type: "text", text: "셋째" }] },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 
   it("does not treat mixed prose as a list", () => {
@@ -64,7 +81,8 @@ describe("selection actions", () => {
 
   it("tells the model to answer with the replacement text only", () => {
     const prompt = buildPrompt(selectionActions[0]!.instruction, "원본 문장");
-    expect(prompt).toContain("결과 텍스트만 출력");
+    expect(prompt).toContain("결과만 출력");
+    expect(prompt).toContain("Markdown");
     expect(prompt).toContain("원본 문장");
   });
 });

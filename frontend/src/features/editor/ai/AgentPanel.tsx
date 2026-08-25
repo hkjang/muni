@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import {
   Alert,
   Box,
   Button,
   Chip,
+  Collapse,
   FormControlLabel,
   Paper,
   Stack,
@@ -16,14 +17,22 @@ import {
 import {
   AutoAwesome,
   ErrorOutline,
+  ExpandLess,
+  ExpandMore,
   ManageSearch,
+  PsychologyOutlined,
 } from "@mui/icons-material";
 import type { DocumentItem } from "../../../types";
+import { Markdown } from "../../../components/Markdown";
+import { markdownToContent } from "../../../lib/markdownContent";
 import { useAIStream } from "./useAIStream";
 
 const shortcuts = [
   { label: "문서 요약", prompt: "이 문서를 핵심 항목 중심으로 요약해줘." },
-  { label: "내용 검토", prompt: "이 문서의 논리, 누락, 모호한 표현을 검토해줘." },
+  {
+    label: "내용 검토",
+    prompt: "이 문서의 논리, 누락, 모호한 표현을 검토해줘.",
+  },
   { label: "목차 제안", prompt: "이 문서에 적절한 목차와 구조를 제안해줘." },
 ];
 
@@ -69,11 +78,21 @@ export function AgentPanel({
   // With tools on, the model may search and read other documents the reader
   // has access to before answering; off, it only sees this one.
   const [useTools, setUseTools] = useState(false);
+  // The working is worth watching while it is the only thing happening, and
+  // worth folding away the moment the answer starts.
+  const [openReasoning, setOpenReasoning] = useState(false);
+  const [pinnedReasoning, setPinnedReasoning] = useState(false);
   const stream = useAIStream();
+
+  useEffect(() => {
+    if (pinnedReasoning) return;
+    setOpenReasoning(stream.thinking);
+  }, [stream.thinking, pinnedReasoning]);
 
   const ask = (value = prompt, tools = useTools) => {
     if (!value.trim() || stream.running) return;
     setPrompt(value);
+    setPinnedReasoning(false);
     void stream.run({
       prompt: value,
       action: tools ? "workspace_agent" : "document_agent",
@@ -185,23 +204,58 @@ export function AgentPanel({
         </Stack>
       )}
       {stream.error && <Alert severity="error">{stream.error}</Alert>}
+      {stream.reasoning && (
+        <Paper variant="outlined" sx={{ borderRadius: 1.5 }}>
+          <Stack
+            direction="row"
+            alignItems="center"
+            gap={0.75}
+            sx={{ px: 1.5, py: 1, cursor: "pointer" }}
+            onClick={() => {
+              setPinnedReasoning(true);
+              setOpenReasoning((current) => !current);
+            }}
+          >
+            <PsychologyOutlined fontSize="small" color="disabled" />
+            <Typography variant="caption" color="text.secondary" flex={1}>
+              {stream.thinking ? "생각하는 중…" : "생각한 과정"}
+            </Typography>
+            {openReasoning ? (
+              <ExpandLess fontSize="small" color="disabled" />
+            ) : (
+              <ExpandMore fontSize="small" color="disabled" />
+            )}
+          </Stack>
+          <Collapse in={openReasoning}>
+            <Box
+              sx={{
+                px: 1.5,
+                pb: 1.5,
+                maxHeight: 260,
+                overflowY: "auto",
+                whiteSpace: "pre-wrap",
+                fontSize: 13,
+                lineHeight: 1.65,
+                color: "text.secondary",
+                borderTop: "1px solid",
+                borderColor: "divider",
+                pt: 1.25,
+              }}
+            >
+              {stream.reasoning}
+            </Box>
+          </Collapse>
+        </Paper>
+      )}
       {(stream.text || stream.running) && (
-        <Paper
-          variant="outlined"
-          sx={{
-            p: 2,
-            bgcolor: "#fafafe",
-            whiteSpace: "pre-wrap",
-            fontSize: 15,
-            lineHeight: 1.7,
-          }}
-        >
-          {stream.text ||
-            (stream.thinking ? (
-              <Typography component="span" color="text.secondary">
-                생각하는 중…
-              </Typography>
-            ) : null)}
+        <Paper variant="outlined" sx={{ p: 2, bgcolor: "#fafafe" }}>
+          {stream.text ? (
+            <Markdown text={stream.text} />
+          ) : stream.thinking ? (
+            <Typography component="span" color="text.secondary">
+              생각하는 중…
+            </Typography>
+          ) : null}
           {stream.running && (
             <Box
               component="span"
@@ -218,11 +272,19 @@ export function AgentPanel({
           )}
         </Paper>
       )}
-      {stream.text && canEdit && (
+      {stream.text && !stream.running && canEdit && (
         <Button
           variant="outlined"
           onClick={() =>
-            editor.chain().focus().insertContent(stream.text).run()
+            editor
+              .chain()
+              .focus()
+              // The answer is Markdown; inserting it as text would put the
+              // asterisks and hashes into the document.
+              .insertContent(
+                markdownToContent(stream.text, { forceBlocks: true }),
+              )
+              .run()
           }
         >
           커서 위치에 삽입

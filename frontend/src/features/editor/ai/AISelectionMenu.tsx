@@ -22,8 +22,14 @@ import {
   SendOutlined,
   StopOutlined,
 } from "@mui/icons-material";
+import { Markdown } from "../../../components/Markdown";
 import { buildPrompt, selectionActions } from "./aiActions";
-import { toContent } from "./selectionContent";
+import {
+  resultContent,
+  selectionMarkdown,
+  selectionShape,
+  type SelectionShape,
+} from "./selectionContent";
 import { useAIStream } from "./useAIStream";
 
 type Range = { from: number; to: number };
@@ -51,6 +57,7 @@ export function AISelectionMenu({
   const [custom, setCustom] = useState("");
   const [asking, setAsking] = useState(false);
   const originalRef = useRef("");
+  const shapeRef = useRef<SelectionShape>({ inline: true });
 
   const active = Boolean(range) || stream.running;
 
@@ -61,14 +68,18 @@ export function AISelectionMenu({
     setCustom("");
     setAsking(false);
     originalRef.current = "";
+    shapeRef.current = { inline: true };
   }, [stream]);
 
   const start = useCallback(
     async (instruction: string, actionLabel: string) => {
       const { from, to } = editor.state.selection;
-      const selected = editor.state.doc.textBetween(from, to, "\n", " ").trim();
+      // The model is shown Markdown, not stripped text, so the formatting in
+      // the selection survives the rewrite.
+      const selected = selectionMarkdown(editor, from, to);
       if (!selected) return;
       originalRef.current = selected;
+      shapeRef.current = selectionShape(editor, from, to);
       setRange({ from, to });
       setLabel(actionLabel);
       setAsking(false);
@@ -87,18 +98,28 @@ export function AISelectionMenu({
     editor
       .chain()
       .focus()
-      .insertContentAt(range, toContent(result))
+      .insertContentAt(range, resultContent(result, shapeRef.current))
       .run();
     reset();
   }, [editor, range, reset, stream.text]);
 
   const shouldShow = useMemo(
     () =>
-      ({ editor: current, from, to }: { editor: Editor; from: number; to: number }) => {
+      ({
+        editor: current,
+        from,
+        to,
+      }: {
+        editor: Editor;
+        from: number;
+        to: number;
+      }) => {
         if (!enabled || !canEdit || !current.isEditable) return false;
         if (active) return true;
         if (from === to) return false;
-        return current.state.doc.textBetween(from, to, " ", " ").trim().length > 0;
+        return (
+          current.state.doc.textBetween(from, to, " ", " ").trim().length > 0
+        );
       },
     [active, canEdit, enabled],
   );
@@ -128,7 +149,10 @@ export function AISelectionMenu({
       >
         {!range && !asking && (
           <Stack direction="row" flexWrap="wrap" gap={0.5} alignItems="center">
-            <AutoAwesomeOutlined fontSize="small" sx={{ mx: 0.5, opacity: 0.7 }} />
+            <AutoAwesomeOutlined
+              fontSize="small"
+              sx={{ mx: 0.5, opacity: 0.7 }}
+            />
             {selectionActions.map((action) => (
               <Chip
                 key={action.id}
@@ -147,7 +171,12 @@ export function AISelectionMenu({
         )}
 
         {!range && asking && (
-          <Stack direction="row" gap={1} alignItems="center" sx={{ minWidth: 380 }}>
+          <Stack
+            direction="row"
+            gap={1}
+            alignItems="center"
+            sx={{ minWidth: 380 }}
+          >
             <TextField
               autoFocus
               fullWidth
@@ -203,7 +232,6 @@ export function AISelectionMenu({
                 sx={{
                   maxHeight: 220,
                   overflowY: "auto",
-                  whiteSpace: "pre-wrap",
                   fontSize: 14,
                   lineHeight: 1.6,
                   bgcolor: "action.hover",
@@ -212,7 +240,15 @@ export function AISelectionMenu({
                   py: 1,
                 }}
               >
-                {stream.text || (stream.thinking ? "생각하는 중…" : "생성 중…")}
+                {/* The preview is rendered, not shown raw, so it matches what
+                    pressing 적용 will put in the document. */}
+                {stream.text ? (
+                  <Markdown text={stream.text} />
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    {stream.thinking ? "생각하는 중…" : "생성 중…"}
+                  </Typography>
+                )}
               </Box>
             )}
 

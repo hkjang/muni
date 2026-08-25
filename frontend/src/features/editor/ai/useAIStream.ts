@@ -26,6 +26,7 @@ export type AIToolCall = {
 export function useAIStream() {
   const [text, setText] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [reasoning, setReasoning] = useState("");
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
   const [toolCalls, setToolCalls] = useState<AIToolCall[]>([]);
@@ -40,83 +41,116 @@ export function useAIStream() {
     stop();
     setText("");
     setThinking(false);
+    setReasoning("");
     setError("");
     setToolCalls([]);
     setRunning(false);
   }, [stop]);
 
-  const run = useCallback(
-    async (request: AIStreamRequest): Promise<string> => {
-      controller.current?.abort();
-      const current = new AbortController();
-      controller.current = current;
-      setText("");
-      setThinking(false);
-      setError("");
-      setToolCalls([]);
-      setRunning(true);
+  const run = useCallback(async (request: AIStreamRequest): Promise<string> => {
+    controller.current?.abort();
+    const current = new AbortController();
+    controller.current = current;
+    setText("");
+    setThinking(false);
+    setReasoning("");
+    setError("");
+    setToolCalls([]);
+    setRunning(true);
 
-      let answer = "";
-      try {
-        const response = await fetch("/api/v1/ai/chat", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-          },
-          body: JSON.stringify({
-            action: request.action,
-            documentId: request.documentId ?? null,
-            messages: [{ role: "user", content: request.prompt }],
-            ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
-            ...(request.tools ? { tools: true } : {}),
-          }),
-          signal: current.signal,
-        });
-        if (!response.ok) {
-          const body = await response.json().catch(() => null);
-          throw new Error(body?.error?.message ?? "AI 요청에 실패했습니다.");
-        }
-        const reader = response.body?.getReader();
-        if (!reader) throw new Error("스트리밍 응답을 읽을 수 없습니다.");
-        const decoder = new TextDecoder();
-        let buffer = "";
-        for (;;) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            const call = readToolEvent(line);
-            if (call) {
-              setToolCalls((current) => [...current, call]);
-              continue;
-            }
-            const chunk = readChunk(line);
-            if (chunk) {
-              answer += chunk;
-              const split = splitReasoning(answer);
-              setText(split.text);
-              setThinking(split.thinking);
-            }
+    let answer = "";
+    try {
+      const response = await fetch("/api/v1/ai/chat", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({
+          action: request.action,
+          documentId: request.documentId ?? null,
+          messages: [{ role: "user", content: request.prompt }],
+          ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
+          ...(request.tools ? { tools: true } : {}),
+        }),
+        signal: current.signal,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error?.message ?? "AI 요청에 실패했습니다.");
+      }
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("스트리밍 응답을 읽을 수 없습니다.");
+      const decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          // The agent reports a mid-stream failure on the stream itself,
+          // because its headers were sent before the run started.
+          const failure = readErrorEvent(line);
+          if (failure) {
+            setError(failure);
+            continue;
+          }
+          const call = readToolEvent(line);
+          if (call) {
+            setToolCalls((current) => [...current, call]);
+            continue;
+          }
+          const chunk = readChunk(line);
+          if (chunk) {
+            answer += chunk;
+            const split = splitReasoning(answer);
+            setText(split.text);
+            setThinking(split.thinking);
+            setReasoning(split.reasoning);
           }
         }
-        return splitReasoning(answer).text;
-      } catch (cause) {
-        if ((cause as Error).name === "AbortError") return splitReasoning(answer).text;
-        setError(errorMessage(cause));
-        return "";
-      } finally {
-        if (controller.current === current) controller.current = null;
-        setRunning(false);
       }
-    },
-    [],
-  );
+      return splitReasoning(answer).text;
+    } catch (cause) {
+      if ((cause as Error).name === "AbortError")
+        return splitReasoning(answer).text;
+      setError(errorMessage(cause));
+      return "";
+    } finally {
+      if (controller.current === current) controller.current = null;
+      setRunning(false);
+    }
+  }, []);
 
-  return { text, thinking, error, running, toolCalls, run, stop, reset };
+  return {
+    text,
+    thinking,
+    reasoning,
+    error,
+    running,
+    toolCalls,
+    run,
+    stop,
+    reset,
+  };
+}
+
+/** An `{"error": "…"}` payload is a failure the server could only report here. */
+function readErrorEvent(line: string): string {
+  if (!line.startsWith("data:")) return "";
+  const payload = line.slice(5).trim();
+  if (!payload || payload === "[DONE]") return "";
+  try {
+    const parsed = JSON.parse(payload);
+    if (typeof parsed.error === "string" && !("tool" in parsed))
+      return parsed.error;
+  } catch {
+    // Not JSON: a heartbeat or a comment.
+  }
+  return "";
 }
 
 /**
@@ -151,9 +185,7 @@ function readChunk(line: string): string {
     const content = parsed.choices?.[0]?.delta?.content;
     if (typeof content === "string") return content;
     if (Array.isArray(content)) {
-      return content
-        .map((part: { text?: string }) => part.text ?? "")
-        .join("");
+      return content.map((part: { text?: string }) => part.text ?? "").join("");
     }
   } catch {
     // Provider heartbeats and comments are not JSON; ignore them.
