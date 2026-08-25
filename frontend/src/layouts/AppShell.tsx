@@ -9,6 +9,7 @@ import {
   HomeOutlined,
   Logout,
   Menu as MenuIcon,
+  OpenInNew,
   PersonOutline,
   Search,
   SettingsOutlined,
@@ -267,6 +268,17 @@ export function AppShell() {
           </ListItemIcon>
           <ListItemText primary="개인 설정" />
         </ListItemButton>
+        {/* Service admin used to live only inside the avatar menu, which is a
+            place you have to already know about. */}
+        {user?.role === "ADMIN" && (
+          <ListItemButton onClick={() => nav("/admin")}>
+            <ListItemIcon>
+              <AdminPanelSettingsOutlined />
+            </ListItemIcon>
+            <ListItemText primary="서비스 관리" />
+            <OpenInNew fontSize="small" color="disabled" />
+          </ListItemButton>
+        )}
       </List>
     </Box>
   );
@@ -492,7 +504,6 @@ export function AppShell() {
   );
 }
 
-
 /** isTypingTarget keeps the "/" shortcut out of the way while someone writes. */
 function isTypingTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
@@ -504,6 +515,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 function shortcutHint(): string {
   const mac =
-    typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+    typeof navigator !== "undefined" &&
+    /Mac|iPhone|iPad/.test(navigator.platform);
   return mac ? "⌘K" : "Ctrl K";
 }

@@ -19,6 +19,7 @@ import {
   SearchOutlined,
 } from "@mui/icons-material";
 import { api } from "../../lib/api";
+import { useAuth } from "../../contexts/AuthContext";
 import type { DocumentItem, Workspace } from "../../types";
 import { groupCommands, rank, type QuickCommand } from "./commands";
 
@@ -31,12 +32,87 @@ type SearchResult = {
 };
 
 const staticDestinations: QuickCommand[] = [
-  { id: "go:home", label: "홈", group: "이동", to: "/", keywords: "dashboard home" },
-  { id: "go:favorites", label: "즐겨찾기", group: "이동", to: "/favorites", keywords: "favorites star" },
-  { id: "go:shared", label: "공유 문서", group: "이동", to: "/shared", keywords: "shared" },
-  { id: "go:approvals", label: "승인 대기", group: "이동", to: "/approvals", keywords: "approvals" },
-  { id: "go:trash", label: "휴지통", group: "이동", to: "/trash", keywords: "trash" },
-  { id: "go:settings", label: "개인 설정", group: "이동", to: "/settings", keywords: "settings profile" },
+  {
+    id: "go:home",
+    label: "홈",
+    group: "이동",
+    to: "/",
+    keywords: "dashboard home",
+  },
+  {
+    id: "go:favorites",
+    label: "즐겨찾기",
+    group: "이동",
+    to: "/favorites",
+    keywords: "favorites star",
+  },
+  {
+    id: "go:shared",
+    label: "공유 문서",
+    group: "이동",
+    to: "/shared",
+    keywords: "shared",
+  },
+  {
+    id: "go:approvals",
+    label: "승인 대기",
+    group: "이동",
+    to: "/approvals",
+    keywords: "approvals",
+  },
+  {
+    id: "go:trash",
+    label: "휴지통",
+    group: "이동",
+    to: "/trash",
+    keywords: "trash",
+  },
+  {
+    id: "go:settings",
+    label: "개인 설정",
+    group: "이동",
+    to: "/settings",
+    keywords: "settings profile",
+  },
+];
+
+/** Only reachable by an administrator, so they are added per user. */
+const adminDestinations: QuickCommand[] = [
+  {
+    id: "go:admin",
+    label: "서비스 관리",
+    group: "이동",
+    to: "/admin",
+    keywords: "admin 관리자 service settings",
+  },
+  {
+    id: "go:admin-users",
+    label: "사용자 관리",
+    group: "이동",
+    to: "/admin/users",
+    keywords: "admin users 계정",
+  },
+  {
+    id: "go:admin-keys",
+    label: "키 권한 정책",
+    group: "이동",
+    to: "/admin/key-policies",
+    keywords: "admin key policy",
+  },
+  {
+    id: "go:admin-ai",
+    label: "AI 호출 감사",
+    group: "이동",
+    to: "/admin/ai-usage",
+    keywords: "admin ai usage token",
+  },
+  {
+    id: "go:admin-audit",
+    label: "감사 로그",
+    group: "이동",
+    to: "/admin/audit",
+    keywords: "admin audit log",
+  },
 ];
 
 /**
@@ -55,13 +131,15 @@ export function QuickSwitcher({
   onClose: () => void;
 }) {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLUListElement>(null);
 
   const recent = useQuery({
     queryKey: ["user-documents", "recent"],
-    queryFn: () => api<DocumentItem[]>("/api/v1/documents?scope=recent&limit=24"),
+    queryFn: () =>
+      api<DocumentItem[]>("/api/v1/documents?scope=recent&limit=24"),
     enabled: open,
   });
   const workspaces = useQuery({
@@ -76,7 +154,10 @@ export function QuickSwitcher({
   const searching = trimmed.length >= 2;
   const search = useQuery({
     queryKey: ["quick-search", trimmed],
-    queryFn: () => api<SearchResult[]>(`/api/v1/search?q=${encodeURIComponent(trimmed)}&limit=12`),
+    queryFn: () =>
+      api<SearchResult[]>(
+        `/api/v1/search?q=${encodeURIComponent(trimmed)}&limit=12`,
+      ),
     enabled: open && searching,
   });
 
@@ -95,7 +176,10 @@ export function QuickSwitcher({
       });
     }
     const workspaceNames = new Map(
-      (workspaces.data ?? []).map((workspace) => [workspace.id, workspace.name]),
+      (workspaces.data ?? []).map((workspace) => [
+        workspace.id,
+        workspace.name,
+      ]),
     );
     for (const document of recent.data ?? []) {
       if (seen.has(document.id)) continue;
@@ -118,6 +202,7 @@ export function QuickSwitcher({
       });
     }
     out.push(...staticDestinations);
+    if (user?.role === "ADMIN") out.push(...adminDestinations);
     if (trimmed) {
       out.push({
         id: "action:search",
@@ -127,7 +212,7 @@ export function QuickSwitcher({
       });
     }
     return out;
-  }, [recent.data, search.data, workspaces.data, trimmed]);
+  }, [recent.data, search.data, workspaces.data, trimmed, user?.role]);
 
   // A search result already matched on the server, so ranking again would only
   // drop rows whose match was in the body rather than the title.
@@ -143,7 +228,10 @@ export function QuickSwitcher({
   }, [commands, trimmed, searching]);
 
   const grouped = useMemo(() => groupCommands(matches), [matches]);
-  const flat = useMemo(() => grouped.flatMap((entry) => entry.commands), [grouped]);
+  const flat = useMemo(
+    () => grouped.flatMap((entry) => entry.commands),
+    [grouped],
+  );
 
   useEffect(() => setActive(0), [trimmed, matches.length]);
   useEffect(() => {
@@ -166,7 +254,9 @@ export function QuickSwitcher({
       onClose={onClose}
       fullWidth
       maxWidth="sm"
-      slotProps={{ paper: { sx: { position: "fixed", top: 80, m: 0, borderRadius: 2 } } }}
+      slotProps={{
+        paper: { sx: { position: "fixed", top: 80, m: 0, borderRadius: 2 } },
+      }}
     >
       <Stack direction="row" alignItems="center" gap={1} px={2} py={1.25}>
         <SearchOutlined color="disabled" />
@@ -196,7 +286,14 @@ export function QuickSwitcher({
         {search.isFetching && <CircularProgress size={16} />}
       </Stack>
 
-      <Box sx={{ borderTop: "1px solid", borderColor: "divider", maxHeight: 420, overflowY: "auto" }}>
+      <Box
+        sx={{
+          borderTop: "1px solid",
+          borderColor: "divider",
+          maxHeight: 420,
+          overflowY: "auto",
+        }}
+      >
         {flat.length === 0 ? (
           <Typography color="text.secondary" textAlign="center" py={4}>
             {searching ? "찾는 항목이 없습니다." : "최근 문서가 없습니다."}
@@ -229,12 +326,19 @@ export function QuickSwitcher({
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography noWrap>{command.label}</Typography>
                           {command.detail && (
-                            <Typography variant="caption" color="text.secondary" noWrap display="block">
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              noWrap
+                              display="block"
+                            >
                               {command.detail}
                             </Typography>
                           )}
                         </Box>
-                        {index === active && <Chip size="small" label="Enter" />}
+                        {index === active && (
+                          <Chip size="small" label="Enter" />
+                        )}
                       </ListItemButton>
                     );
                   })}

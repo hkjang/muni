@@ -108,6 +108,16 @@ export type Settings = {
     auditReads: boolean;
   };
   export: { enablePdf: boolean; enableDocx: boolean };
+  ptium: {
+    enabled: boolean;
+    baseUrl: string;
+    webUrl: string;
+    apiKey?: string;
+    apiKeySet: boolean;
+    defaultTheme: string;
+    defaultLocale: string;
+    timeoutSeconds: number;
+  };
 };
 
 export type CommentItem = {

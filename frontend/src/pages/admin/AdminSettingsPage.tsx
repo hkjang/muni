@@ -6,6 +6,7 @@ import {
   SaveOutlined,
   SecurityOutlined,
   SettingsOutlined,
+  SlideshowOutlined,
   VpnKeyOutlined,
 } from "@mui/icons-material";
 import {
@@ -66,6 +67,15 @@ const blank: Settings = {
     auditReads: true,
   },
   export: { enablePdf: true, enableDocx: true },
+  ptium: {
+    enabled: false,
+    baseUrl: "",
+    webUrl: "",
+    apiKeySet: false,
+    defaultTheme: "",
+    defaultLocale: "ko",
+    timeoutSeconds: 120,
+  },
 };
 export function AdminSettingsPage() {
   const { refresh } = useAuth();
@@ -109,6 +119,15 @@ export function AdminSettingsPage() {
       }),
     onSuccess: () => setNotice("AI API 연결과 모델 응답을 확인했습니다."),
   });
+  const testPtium = useMutation({
+    mutationFn: () =>
+      api<{ baseUrl: string }>("/api/v1/admin/settings/test-ptium", {
+        method: "POST",
+        ...jsonBody(form.ptium),
+      }),
+    onSuccess: (data) =>
+      setNotice(`Ptium 서버(${data.baseUrl})에 연결했습니다.`),
+  });
   const setGroup = <K extends keyof Settings>(group: K, value: Settings[K]) =>
     setForm((current) => ({ ...current, [group]: value }));
   if (query.isLoading)
@@ -139,9 +158,11 @@ export function AdminSettingsPage() {
           전체 저장
         </Button>
       </Stack>
-      {(save.error || testOIDC.error || testAI.error) && (
+      {(save.error || testOIDC.error || testAI.error || testPtium.error) && (
         <Alert severity="error" sx={{ mt: 2 }}>
-          {errorMessage(save.error || testOIDC.error || testAI.error)}
+          {errorMessage(
+            save.error || testOIDC.error || testAI.error || testPtium.error,
+          )}
         </Alert>
       )}
       {notice && (
@@ -171,6 +192,11 @@ export function AdminSettingsPage() {
           icon={<SecurityOutlined />}
           iconPosition="start"
           label="보안·내보내기"
+        />
+        <Tab
+          icon={<SlideshowOutlined />}
+          iconPosition="start"
+          label="발표자료 연동"
         />
       </Tabs>
       <Card sx={{ p: { xs: 2, sm: 3 }, mt: 2 }}>
@@ -571,6 +597,109 @@ export function AdminSettingsPage() {
               }
               label="DOCX 내보내기"
             />
+          </Stack>
+        )}
+        {tab === 5 && (
+          <Stack gap={2} maxWidth={760}>
+            <Section
+              title="Ptium 발표자료 연동"
+              description="문서에서 발표자료를 만들고, 문서가 바뀌면 슬라이드를 다시 맞춥니다. muni는 REST로만 연결하며 Ptium의 데이터베이스를 직접 읽지 않습니다."
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.ptium.enabled}
+                  onChange={(_, checked) =>
+                    setGroup("ptium", { ...form.ptium, enabled: checked })
+                  }
+                />
+              }
+              label="발표자료 연동 활성화"
+            />
+            <TextField
+              label="API Base URL"
+              placeholder="http://ptium.internal/api"
+              value={form.ptium.baseUrl}
+              onChange={(e) =>
+                setGroup("ptium", { ...form.ptium, baseUrl: e.target.value })
+              }
+              helperText="muni 서버에서 호출하는 주소입니다."
+            />
+            <TextField
+              label="편집 화면 주소 (비우면 API 주소와 동일)"
+              placeholder="https://ptium.example.com"
+              value={form.ptium.webUrl}
+              onChange={(e) =>
+                setGroup("ptium", { ...form.ptium, webUrl: e.target.value })
+              }
+              helperText="'Ptium에서 편집' 링크가 향하는 곳입니다. 브라우저에서 열 수 있는 주소여야 합니다."
+            />
+            <TextField
+              type="password"
+              label={`API key${form.ptium.apiKeySet ? " (설정됨)" : ""}`}
+              placeholder={
+                form.ptium.apiKeySet ? "변경할 때만 입력" : "Ptium 발급 키"
+              }
+              value={form.ptium.apiKey ?? ""}
+              onChange={(e) =>
+                setGroup("ptium", { ...form.ptium, apiKey: e.target.value })
+              }
+            />
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  label="기본 테마"
+                  placeholder="default"
+                  value={form.ptium.defaultTheme}
+                  onChange={(e) =>
+                    setGroup("ptium", {
+                      ...form.ptium,
+                      defaultTheme: e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  label="기본 언어"
+                  placeholder="ko"
+                  value={form.ptium.defaultLocale}
+                  onChange={(e) =>
+                    setGroup("ptium", {
+                      ...form.ptium,
+                      defaultLocale: e.target.value,
+                    })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="Timeout (초)"
+                  value={form.ptium.timeoutSeconds}
+                  slotProps={{ htmlInput: { min: 5, max: 900 } }}
+                  onChange={(e) =>
+                    setGroup("ptium", {
+                      ...form.ptium,
+                      timeoutSeconds: Number(e.target.value),
+                    })
+                  }
+                />
+              </Grid>
+            </Grid>
+            <Button
+              variant="outlined"
+              onClick={() => testPtium.mutate()}
+              disabled={testPtium.isPending || !form.ptium.baseUrl.trim()}
+            >
+              Ptium 연결 테스트
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              연결이 켜지면 문서 편집 화면 오른쪽에 '발표자료' 탭이 나타납니다.
+            </Typography>
           </Stack>
         )}
       </Card>
