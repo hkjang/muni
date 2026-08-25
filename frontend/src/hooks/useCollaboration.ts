@@ -45,22 +45,83 @@ function userColor(id: string) {
   return colors[Math.abs(hash) % colors.length] ?? colors[0];
 }
 
-export function useCollaboration(documentId: string, user: User | null) {
+/**
+ * offlineName is where the browser keeps its copy of the shared document.
+ *
+ * The generation is part of the name on purpose. When a version is restored the
+ * server replaces the shared state and counts the generation up; a browser that
+ * still had the old state in IndexedDB would otherwise reconnect, find the
+ * server empty, and helpfully push the pre-restore document straight back.
+ */
+function offlineName(documentId: string, generation: number) {
+  return `muni:document:${documentId}:g${generation}`;
+}
+
+/** Old generations are dead weight, and one of them is the state we replaced. */
+function dropOldOfflineCopies(documentId: string, generation: number) {
+  const keep = offlineName(documentId, generation);
+  const prefix = `muni:document:${documentId}`;
+  const remove = (name: string) => {
+    if (name === keep) return;
+    try {
+      indexedDB.deleteDatabase(name);
+    } catch {
+      /* A browser that refuses to enumerate or delete simply keeps them. */
+    }
+  };
+  try {
+    const list = indexedDB.databases?.();
+    if (list) {
+      void list
+        .then((entries) => {
+          for (const entry of entries) {
+            const name = entry.name ?? "";
+            if (name === prefix || name.startsWith(prefix + ":")) remove(name);
+          }
+        })
+        .catch(() => undefined);
+      return;
+    }
+  } catch {
+    /* Fall through to the blind removal below. */
+  }
+  // Safari has no databases(); delete the unversioned name this used to use
+  // and the generations immediately behind us, which covers a restore.
+  remove(prefix);
+  for (
+    let previous = generation - 1;
+    previous >= 1 && previous > generation - 8;
+    previous -= 1
+  )
+    remove(offlineName(documentId, previous));
+}
+
+export function useCollaboration(
+  documentId: string,
+  user: User | null,
+  generation = 0,
+) {
   const ydoc = useMemo(() => new Y.Doc(), [documentId]);
   const awareness = useMemo(() => new Awareness(ydoc), [ydoc]);
   const provider = useMemo(() => ({ awareness }), [awareness]);
   const [status, setStatus] = useState<CollaborationStatus>("connecting");
   const [syncedAt, setSyncedAt] = useState(0);
+  // The server picks one client to write the starting content into an empty
+  // document. A reader who cannot write seeds its own copy for display only.
+  const [maySeed, setMaySeed] = useState(false);
   const [users, setUsers] = useState<AwarenessUser[]>([]);
 
   useEffect(() => {
-    if (!documentId || !user) return;
+    // Waiting for the generation costs one render and keeps the offline copy
+    // from being opened under a name that is about to change.
+    if (!documentId || !user || generation < 1) return;
     let disposed = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: number | undefined;
     let reconnectAttempt = 0;
+    dropOldOfflineCopies(documentId, generation);
     const persistence = new IndexeddbPersistence(
-      `muni:document:${documentId}`,
+      offlineName(documentId, generation),
       ydoc,
     );
 
@@ -120,12 +181,21 @@ export function useCollaboration(documentId: string, user: User | null) {
           try {
             const message = JSON.parse(event.data) as {
               type?: string;
+              generation?: number;
               snapshot?: string;
               updates?: string[];
               compact?: boolean;
+              seed?: boolean;
               writeAllowed?: boolean;
             };
             if (message.type === "sync") {
+              // A version was restored after this page loaded. Nothing local is
+              // worth keeping, and pushing it would undo the restore.
+              if (message.generation && message.generation !== generation) {
+                socket?.close();
+                window.location.reload();
+                return;
+              }
               const serverUpdates = [
                 ...(message.snapshot ? [decodeBase64(message.snapshot)] : []),
                 ...(message.updates ?? []).map(decodeBase64),
@@ -148,10 +218,14 @@ export function useCollaboration(documentId: string, user: User | null) {
               if (message.compact && message.writeAllowed)
                 send(CHANNEL_SNAPSHOT, Y.encodeStateAsUpdate(ydoc));
 
+              setMaySeed(Boolean(message.seed) || !message.writeAllowed);
               setStatus("synced");
               setSyncedAt(Date.now());
               const clients = Array.from(awareness.getStates().keys());
-              send(CHANNEL_AWARENESS, encodeAwarenessUpdate(awareness, clients));
+              send(
+                CHANNEL_AWARENESS,
+                encodeAwarenessUpdate(awareness, clients),
+              );
             }
           } catch {
             /* Ignore unknown ephemeral text events. */
@@ -185,7 +259,7 @@ export function useCollaboration(documentId: string, user: User | null) {
       ydoc.off("update", onDocumentUpdate);
       persistence.destroy();
     };
-  }, [awareness, documentId, user, ydoc]);
+  }, [awareness, documentId, generation, user, ydoc]);
 
   useEffect(
     () => () => {
@@ -194,5 +268,5 @@ export function useCollaboration(documentId: string, user: User | null) {
     },
     [awareness, ydoc],
   );
-  return { ydoc, awareness, provider, status, syncedAt, users };
+  return { ydoc, awareness, provider, status, syncedAt, users, maySeed };
 }

@@ -27,20 +27,24 @@ type documentItem struct {
 	WorkflowStatus string          `json:"workflowStatus"`
 	Content        json.RawMessage `json:"content"`
 	Revision       int             `json:"revision"`
-	Favorite       bool            `json:"favorite"`
-	CreatedAt      time.Time       `json:"createdAt"`
-	UpdatedAt      time.Time       `json:"updatedAt"`
-	DeletedAt      *time.Time      `json:"deletedAt,omitempty"`
-	Permission     string          `json:"permission"`
+	// CRDTGeneration changes when the shared editing state is replaced
+	// wholesale — a restore, say. The editor keys its offline copy on it so a
+	// stale local state cannot be pushed back over the restored content.
+	CRDTGeneration int        `json:"crdtGeneration"`
+	Favorite       bool       `json:"favorite"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	UpdatedAt      time.Time  `json:"updatedAt"`
+	DeletedAt      *time.Time `json:"deletedAt,omitempty"`
+	Permission     string     `json:"permission"`
 }
 
 func documentSelect() string {
-	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,
+	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,
 	EXISTS(SELECT 1 FROM favorites f WHERE f.document_id=d.id AND f.user_id=$2),d.created_at,d.updated_at,d.deleted_at FROM documents d JOIN users u ON u.id=d.owner_id`
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
+	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
 }
 
 func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {
@@ -463,6 +467,10 @@ func (s *Server) restoreRevision(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "REVISION_NOT_FOUND", "복원할 버전을 찾을 수 없습니다.")
 		return
 	}
+	// Everyone editing the document is holding the state that was just
+	// replaced. Closing the room makes them reconnect, and the new generation
+	// tells them their offline copy is no longer the document.
+	s.hub.CloseDocument(id)
 	s.audit(r, &p.User.ID, "RESTORE_REVISION", "DOCUMENT", &id, map[string]any{"revision": revision})
 	s.getDocumentByID(w, r, id)
 }

@@ -65,10 +65,14 @@ func (s *Server) collaboration(w http.ResponseWriter, r *http.Request) {
 	// Only a client that may write is asked to compact: the snapshot it sends
 	// back replaces the stored history.
 	compact := writeAllowed && shouldCompact(len(state.updates), state.bytes)
+	// An empty shared state has to be filled from the stored document, and only
+	// one client may do it or the content is inserted twice.
+	seed := writeAllowed && snapshot == "" && len(updates) == 0 &&
+		s.hub.ClaimSeed(documentID, generation, conn)
 	initial, _ := json.Marshal(map[string]any{
 		"type": "sync", "generation": generation,
 		"snapshot": snapshot, "updates": updates,
-		"baseSeq": state.maxSeq, "compact": compact,
+		"baseSeq": state.maxSeq, "compact": compact, "seed": seed,
 		"permission": role, "writeAllowed": writeAllowed,
 		"user": map[string]any{"id": p.User.ID, "displayName": p.User.DisplayName},
 	})
@@ -118,6 +122,8 @@ func (s *Server) collaboration(w http.ResponseWriter, r *http.Request) {
 					s.logger.Warn("collaboration update was not persisted", "document_id", documentID, "error", err)
 					continue
 				}
+				// The state is no longer empty, so nobody needs to seed it.
+				s.hub.ReleaseSeed(documentID)
 				s.hub.Broadcast(documentID, conn, websocket.BinaryMessage, payload)
 			case channelAwareness:
 				s.hub.Broadcast(documentID, conn, websocket.BinaryMessage, payload)

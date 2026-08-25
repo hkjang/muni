@@ -99,7 +99,11 @@ export function EditorPage() {
   useEffect(() => {
     if (document) revisionRef.current = document.revision;
   }, [document]);
-  const collaboration = useCollaboration(documentId, user);
+  const collaboration = useCollaboration(
+    documentId,
+    user,
+    document?.crdtGeneration ?? 0,
+  );
   const extensions = useMemo(
     () => [
       StarterKit.configure({ undoRedo: false }),
@@ -159,9 +163,21 @@ export function EditorPage() {
     )
       return;
     const fragment = collaboration.ydoc.getXmlFragment("default");
-    if (fragment.length === 0) editor.commands.setContent(document.content);
+    if (fragment.length === 0) {
+      // Only the client the server picked writes the stored content into an
+      // empty document; the others receive it as an ordinary update. Two
+      // clients seeding at once would insert the whole document twice.
+      if (!collaboration.maySeed) return;
+      editor.commands.setContent(document.content);
+    }
     seeded.current = true;
-  }, [editor, document, collaboration.syncedAt, collaboration.ydoc]);
+  }, [
+    editor,
+    document,
+    collaboration.syncedAt,
+    collaboration.ydoc,
+    collaboration.maySeed,
+  ]);
   useEffect(() => {
     setSaveState(
       collaboration.status === "offline"

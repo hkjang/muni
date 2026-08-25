@@ -58,6 +58,8 @@ export type DocumentItem = {
   workflowStatus: "NONE" | "DRAFT" | "PENDING" | "APPROVED" | "REJECTED";
   content?: DocumentContent;
   revision: number;
+  /** Counts up when the shared editing state is replaced, such as by a restore. */
+  crdtGeneration: number;
   favorite: boolean;
   permission: "OWNER" | "EDITOR" | "COMMENTER" | "VIEWER";
   createdAt: string;
