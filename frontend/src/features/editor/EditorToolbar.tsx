@@ -32,6 +32,7 @@ import {
   FormatUnderlined,
   HorizontalRule,
   ImageOutlined,
+  InsertPageBreakOutlined,
   InsertLink,
   Redo,
   StrikethroughS,
@@ -367,6 +368,11 @@ export function EditorToolbar({
           }
         >
           <TableChartOutlined />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="페이지 나누기 (Ctrl+Enter)">
+        <IconButton onClick={() => editor.chain().focus().setPageBreak().run()}>
+          <InsertPageBreakOutlined />
         </IconButton>
       </Tooltip>
       <Tooltip title="가로 구분선">

@@ -18,6 +18,7 @@ const groups: { title: string; items: [string, string][] }[] = [
       ["Ctrl H", "찾아 바꾸기"],
       ["Ctrl /", "단축키 보기"],
       ["Ctrl \\", "문서 개요 열고 닫기"],
+      ["Ctrl Enter", "페이지 나누기"],
     ],
   },
   {
@@ -52,6 +53,7 @@ const groups: { title: string; items: [string, string][] }[] = [
       ["1. 공백", "번호 매기기"],
       ["> 공백", "인용"],
       ["``` ", "코드 블록"],
+      ["/", "삽입 메뉴 열기"],
     ],
   },
 ];

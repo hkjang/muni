@@ -83,6 +83,9 @@ func (imp *importer) run(node *xnode, link richdoc.Mark) []*richdoc.Node {
 			out = append(out, richdoc.Text("\t", marks...))
 		case child.is("w", "br"):
 			if strings.EqualFold(child.attr("w:type"), "page") {
+				// Marked here and lifted out of the paragraph by the block
+				// assembler, which is where a page break belongs.
+				out = append(out, &richdoc.Node{Type: "pageBreak"})
 				continue
 			}
 			out = append(out, &richdoc.Node{Type: "hardBreak"})

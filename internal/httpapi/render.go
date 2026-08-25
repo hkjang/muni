@@ -92,6 +92,10 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 		out.WriteString(">" + html.EscapeString(codeText(node)) + "</code></pre>")
 	case "horizontalRule":
 		out.WriteString("<hr" + blockIDAttribute(node) + ">")
+	case "pageBreak":
+		// Nothing is drawn on screen; the rule is for the printer, and the PDF
+		// export is a print of this same HTML.
+		out.WriteString(`<div class="muni-page-break" style="break-after:page;page-break-after:always"` + blockIDAttribute(node) + `></div>`)
 	case "table":
 		out.WriteString("<table" + blockIDAttribute(node) + ">")
 		renderHTMLTableRows(out, node.Content)
@@ -178,17 +182,65 @@ func isBlockIDToken(value string) bool {
 	return true
 }
 
+// styleAttribute carries the formatting an author set on a block.
+//
+// Alignment used to be the only thing that made it out of the editor, so a
+// document written with 160% line spacing and indented paragraphs exported
+// flat — which is exactly the formatting a report template asks for.
 func styleAttribute(node *richdoc.Node) string {
+	rules := make([]string, 0, 4)
 	switch strings.ToLower(node.AttrString("textAlign")) {
 	case "center":
-		return ` style="text-align:center"`
+		rules = append(rules, "text-align:center")
 	case "right":
-		return ` style="text-align:right"`
+		rules = append(rules, "text-align:right")
 	case "justify":
-		return ` style="text-align:justify"`
-	default:
+		rules = append(rules, "text-align:justify")
+	}
+	if height := lineHeightValue(node); height != "" {
+		rules = append(rules, "line-height:"+height)
+	}
+	if steps := indentSteps(node); steps > 0 {
+		rules = append(rules, fmt.Sprintf("margin-inline-start:%dem", steps*indentEm))
+	}
+	if node.AttrBool("firstLine") {
+		rules = append(rules, "text-indent:1em")
+	}
+	if len(rules) == 0 {
 		return ""
 	}
+	return ` style="` + strings.Join(rules, ";") + `"`
+}
+
+// indentEm is how far one step of indentation moves the text, matching the
+// editor so the export looks like what was written.
+const indentEm = 2
+
+const maxIndentSteps = 8
+
+func indentSteps(node *richdoc.Node) int {
+	steps := node.AttrInt("indent", 0)
+	if steps < 0 {
+		return 0
+	}
+	if steps > maxIndentSteps {
+		return maxIndentSteps
+	}
+	return steps
+}
+
+// lineHeightValue accepts only a plain multiplier, so nothing an author typed
+// can reach a stylesheet as something else.
+func lineHeightValue(node *richdoc.Node) string {
+	raw := strings.TrimSpace(node.AttrString("lineHeight"))
+	if raw == "" {
+		return ""
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || value < 0.5 || value > 5 {
+		return ""
+	}
+	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 func cellAttributes(node *richdoc.Node) string {
@@ -410,6 +462,10 @@ func (w *markdownWriter) block(node *richdoc.Node, indent string) {
 		w.out.WriteString(indent + "```\n\n")
 	case "horizontalRule":
 		w.out.WriteString(indent + "---\n\n")
+	case "pageBreak":
+		// Markdown has no pages. The break is kept as the HTML that every
+		// renderer passes through, so converting back does not lose it.
+		w.out.WriteString(indent + `<div style="page-break-after: always"></div>` + "\n\n")
 	case "image":
 		w.out.WriteString(indent + w.inline([]*richdoc.Node{node}) + "\n\n")
 	case "table":
@@ -599,6 +655,10 @@ func renderPlainText(title string, raw json.RawMessage) string {
 				}
 			case "horizontalRule":
 				out.WriteString(indent + strings.Repeat("-", 40) + "\n")
+			case "pageBreak":
+				// A form feed is what a page break has always been in plain
+				// text, and printers still honour it.
+				out.WriteString("\f")
 			case "bulletList", "taskList":
 				for _, item := range node.Content {
 					marker := "• "

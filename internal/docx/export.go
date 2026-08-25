@@ -69,6 +69,46 @@ type blockContext struct {
 	indent  int
 	inTable bool
 	header  bool
+	format  paragraphFormat
+}
+
+// paragraphFormat is the spacing and indentation an author set on one block.
+// It used to be dropped on export, so a document written to a report template
+// came out flat.
+type paragraphFormat struct {
+	lineHeight float64
+	indent     int
+	firstLine  bool
+}
+
+// twipsPerIndentStep matches the editor, where one step moves the text 2em and
+// the body is set in 11pt: 22pt is 440 twips.
+const twipsPerIndentStep = 440
+
+// twipsFirstLine is one em at the same size.
+const twipsFirstLine = 220
+
+const maxIndentSteps = 8
+
+func formatOf(node *richdoc.Node) paragraphFormat {
+	if node == nil {
+		return paragraphFormat{}
+	}
+	format := paragraphFormat{firstLine: node.AttrBool("firstLine")}
+	if steps := node.AttrInt("indent", 0); steps > 0 {
+		format.indent = min(steps, maxIndentSteps)
+	}
+	if raw := strings.TrimSpace(node.AttrString("lineHeight")); raw != "" {
+		if value, err := strconv.ParseFloat(raw, 64); err == nil && value >= 0.5 && value <= 5 {
+			format.lineHeight = value
+		}
+	}
+	return format
+}
+
+func (c blockContext) withFormat(node *richdoc.Node) blockContext {
+	c.format = formatOf(node)
+	return c
 }
 
 // Build renders a document tree into a .docx package.
@@ -229,6 +269,8 @@ func (b *builder) block(node *richdoc.Node, ctx blockContext) {
 	case "horizontalRule":
 		b.body.WriteString(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="C7C9D1"/></w:pBdr>` +
 			`<w:spacing w:before="160" w:after="160"/></w:pPr></w:p>`)
+	case "pageBreak":
+		b.body.WriteString(`<w:p><w:r><w:br w:type="page"/></w:r></w:p>`)
 	case "table":
 		b.table(node, ctx)
 	case "image":
@@ -250,7 +292,7 @@ func (b *builder) block(node *richdoc.Node, ctx blockContext) {
 }
 
 func (b *builder) paragraph(node *richdoc.Node, ctx blockContext) {
-	b.emitParagraph(node.AttrString("textAlign"), ctx, node.Content, "")
+	b.emitParagraph(node.AttrString("textAlign"), ctx.withFormat(node), node.Content, "")
 }
 
 func (b *builder) emitParagraph(align string, ctx blockContext, inline []*richdoc.Node, prefix string) {
@@ -279,11 +321,29 @@ func (b *builder) paragraphPropertiesWithAlign(ctx blockContext, align string) s
 	if ctx.list != nil {
 		out.WriteString(`<w:numPr><w:ilvl` + intAttr("w:val", ctx.list.level) + `/><w:numId` + intAttr("w:val", ctx.list.numID) + `/></w:numPr>`)
 	}
-	if ctx.inTable {
-		out.WriteString(`<w:spacing w:before="40" w:after="40" w:line="252" w:lineRule="auto"/>`)
+	// CT_PPr allows one w:spacing and one w:ind, so the table defaults and the
+	// author's own settings have to be merged rather than emitted twice.
+	if ctx.inTable || ctx.format.lineHeight > 0 {
+		out.WriteString(`<w:spacing`)
+		if ctx.inTable {
+			out.WriteString(` w:before="40" w:after="40"`)
+		}
+		line := 252
+		if ctx.format.lineHeight > 0 {
+			line = int(ctx.format.lineHeight * 240)
+		}
+		out.WriteString(intAttr("w:line", line) + ` w:lineRule="auto"/>`)
 	}
-	if ctx.indent > 0 {
-		out.WriteString(`<w:ind` + intAttr("w:left", ctx.indent) + `/>`)
+	left := ctx.indent + ctx.format.indent*twipsPerIndentStep
+	if left > 0 || ctx.format.firstLine {
+		out.WriteString(`<w:ind`)
+		if left > 0 {
+			out.WriteString(intAttr("w:left", left))
+		}
+		if ctx.format.firstLine {
+			out.WriteString(intAttr("w:firstLine", twipsFirstLine))
+		}
+		out.WriteString(`/>`)
 	}
 	if jc := alignmentValue(align); jc != "" {
 		out.WriteString(`<w:jc` + attr("w:val", jc) + `/>`)
@@ -440,7 +500,7 @@ func (b *builder) taskList(node *richdoc.Node, ctx blockContext, level int) {
 					prefix = b.textRun(glyph, runStyle{fontFamily: "Segoe UI Symbol"})
 					first = false
 				}
-				b.emitParagraph(inner.AttrString("textAlign"), child, inner.Content, prefix)
+				b.emitParagraph(inner.AttrString("textAlign"), child.withFormat(inner), inner.Content, prefix)
 			}
 		}
 	}

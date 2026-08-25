@@ -19,6 +19,7 @@ var anchorableTypes = map[string]bool{
 	"blockquote":     true,
 	"codeBlock":      true,
 	"horizontalRule": true,
+	"pageBreak":      true,
 	"image":          true,
 	"listItem":       true,
 	"taskItem":       true,

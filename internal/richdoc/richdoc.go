@@ -185,7 +185,7 @@ func (n *Node) IsBlank() bool {
 	if n == nil {
 		return true
 	}
-	if n.Type == "image" || n.Type == "horizontalRule" || n.Type == "hardBreak" {
+	if n.Type == "image" || n.Type == "horizontalRule" || n.Type == "pageBreak" || n.Type == "hardBreak" {
 		return false
 	}
 	if strings.TrimSpace(n.Text) != "" {

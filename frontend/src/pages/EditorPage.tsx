@@ -18,12 +18,14 @@ import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { EditorStatusBar } from "../features/editor/EditorStatusBar";
 import { LinkMenu } from "../features/editor/LinkMenu";
+import { SlashMenu } from "../features/editor/insert/SlashMenu";
 import { ShortcutsDialog } from "../features/editor/ShortcutsDialog";
 import { TableTools } from "../features/editor/TableTools";
 import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
 import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { LineHeight } from "../features/editor/extensions/lineHeight";
+import { PageBreak } from "../features/editor/extensions/pageBreak";
 import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
@@ -146,6 +148,7 @@ export function EditorPage() {
       TextStyleKit,
       BlockId,
       LineHeight,
+      PageBreak,
       ParagraphIndent,
       SearchHighlight,
     ],
@@ -608,6 +611,11 @@ export function EditorPage() {
             />
             <TableTools editor={editor} canEdit={canEdit && mode === "editing"} />
             <LinkMenu editor={editor} canEdit={canEdit && mode === "editing"} />
+            <SlashMenu
+              editor={editor}
+              documentId={documentId}
+              canEdit={canEdit && mode === "editing"}
+            />
           </Paper>
         </Box>
         {!compact && sideOpen && (

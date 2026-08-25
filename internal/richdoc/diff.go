@@ -61,6 +61,7 @@ var leafTypes = map[string]bool{
 	"codeBlock":      true,
 	"image":          true,
 	"horizontalRule": true,
+	"pageBreak":      true,
 }
 
 func flatten(document *Node) []block {
@@ -100,6 +101,9 @@ func blockText(node *Node) string {
 	}
 	if node.Type == "horizontalRule" {
 		return "---"
+	}
+	if node.Type == "pageBreak" {
+		return "[페이지 나누기]"
 	}
 	var out strings.Builder
 	var walk func(*Node)

@@ -73,8 +73,17 @@ func (imp *importer) paragraph(node *xnode) []block {
 	inline := imp.runs(node.Children, richdoc.Mark{})
 	inline = trimInline(inline)
 
+	// A page break is a block of its own in muni, so a paragraph that carries
+	// one has to be split around it. Word writes the break either as a
+	// property on the paragraph or as a run inside it, and both are common.
+	breakBefore := properties.child("w", "pageBreakBefore").flag()
+	inline, breakInside := splitPageBreak(inline)
+
 	// A paragraph that only holds a page break carries no content of its own.
 	if len(inline) == 0 && numID == "" && styleKey == "" && node.descendant("w", "br") != nil && node.allText() == "" {
+		if breakBefore || breakInside {
+			return []block{{node: &richdoc.Node{Type: "pageBreak"}}}
+		}
 		return nil
 	}
 
@@ -97,9 +106,16 @@ func (imp *importer) paragraph(node *xnode) []block {
 		checked = box.child("w14", "checked").flag()
 	}
 
+	// Whatever the paragraph turns out to be, a page break belongs in front of
+	// it as a block of its own.
+	prefix := []block{}
+	if breakBefore || breakInside {
+		prefix = append(prefix, block{node: &richdoc.Node{Type: "pageBreak"}})
+	}
+
 	if styleKey == "code" {
 		text := plainInline(inline)
-		return []block{{node: codeBlockNode(text)}}
+		return append(prefix, block{node: codeBlockNode(text)})
 	}
 
 	var paragraph *richdoc.Node
@@ -134,14 +150,14 @@ func (imp *importer) paragraph(node *xnode) []block {
 
 	result := block{node: paragraph, numID: numID, level: level, kind: kind, checked: checked}
 	if styleKey == "quote" && kind == "" {
-		return []block{{node: &richdoc.Node{Type: "blockquote", Content: []*richdoc.Node{paragraph}}}}
+		return append(prefix, block{node: &richdoc.Node{Type: "blockquote", Content: []*richdoc.Node{paragraph}}})
 	}
 	if borders := properties.child("w", "pBdr"); borders != nil && len(inline) == 0 && kind == "" {
 		if borders.child("w", "bottom") != nil || borders.child("w", "top") != nil {
-			return []block{{node: &richdoc.Node{Type: "horizontalRule"}}}
+			return append(prefix, block{node: &richdoc.Node{Type: "horizontalRule"}})
 		}
 	}
-	return []block{result}
+	return append(prefix, result)
 }
 
 func codeBlockNode(text string) *richdoc.Node {
@@ -477,4 +493,21 @@ func listFromStyleKey(styleKey string) (string, int) {
 		return prefix.kind, level - 1
 	}
 	return "", 0
+}
+
+// splitPageBreak takes the page-break markers out of a paragraph's inline
+// content and reports whether there were any. Everything after a break stays
+// in the same paragraph: Word's own layout does the same, and splitting the
+// sentence would change the text rather than the pagination.
+func splitPageBreak(inline []*richdoc.Node) ([]*richdoc.Node, bool) {
+	found := false
+	out := make([]*richdoc.Node, 0, len(inline))
+	for _, node := range inline {
+		if node != nil && node.Type == "pageBreak" {
+			found = true
+			continue
+		}
+		out = append(out, node)
+	}
+	return out, found
 }
