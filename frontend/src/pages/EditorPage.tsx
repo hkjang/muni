@@ -16,7 +16,14 @@ import { EditorSidebar } from "../features/editor/EditorSidebar";
 import { EditorStatus } from "../features/editor/EditorStatus";
 import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
+import { EditorStatusBar } from "../features/editor/EditorStatusBar";
+import { ShortcutsDialog } from "../features/editor/ShortcutsDialog";
+import { TableTools } from "../features/editor/TableTools";
+import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
+import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { BlockId } from "../features/editor/extensions/blockId";
+import { LineHeight } from "../features/editor/extensions/lineHeight";
+import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
 import { PresentationDialog } from "../features/editor/presentations/PresentationDialog";
 import {
@@ -82,6 +89,15 @@ export function EditorPage() {
   const [deckOpen, setDeckOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [mobileTools, setMobileTools] = useState(false);
+  // The reading aids Google Docs keeps around the page: an outline beside it,
+  // find and replace over it, a zoom, and the shortcut list.
+  const [outlineOpen, setOutlineOpen] = useState(!compact);
+  const [find, setFind] = useState<{ open: boolean; replace: boolean }>({
+    open: false,
+    replace: false,
+  });
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [zoom, setZoom] = useState(() => readZoom());
   const revisionRef = useRef(0);
   const saveTimer = useRef<number | undefined>(undefined);
   const seeded = useRef(false);
@@ -127,6 +143,8 @@ export function EditorPage() {
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TextStyleKit,
       BlockId,
+      LineHeight,
+      SearchHighlight,
     ],
     [collaboration.provider, collaboration.ydoc, user?.displayName, user?.id],
   );
@@ -240,6 +258,43 @@ export function EditorPage() {
     },
     [],
   );
+  // The shortcuts a person coming from Google Docs will try first. Tiptap
+  // already owns the formatting ones; these are the document-level keys the
+  // browser would otherwise take.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const meta = event.metaKey || event.ctrlKey;
+      if (!meta) return;
+      const key = event.key.toLowerCase();
+      if (key === "f") {
+        event.preventDefault();
+        setFind({ open: true, replace: false });
+      } else if (key === "h") {
+        event.preventDefault();
+        setFind({ open: true, replace: true });
+      } else if (key === "s") {
+        // Everything is saved continuously; the key is here because people
+        // press it anyway, and it should not open the browser's save dialog.
+        event.preventDefault();
+        if (editor) void persist(editor, "manual");
+      } else if (key === "/") {
+        event.preventDefault();
+        setShortcutsOpen(true);
+      } else if (key === "\\") {
+        event.preventDefault();
+        setOutlineOpen((value) => !value);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editor, persist]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(zoomKey, String(zoom));
+    } catch {
+      /* A browser that refuses storage simply forgets the zoom. */
+    }
+  }, [zoom]);
   const updateMetadata = async (patch: Record<string, unknown>) => {
     if (!editor) return;
     setSaveState("saving");
@@ -316,6 +371,7 @@ export function EditorPage() {
         position="static"
         elevation={0}
         color="inherit"
+        className="muni-no-print"
         sx={{
           borderBottom: "1px solid",
           borderColor: "divider",
@@ -480,6 +536,7 @@ export function EditorPage() {
         </Toolbar>
       </AppBar>
       <Box
+        className="muni-no-print"
         sx={{
           display: { xs: mobileTools ? "block" : "none", sm: "block" },
           borderBottom: "1px solid",
@@ -493,24 +550,44 @@ export function EditorPage() {
         <EditorToolbar editor={editor} documentId={documentId} />
       </Box>
       <Box sx={{ display: "flex", minHeight: 0, flex: 1 }}>
+        {outlineOpen && !compact && (
+          <OutlinePanel editor={editor} onClose={() => setOutlineOpen(false)} />
+        )}
         <Box
+          className="muni-page-scroll"
           sx={{
             flex: 1,
             minWidth: 0,
             overflow: "auto",
+            position: "relative",
             py: { xs: 2, sm: 4 },
             px: { xs: 1, sm: 3 },
           }}
         >
+          <FindReplaceBar
+            editor={editor}
+            open={find.open}
+            withReplace={find.replace}
+            canEdit={canEdit && mode === "editing"}
+            onClose={() => setFind({ open: false, replace: false })}
+          />
           <Paper
+            className="muni-page"
             sx={{
-              width: "min(860px,100%)",
+              // The page keeps its width and is scaled, the way a zoom works
+              // on paper — reflowing the text instead would change where every
+              // line breaks and make the zoom useless for checking a layout.
+              width: 860,
+              maxWidth: zoom === 100 ? "100%" : "none",
               minHeight: 960,
               mx: "auto",
               px: { xs: 2.5, sm: 7, md: 9 },
               py: { xs: 4, sm: 7 },
               borderRadius: { xs: 1, sm: 2 },
               boxShadow: "0 5px 28px rgba(30,31,45,.09)",
+              transform: zoom === 100 ? undefined : `scale(${zoom / 100})`,
+              transformOrigin: "top center",
+              transition: "transform .12s ease-out",
             }}
           >
             {mode === "suggesting" && (
@@ -526,10 +603,12 @@ export function EditorPage() {
               canEdit={canEdit && mode === "editing"}
               maxTokens={capabilities.data?.maxAiTokens}
             />
+            <TableTools editor={editor} canEdit={canEdit && mode === "editing"} />
           </Paper>
         </Box>
         {!compact && sideOpen && (
           <Box
+            className="muni-no-print"
             sx={{
               width: 390,
               borderLeft: "1px solid",
@@ -542,6 +621,26 @@ export function EditorPage() {
           </Box>
         )}
       </Box>
+      <Drawer
+        anchor="left"
+        open={compact && outlineOpen}
+        onClose={() => setOutlineOpen(false)}
+        PaperProps={{ sx: { mt: "64px", height: "calc(100% - 64px)" } }}
+      >
+        <OutlinePanel editor={editor} onClose={() => setOutlineOpen(false)} />
+      </Drawer>
+      <EditorStatusBar
+        editor={editor}
+        zoom={zoom}
+        onZoom={setZoom}
+        outlineOpen={outlineOpen}
+        onToggleOutline={() => setOutlineOpen((value) => !value)}
+        onShortcuts={() => setShortcutsOpen(true)}
+      />
+      <ShortcutsDialog
+        open={shortcutsOpen}
+        onClose={() => setShortcutsOpen(false)}
+      />
       <Drawer
         anchor="right"
         open={compact && sideOpen}
@@ -673,4 +772,17 @@ export function EditorPage() {
       </Menu>
     </Box>
   );
+}
+
+const zoomKey = "muni:editor:zoom";
+
+/** The zoom is a per-reader preference, so it lives in the browser. */
+function readZoom(): number {
+  try {
+    const stored = Number(window.localStorage.getItem(zoomKey));
+    if (stored >= 50 && stored <= 200) return Math.round(stored);
+  } catch {
+    /* A browser that refuses storage just starts at 100%. */
+  }
+  return 100;
 }

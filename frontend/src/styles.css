@@ -164,3 +164,72 @@ a {
     min-height: 620px;
   }
 }
+
+/* Search highlights. The active match has to stand out from the others or
+   pressing Enter through a long document tells you nothing. */
+.muni-search-match {
+  background: #ffe9a8;
+  border-radius: 2px;
+}
+
+.muni-search-match--active {
+  background: #ffb74d;
+  box-shadow: 0 0 0 1px #f57c00;
+}
+
+/* Printing.
+
+   The editor lives inside a column that scrolls, and a scrolling box prints as
+   whatever happened to be on screen. Letting the page grow and hiding the
+   application around it is what turns Ctrl+P into a usable print of the
+   document rather than a screenshot of the editor. */
+@media print {
+  html,
+  body,
+  #root {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .muni-no-print {
+    display: none !important;
+  }
+
+  .muni-page-scroll {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+
+  .muni-page {
+    width: auto !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    transform: none !important;
+  }
+
+  .muni-search-match,
+  .muni-search-match--active {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* A heading should not be the last thing on a page. */
+  .tiptap h1,
+  .tiptap h2,
+  .tiptap h3 {
+    break-after: avoid;
+  }
+
+  .tiptap tr,
+  .tiptap img,
+  .tiptap blockquote,
+  .tiptap pre {
+    break-inside: avoid;
+  }
+}

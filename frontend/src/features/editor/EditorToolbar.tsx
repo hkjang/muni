@@ -5,6 +5,7 @@ import {
   IconButton,
   MenuItem,
   Select,
+  Stack,
   ToggleButton,
   ToggleButtonGroup,
   Toolbar,
@@ -17,7 +18,9 @@ import {
   FormatAlignLeft,
   FormatAlignRight,
   FormatBold,
+  FormatClear,
   FormatColorText,
+  FormatLineSpacing,
   FormatIndentDecrease,
   FormatIndentIncrease,
   FormatItalic,
@@ -55,6 +58,10 @@ export function EditorToolbar({
       quote: current.isActive("blockquote"),
       code: current.isActive("codeBlock"),
       align: current.getAttributes("paragraph").textAlign ?? "left",
+      lineHeight:
+        (current.getAttributes("paragraph").lineHeight as string) ||
+        (current.getAttributes("heading").lineHeight as string) ||
+        "",
     }),
   });
   const link = () => {
@@ -379,6 +386,40 @@ export function EditorToolbar({
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
         >
           <HorizontalRule />
+        </IconButton>
+      </Tooltip>
+      <Select
+        size="small"
+        displayEmpty
+        value={state.lineHeight}
+        aria-label="줄 간격"
+        renderValue={(value) => (
+          <Stack direction="row" alignItems="center" gap={0.5}>
+            <FormatLineSpacing fontSize="small" />
+            {value ? String(value) : "기본"}
+          </Stack>
+        )}
+        onChange={(event) => {
+          const value = event.target.value;
+          if (value) editor.chain().focus().setLineHeight(value).run();
+          else editor.chain().focus().unsetLineHeight().run();
+        }}
+        sx={{ minWidth: 104 }}
+      >
+        <MenuItem value="">기본</MenuItem>
+        {["1", "1.15", "1.5", "1.75", "2", "2.5"].map((value) => (
+          <MenuItem key={value} value={value}>
+            {value}
+          </MenuItem>
+        ))}
+      </Select>
+      <Tooltip title="서식 지우기">
+        <IconButton
+          onClick={() =>
+            editor.chain().focus().unsetAllMarks().clearNodes().run()
+          }
+        >
+          <FormatClear />
         </IconButton>
       </Tooltip>
     </Toolbar>

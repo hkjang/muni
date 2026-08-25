@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Editor } from "@tiptap/react";
 import {
+  Box,
   Button,
   Chip,
   Divider,
@@ -13,6 +14,7 @@ import {
 import { Check } from "@mui/icons-material";
 import { api, formatDate, jsonBody } from "../../../lib/api";
 import type { CommentItem, DocumentItem } from "../../../types";
+import { blockIdAt, locateAnchor, readAnchor } from "./anchor";
 
 export function CommentsPanel({
   document,
@@ -40,6 +42,9 @@ export function CommentsPanel({
           anchor: {
             from,
             to,
+            // The block id is what makes the comment survive editing above
+            // it; the positions are kept for comments read by older clients.
+            blockId: blockIdAt(editor, from),
             selectedText: editor.state.doc.textBetween(from, to, " "),
           },
         }),
@@ -92,6 +97,50 @@ export function CommentsPanel({
               {formatDate(comment.createdAt)}
             </Typography>
           </Stack>
+          {(() => {
+            const anchor = readAnchor(comment.anchor);
+            if (!anchor.selectedText?.trim()) return null;
+            return (
+              <Box
+                component="button"
+                type="button"
+                onClick={() => {
+                  const range = locateAnchor(editor, anchor);
+                  if (!range) return;
+                  editor
+                    .chain()
+                    .focus()
+                    .setTextSelection(range)
+                    .scrollIntoView()
+                    .run();
+                }}
+                title="본문에서 보기"
+                sx={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  mt: 0.75,
+                  px: 1,
+                  py: 0.5,
+                  border: 0,
+                  borderLeft: "3px solid",
+                  borderLeftColor: "warning.light",
+                  bgcolor: "action.hover",
+                  borderRadius: 0.5,
+                  cursor: "pointer",
+                  font: "inherit",
+                  fontSize: 13,
+                  color: "text.secondary",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  "&:hover": { bgcolor: "action.selected" },
+                }}
+              >
+                {anchor.selectedText}
+              </Box>
+            );
+          })()}
           <Typography sx={{ whiteSpace: "pre-wrap", my: 1 }}>
             {comment.body}
           </Typography>

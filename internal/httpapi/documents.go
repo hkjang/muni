@@ -429,6 +429,54 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request) {
 	}
 	writeData(w, 200, items)
 }
+
+// nameRevision gives a version a name.
+//
+// A list of timestamps is not a history anyone can use. Naming the versions
+// that matter — "부서 검토본", "최종 제출" — is what makes the list worth
+// opening, and it is the one thing a reader needs before a restore.
+func (s *Server) nameRevision(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	revision, err := strconv.Atoi(r.PathValue("revision"))
+	if err != nil {
+		writeError(w, 400, "INVALID_REVISION", "버전 번호가 올바르지 않습니다.")
+		return
+	}
+	var input struct {
+		Name string `json:"name"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	input.Name = strings.TrimSpace(input.Name)
+	if len([]rune(input.Name)) > 80 {
+		writeError(w, 400, "INVALID_NAME", "버전 이름은 80자 이하여야 합니다.")
+		return
+	}
+	p, _ := principalFrom(r.Context())
+	role, err := s.documentRole(r.Context(), p.User, id, false)
+	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+		return
+	}
+	tag, err := s.db.Exec(r.Context(),
+		`UPDATE document_revisions SET name=$3 WHERE document_id=$1 AND revision_no=$2`,
+		id, revision, nullString(input.Name))
+	if err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "버전 이름을 저장하지 못했습니다.")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		writeError(w, 404, "REVISION_NOT_FOUND", "해당 버전을 찾을 수 없습니다.")
+		return
+	}
+	s.audit(r, &p.User.ID, "NAME_REVISION", "DOCUMENT", &id,
+		map[string]any{"revision": revision, "name": input.Name})
+	writeData(w, 200, map[string]any{"revision": revision, "name": input.Name})
+}
+
 func (s *Server) restoreRevision(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, r, "id")
 	if !ok {
