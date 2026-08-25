@@ -125,6 +125,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/v1/admin/users/{id}/keys/rotate", s.requireAdmin(http.HandlerFunc(s.rotateAnyUserKey)))
 	s.mux.Handle("DELETE /api/v1/admin/users/{id}/keys/{keyId}", s.requireAdmin(http.HandlerFunc(s.revokeAnyUserKey)))
 	s.mux.Handle("GET /api/v1/admin/audit", s.requireAdmin(http.HandlerFunc(s.listAudit)))
+	s.mux.Handle("GET /api/v1/admin/ai-usage", s.requireAdmin(http.HandlerFunc(s.listAIUsage)))
 	s.mux.Handle("GET /api/v1/admin/key-policies", s.requireAdmin(http.HandlerFunc(s.listKeyPolicies)))
 	s.mux.Handle("PUT /api/v1/admin/key-policies/{role}", s.requireAdmin(http.HandlerFunc(s.updateKeyPolicy)))
 

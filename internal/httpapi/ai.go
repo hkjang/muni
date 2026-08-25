@@ -99,8 +99,12 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(config.TimeoutSeconds)*time.Second)
 	defer cancel()
 
+	invocation := startAIInvocation(p.User, input.Action, config.Model, input.DocumentID, messageChars(messages))
+	invocation.sessionID = input.SessionID
+	invocation.note("maxTokens", maxTokens)
+
 	if input.Tools {
-		s.streamAgentAnswer(w, r, ctx, config, p, input, messages, maxTokens)
+		s.streamAgentAnswer(w, r, ctx, config, p, input, messages, maxTokens, invocation)
 		return
 	}
 
@@ -117,11 +121,14 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &upstream) {
 			code = "AI_UPSTREAM_ERROR"
 			s.audit(r, &p.User.ID, "AI_ERROR", "AI", input.DocumentID, map[string]any{"status": upstream.status, "model": config.Model})
+			invocation.note("upstreamStatus", upstream.status)
 			if upstream.status == 401 || upstream.status == 403 {
 				code = "AI_UPSTREAM_UNAUTHORIZED"
 			}
 		}
 		s.logger.Warn("ai upstream failed", "model", config.Model, "error", err.Error())
+		invocation.fail(code, err)
+		s.record(r.Context(), invocation)
 		writeError(w, status, code, err.Error())
 		return
 	}
@@ -129,6 +136,8 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		invocation.fail("STREAMING_UNAVAILABLE", nil)
+		s.record(r.Context(), invocation)
 		writeError(w, 500, "STREAMING_UNAVAILABLE", "이 서버에서는 스트리밍을 사용할 수 없습니다.")
 		return
 	}
@@ -138,6 +147,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
 
+	counter := &usageCounter{}
 	if quirks.NoStreaming || !strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "event-stream") {
 		// The provider answered with a single JSON completion; replay it as one
 		// SSE chunk so the editor's reader works unchanged.
@@ -146,14 +156,20 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 			event, _ := json.Marshal(map[string]any{"error": "upstream_read_failed"})
 			fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
 			flusher.Flush()
+			invocation.fail("AI_UPSTREAM_READ_FAILED", readErr)
+			s.record(r.Context(), invocation)
 			return
 		}
+		counter.feedJSON(body)
 		writeSSEFromJSON(w, flusher, body)
 	} else {
 		reader := bufio.NewReader(response.Body)
 		for {
 			line, readErr := reader.ReadBytes('\n')
 			if len(line) > 0 {
+				// The bytes go straight to the reader; the counter only looks
+				// at them on the way past, so nothing is buffered.
+				counter.feed(line)
 				_, _ = w.Write(line)
 				flusher.Flush()
 			}
@@ -162,17 +178,18 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 					event, _ := json.Marshal(map[string]any{"error": "upstream_stream_interrupted"})
 					_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
 					flusher.Flush()
+					invocation.fail("AI_STREAM_INTERRUPTED", readErr)
 				}
 				break
 			}
 		}
 	}
 
-	action := input.Action
-	if action == "" {
-		action = "chat"
-	}
-	_, _ = s.db.Exec(r.Context(), `INSERT INTO ai_actions(session_id,user_id,document_id,action,model,status,metadata) VALUES($1,$2,$3,$4,$5,'COMPLETED',$6)`, input.SessionID, p.User.ID, input.DocumentID, truncate(action, 80), config.Model, map[string]any{"maxTokens": maxTokens, "stream": !quirks.NoStreaming})
+	action := invocation.action
+	invocation.usage = counter.usage
+	invocation.completionChars = counter.chars
+	invocation.note("stream", !quirks.NoStreaming)
+	s.record(r.Context(), invocation)
 	s.audit(r, &p.User.ID, "AI_"+strings.ToUpper(action), "DOCUMENT", input.DocumentID, map[string]any{"model": config.Model, "maxTokens": maxTokens, "stream": !quirks.NoStreaming})
 }
 
@@ -237,6 +254,7 @@ func (s *Server) streamAgentAnswer(
 	input aiChatInput,
 	messages []aiMessage,
 	maxTokens int,
+	invocation *aiInvocation,
 ) {
 	messages = append([]aiMessage{{
 		Role: "system",
@@ -245,47 +263,88 @@ func (s *Server) streamAgentAnswer(
 			"도구는 사용자가 접근할 수 있는 문서만 돌려줍니다.",
 	}}, messages...)
 
-	calls := make([]agentCall, 0, 4)
-	run, err := s.runAgent(ctx, config, p.User, messages, maxTokens, input.Temperature,
-		func(call agentCall) {
-			calls = append(calls, call)
-			s.audit(r, &p.User.ID, "AI_TOOL_"+strings.ToUpper(call.Name), "DOCUMENT", input.DocumentID,
-				map[string]any{"tool": call.Name, "error": call.Error})
-		})
-	if err != nil {
-		var upstream *aiUpstreamError
-		code := "AI_UPSTREAM_UNAVAILABLE"
-		if errors.As(err, &upstream) {
-			code = "AI_UPSTREAM_ERROR"
-		}
-		s.logger.Warn("ai agent failed", "model", config.Model, "error", err.Error())
-		writeError(w, 502, code, err.Error())
-		return
-	}
-
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		invocation.fail("STREAMING_UNAVAILABLE", nil)
+		s.record(r.Context(), invocation)
 		writeError(w, 500, "STREAMING_UNAVAILABLE", "이 서버에서는 스트리밍을 사용할 수 없습니다.")
 		return
 	}
+	// The stream is opened before the agent starts, so each tool it runs and
+	// each piece of the answer reaches the reader as it happens rather than
+	// all at once when the whole run is over.
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(200)
-	writeAgentEvents(w, flusher, run)
 
-	action := input.Action
-	if action == "" {
-		action = "agent"
+	streamed := false
+	answered := 0
+	writeDelta := func(text string) {
+		if text == "" {
+			return
+		}
+		answered += len([]rune(text))
+		chunk, _ := json.Marshal(map[string]any{
+			"object": "chat.completion.chunk",
+			"choices": []map[string]any{
+				{"index": 0, "delta": map[string]any{"role": "assistant", "content": text}, "finish_reason": nil},
+			},
+		})
+		fmt.Fprintf(w, "data: %s\n\n", chunk)
+		flusher.Flush()
+		streamed = true
 	}
+
+	run, err := s.runAgent(ctx, config, p.User, messages, maxTokens, input.Temperature,
+		func(call agentCall) {
+			event, _ := json.Marshal(map[string]any{
+				"tool": call.Name, "arguments": call.Args, "error": call.Error,
+			})
+			fmt.Fprintf(w, "event: tool\ndata: %s\n\n", event)
+			flusher.Flush()
+			s.audit(r, &p.User.ID, "AI_TOOL_"+strings.ToUpper(call.Name), "DOCUMENT", input.DocumentID,
+				map[string]any{"tool": call.Name, "error": call.Error})
+		},
+		writeDelta)
+	if err != nil {
+		// The response has already begun, so the failure has to travel on the
+		// stream the client is reading.
+		s.logger.Warn("ai agent failed", "model", config.Model, "error", err.Error())
+		event, _ := json.Marshal(map[string]any{"error": err.Error()})
+		fmt.Fprintf(w, "event: error\ndata: %s\n\n", event)
+		flusher.Flush()
+		invocation.fail("AI_AGENT_FAILED", err)
+		s.record(r.Context(), invocation)
+		return
+	}
+
+	// A provider that could not stream answered in one piece; send it now.
+	if !streamed {
+		writeDelta(run.Answer)
+	}
+	final, _ := json.Marshal(map[string]any{
+		"object":  "chat.completion.chunk",
+		"choices": []map[string]any{{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}},
+		"usage":   run.Usage,
+	})
+	fmt.Fprintf(w, "data: %s\n\n", final)
+	io.WriteString(w, "data: [DONE]\n\n")
+	flusher.Flush()
+
 	names := make([]string, 0, len(run.Calls))
 	for _, call := range run.Calls {
 		names = append(names, call.Name)
 	}
-	_, _ = s.db.Exec(r.Context(), `INSERT INTO ai_actions(session_id,user_id,document_id,action,model,status,metadata) VALUES($1,$2,$3,$4,$5,'COMPLETED',$6)`,
-		input.SessionID, p.User.ID, input.DocumentID, truncate(action, 80), config.Model,
-		map[string]any{"maxTokens": maxTokens, "tools": names})
-	s.audit(r, &p.User.ID, "AI_"+strings.ToUpper(action), "DOCUMENT", input.DocumentID,
+	if invocation.action == "chat" {
+		invocation.action = "agent"
+	}
+	invocation.usage = readUsage(run.Usage)
+	invocation.completionChars = answered
+	invocation.toolCalls = len(run.Calls)
+	invocation.note("tools", names)
+	s.record(r.Context(), invocation)
+	s.audit(r, &p.User.ID, "AI_"+strings.ToUpper(invocation.action), "DOCUMENT", input.DocumentID,
 		map[string]any{"model": config.Model, "maxTokens": maxTokens, "toolCalls": len(run.Calls)})
 }

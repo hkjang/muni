@@ -14,6 +14,7 @@ import { AdminSettingsPage } from "./pages/admin/AdminSettingsPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminKeyPoliciesPage } from "./pages/admin/AdminKeyPoliciesPage";
 import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
+import { AdminAIUsagePage } from "./pages/admin/AdminAIUsagePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
 function Protected({ children }: { children: React.ReactNode }) {
@@ -70,6 +71,7 @@ export default function App() {
         <Route index element={<AdminSettingsPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="key-policies" element={<AdminKeyPoliciesPage />} />
+        <Route path="ai-usage" element={<AdminAIUsagePage />} />
         <Route path="audit" element={<AdminAuditPage />} />
       </Route>
       <Route path="*" element={<NotFoundPage />} />

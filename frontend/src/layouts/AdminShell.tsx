@@ -4,6 +4,7 @@ import {
   GroupsOutlined,
   KeyOutlined,
   Menu as MenuIcon,
+  PsychologyOutlined,
   PolicyOutlined,
   SettingsOutlined,
 } from "@mui/icons-material";
@@ -39,6 +40,7 @@ export function AdminShell() {
     ["/admin", "서비스 설정", SettingsOutlined],
     ["/admin/users", "사용자 관리", GroupsOutlined],
     ["/admin/key-policies", "키 권한 정책", KeyOutlined],
+    ["/admin/ai-usage", "AI 호출 감사", PsychologyOutlined],
     ["/admin/audit", "감사 로그", PolicyOutlined],
   ] as const;
   const drawer = (

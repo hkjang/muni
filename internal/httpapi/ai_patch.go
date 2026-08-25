@@ -92,7 +92,10 @@ func (s *Server) proposeDocumentPatch(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(config.TimeoutSeconds)*time.Second)
 	defer cancel()
-	edits, err := s.requestPatch(ctx, config, title, input.Instruction, blocks)
+	invocation := startAIInvocation(p.User, "patch", config.Model, &documentID, len([]rune(input.Instruction)))
+	invocation.note("blocks", len(blocks))
+	edits, usage, err := s.requestPatch(ctx, config, title, input.Instruction, blocks)
+	invocation.usage = usage
 	if err != nil {
 		var upstream *aiUpstreamError
 		code := "AI_UPSTREAM_UNAVAILABLE"
@@ -100,6 +103,8 @@ func (s *Server) proposeDocumentPatch(w http.ResponseWriter, r *http.Request) {
 			code = "AI_UPSTREAM_ERROR"
 		}
 		s.logger.Warn("ai patch failed", "model", config.Model, "error", err.Error())
+		invocation.fail(code, err)
+		s.record(r.Context(), invocation)
 		writeError(w, 502, code, err.Error())
 		return
 	}
@@ -139,6 +144,8 @@ func (s *Server) proposeDocumentPatch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	invocation.note("suggestions", len(created))
+	s.record(r.Context(), invocation)
 	s.audit(r, &p.User.ID, "AI_PROPOSE_PATCH", "DOCUMENT", &documentID,
 		map[string]any{"model": config.Model, "blocks": len(blocks), "suggestions": len(created)})
 	writeData(w, 201, map[string]any{"suggestions": created, "count": len(created)})
@@ -180,7 +187,7 @@ func patchableBlocks(document *richdoc.Node, only []string) []patchBlock {
 	return blocks
 }
 
-func (s *Server) requestPatch(ctx context.Context, config settings.AI, title, instruction string, blocks []patchBlock) ([]proposedEdit, error) {
+func (s *Server) requestPatch(ctx context.Context, config settings.AI, title, instruction string, blocks []patchBlock) ([]proposedEdit, aiUsage, error) {
 	var document strings.Builder
 	for _, block := range blocks {
 		fmt.Fprintf(&document, "[%s] (%s) %s\n", block.id, block.kind, truncateRunes(block.text, 1200))
@@ -202,16 +209,17 @@ func (s *Server) requestPatch(ctx context.Context, config settings.AI, title, in
 		maxTokens: config.MaxTokens,
 	})
 	if err != nil {
-		return nil, err
+		return nil, aiUsage{}, err
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 
 	var parsed completionResponse
 	if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Choices) == 0 {
-		return nil, fmt.Errorf("AI 응답 형식을 이해하지 못했습니다: %s", truncate(string(body), 300))
+		return nil, aiUsage{}, fmt.Errorf("AI 응답 형식을 이해하지 못했습니다: %s", truncate(string(body), 300))
 	}
-	return parsePatchEdits(contentText(parsed.Choices[0].Message.Content))
+	edits, parseErr := parsePatchEdits(contentText(parsed.Choices[0].Message.Content))
+	return edits, readUsage(parsed.Usage), parseErr
 }
 
 // parsePatchEdits reads the model's answer. Models wrap JSON in prose or a code

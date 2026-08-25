@@ -51,7 +51,7 @@ func TestAgentAnswersWithoutToolsWhenNoneAreNeeded(t *testing.T) {
 	server := newAIServer()
 
 	run, err := server.runAgent(context.Background(), agentConfig(provider.URL), User{},
-		[]aiMessage{{Role: "user", Content: "안녕"}}, 500, nil, nil)
+		[]aiMessage{{Role: "user", Content: "안녕"}}, 500, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestAgentReportsAToolFailureBackToTheModel(t *testing.T) {
 	observed := make([]agentCall, 0, 1)
 	run, err := server.runAgent(context.Background(), agentConfig(provider.URL), User{},
 		[]aiMessage{{Role: "user", Content: "읽어줘"}}, 500, nil,
-		func(call agentCall) { observed = append(observed, call) })
+		func(call agentCall) { observed = append(observed, call) }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestAgentStopsAfterTheRoundLimit(t *testing.T) {
 	// that into an error the model is told about, which is exactly the path
 	// that has to keep the loop alive.
 	run, err := server.runAgent(context.Background(), agentConfig(provider.URL), User{},
-		[]aiMessage{{Role: "user", Content: "계속 찾아봐"}}, 500, nil, nil)
+		[]aiMessage{{Role: "user", Content: "계속 찾아봐"}}, 500, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestAgentDegradesWhenTheProviderRejectsTools(t *testing.T) {
 
 	server := newAIServer()
 	run, err := server.runAgent(context.Background(), agentConfig(provider.URL), User{},
-		[]aiMessage{{Role: "user", Content: "질문"}}, 500, nil, nil)
+		[]aiMessage{{Role: "user", Content: "질문"}}, 500, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("a provider without tool calling should still answer: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestAgentSurfacesAnUpstreamFailure(t *testing.T) {
 
 	server := newAIServer()
 	_, err := server.runAgent(context.Background(), agentConfig(provider.URL), User{},
-		[]aiMessage{{Role: "user", Content: "질문"}}, 500, nil, nil)
+		[]aiMessage{{Role: "user", Content: "질문"}}, 500, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected the upstream failure to reach the caller")
 	}

@@ -62,6 +62,7 @@ func (s *Server) runAgent(
 	maxTokens int,
 	temperature *float64,
 	onCall func(agentCall),
+	onDelta func(string),
 ) (agentRun, error) {
 	tools := aiTools()
 	definitions := toolDefinitions(tools)
@@ -75,22 +76,22 @@ func (s *Server) runAgent(
 			maxTokens:   maxTokens,
 			temperature: temperature,
 			tools:       definitions,
+			// Streaming is what lets the reader watch the answer being
+			// written; a provider that cannot do it answers with plain JSON
+			// and readCompletion handles both.
+			stream: onDelta != nil,
 		})
 		if err != nil {
 			return run, err
 		}
-		body, readErr := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+		message, usage, readErr := readCompletion(response, onDelta)
 		response.Body.Close()
 		if readErr != nil {
-			return run, fmt.Errorf("AI 응답을 읽지 못했습니다: %w", readErr)
+			return run, readErr
 		}
-
-		var parsed completionResponse
-		if err := json.Unmarshal(body, &parsed); err != nil || len(parsed.Choices) == 0 {
-			return run, fmt.Errorf("AI 응답 형식을 이해하지 못했습니다: %s", truncate(string(body), 300))
+		if usage != nil {
+			run.Usage = usage
 		}
-		run.Usage = parsed.Usage
-		message := parsed.Choices[0].Message
 
 		// A provider that cannot do tool calling degrades to a plain answer;
 		// the adaptive client has already dropped the parameter by this point.
@@ -131,17 +132,21 @@ func (s *Server) runAgent(
 		Content: "도구를 더 부르지 말고 지금까지 확인한 내용만으로 답하세요.",
 	})
 	response, _, err := s.call(ctx, aiRequest{
-		config: config, messages: conversation, maxTokens: maxTokens, temperature: temperature,
+		config: config, messages: conversation, maxTokens: maxTokens,
+		temperature: temperature, stream: onDelta != nil,
 	})
 	if err != nil {
 		return run, err
 	}
 	defer response.Body.Close()
-	body, _ := io.ReadAll(io.LimitReader(response.Body, 8<<20))
-	var parsed completionResponse
-	if json.Unmarshal(body, &parsed) == nil && len(parsed.Choices) > 0 {
-		run.Answer = contentText(parsed.Choices[0].Message.Content)
+	message, usage, readErr := readCompletion(response, onDelta)
+	if readErr != nil {
+		return run, readErr
 	}
+	if usage != nil {
+		run.Usage = usage
+	}
+	run.Answer = contentText(message.Content)
 	return run, nil
 }
 
