@@ -274,7 +274,16 @@ func imageHTML(node *richdoc.Node) string {
 	if width := node.AttrInt("width", 0); width > 0 {
 		out += ` width="` + strconv.Itoa(width) + `"`
 	}
-	return out + ">"
+	out += ">"
+	// An image is its own block here, so the alignment has to be carried by
+	// something around it; the tag itself has nothing to align against.
+	switch strings.ToLower(node.AttrString("textAlign")) {
+	case "center":
+		return `<div style="text-align:center">` + out + `</div>`
+	case "right":
+		return `<div style="text-align:right">` + out + `</div>`
+	}
+	return out
 }
 
 func safeImageSource(src string) bool {

@@ -6,7 +6,7 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
 import Highlight from "@tiptap/extension-highlight";
-import Image from "@tiptap/extension-image";
+import { SizedImage } from "../features/editor/extensions/imageAttributes";
 import { TableKit } from "@tiptap/extension-table";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
@@ -17,6 +17,8 @@ import { EditorStatus } from "../features/editor/EditorStatus";
 import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { EditorStatusBar } from "../features/editor/EditorStatusBar";
+import { ImageMenu } from "../features/editor/ImageMenu";
+import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
 import { ShortcutsDialog } from "../features/editor/ShortcutsDialog";
@@ -105,6 +107,7 @@ export function EditorPage() {
   const revisionRef = useRef(0);
   const saveTimer = useRef<number | undefined>(undefined);
   const seeded = useRef(false);
+  const restored = useRef(false);
   const documentQuery = useQuery({
     queryKey: ["document", documentId],
     queryFn: () => api<DocumentItem>(`/api/v1/documents/${documentId}`),
@@ -140,7 +143,7 @@ export function EditorPage() {
         placeholder: "내용을 입력하거나 /ai로 AI 도우미를 시작하세요.",
       }),
       Highlight.configure({ multicolor: true }),
-      Image.configure({ allowBase64: true, inline: false }),
+      SizedImage.configure({ allowBase64: true, inline: false }),
       TableKit.configure({ table: { resizable: true } }),
       TaskList,
       TaskItem.configure({ nested: true }),
@@ -168,8 +171,36 @@ export function EditorPage() {
   const canComment = canEdit || document?.permission === "COMMENTER";
   useEffect(() => {
     seeded.current = false;
+    restored.current = false;
     revisionRef.current = 0;
   }, [documentId]);
+  // Reopening a twenty-page report at the top means scrolling back every time.
+  useEffect(() => {
+    if (!editor || !collaboration.syncedAt || restored.current) return;
+    restored.current = true;
+    const position = recallPosition(window.localStorage, documentId);
+    const size = editor.state.doc.content.size;
+    // Only worth doing for a document long enough to have been scrolled, and
+    // only when the position still exists after whatever changed since.
+    if (!position || position >= size || size < 600) return;
+    editor.chain().setTextSelection(position).scrollIntoView().run();
+  }, [collaboration.syncedAt, documentId, editor]);
+  useEffect(() => {
+    if (!editor) return;
+    let timer: number | undefined;
+    const onSelection = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        () => rememberPosition(window.localStorage, documentId, editor.state.selection.from),
+        800,
+      );
+    };
+    editor.on("selectionUpdate", onSelection);
+    return () => {
+      window.clearTimeout(timer);
+      editor.off("selectionUpdate", onSelection);
+    };
+  }, [documentId, editor]);
   useEffect(() => {
     if (document && !canEdit && mode === "editing") {
       setMode(canComment ? "suggesting" : "viewing");
@@ -611,6 +642,7 @@ export function EditorPage() {
             />
             <TableTools editor={editor} canEdit={canEdit && mode === "editing"} />
             <LinkMenu editor={editor} canEdit={canEdit && mode === "editing"} />
+            <ImageMenu editor={editor} canEdit={canEdit && mode === "editing"} />
             <SlashMenu
               editor={editor}
               documentId={documentId}
