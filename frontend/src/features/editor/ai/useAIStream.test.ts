@@ -108,3 +108,28 @@ describe("useAIStream", () => {
     expect(result.current.toolCalls).toHaveLength(0);
   });
 });
+
+describe("reasoning", () => {
+  // A model that reasons out loud must not have its working applied to the
+  // document by the selection menu.
+  it("keeps the model's working out of the answer", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      sse(
+        chunk("사용자가 요약을 원한다."),
+        chunk("\n</think>\n"),
+        chunk("요약: 세 항목입니다."),
+        "data: [DONE]\n\n",
+      ),
+    ),
+  );
+  const { result } = renderHook(() => useAIStream());
+  let returned = "";
+  await act(async () => {
+    returned = await result.current.run({ prompt: "요약", action: "test" });
+  });
+    expect(result.current.text).toBe("요약: 세 항목입니다.");
+    expect(returned).toBe("요약: 세 항목입니다.");
+  });
+});

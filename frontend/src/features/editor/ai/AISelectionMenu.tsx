@@ -212,7 +212,7 @@ export function AISelectionMenu({
                   py: 1,
                 }}
               >
-                {stream.text || "생성 중…"}
+                {stream.text || (stream.thinking ? "생각하는 중…" : "생성 중…")}
               </Box>
             )}
 

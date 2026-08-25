@@ -184,3 +184,105 @@ func TestWriteSSEFromJSON(t *testing.T) {
 		t.Fatalf("unexpected SSE output: %s", body)
 	}
 }
+
+// muni has several system instructions to give — the administrator's prompt,
+// the document the question is about, how to use the tools. Sending them as
+// separate system turns is what gateways that allow only one reject.
+func TestSystemInstructionsAreMergedIntoOne(t *testing.T) {
+	messages := prepareMessages([]aiMessage{
+		{Role: "system", Content: "관리자 프롬프트"},
+		{Role: "system", Content: "현재 문서 본문: ..."},
+		{Role: "user", Content: "요약해줘"},
+	}, aiQuirks{})
+
+	if len(messages) != 2 {
+		t.Fatalf("expected one system turn and one user turn: %+v", messages)
+	}
+	if messages[0]["role"] != "system" {
+		t.Fatalf("the instructions must come first: %+v", messages)
+	}
+	content := messages[0]["content"].(string)
+	if !strings.Contains(content, "관리자 프롬프트") || !strings.Contains(content, "현재 문서 본문") {
+		t.Fatalf("an instruction was dropped: %q", content)
+	}
+	if messages[1]["role"] != "user" {
+		t.Fatalf("the question was lost: %+v", messages)
+	}
+}
+
+func TestMergedInstructionsStayAtTheFront(t *testing.T) {
+	// The agent adds an instruction after the tool results have come back.
+	messages := prepareMessages([]aiMessage{
+		{Role: "system", Content: "관리자 프롬프트"},
+		{Role: "user", Content: "질문"},
+		{Role: "assistant", Content: "부분 답"},
+		{Role: "system", Content: "도구를 더 부르지 마세요"},
+	}, aiQuirks{})
+
+	if messages[0]["role"] != "system" {
+		t.Fatalf("instructions must lead: %+v", messages)
+	}
+	content := messages[0]["content"].(string)
+	if !strings.Contains(content, "도구를 더 부르지 마세요") {
+		t.Fatalf("the late instruction was lost: %q", content)
+	}
+	roles := []string{}
+	for _, message := range messages[1:] {
+		roles = append(roles, message["role"].(string))
+	}
+	if len(roles) != 2 || roles[0] != "user" || roles[1] != "assistant" {
+		t.Fatalf("the conversation order changed: %v", roles)
+	}
+}
+
+func TestGatewayThatRefusesTheSystemRoleGetsAUserTurn(t *testing.T) {
+	messages := prepareMessages([]aiMessage{
+		{Role: "system", Content: "지시"},
+		{Role: "user", Content: "질문"},
+	}, aiQuirks{NoSystemRole: true})
+	if messages[0]["role"] != "user" {
+		t.Fatalf("the instruction should arrive as a user turn: %+v", messages)
+	}
+}
+
+// The wording differs between gateways, so anything said about the system
+// message is worth one attempt without it.
+func TestCallRetriesWithoutTheSystemRole(t *testing.T) {
+	var roles [][]string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var payload struct {
+			Messages []map[string]any `json:"messages"`
+		}
+		_ = json.Unmarshal(body, &payload)
+		seen := []string{}
+		for _, message := range payload.Messages {
+			seen = append(seen, message["role"].(string))
+		}
+		roles = append(roles, seen)
+		if len(seen) > 0 && seen[0] == "system" {
+			w.WriteHeader(400)
+			io.WriteString(w, `{"error":{"message":"System message must be the first and only message"}}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}]}`)
+	}))
+	defer upstream.Close()
+
+	server := newAIServer()
+	response, quirks, err := server.call(context.Background(), aiRequest{
+		config:   settings.AI{BaseURL: upstream.URL + "/v1", Model: "m", MaxTokens: 100, TimeoutSeconds: 30},
+		messages: []aiMessage{{Role: "system", Content: "지시"}, {Role: "user", Content: "질문"}},
+	})
+	if err != nil {
+		t.Fatalf("the request should have recovered: %v", err)
+	}
+	response.Body.Close()
+	if !quirks.NoSystemRole {
+		t.Fatal("the gateway's objection was not learned")
+	}
+	if len(roles) != 2 || roles[1][0] != "user" {
+		t.Fatalf("the retry still used a system turn: %v", roles)
+	}
+}

@@ -196,7 +196,12 @@ export function AgentPanel({
             lineHeight: 1.7,
           }}
         >
-          {stream.text}
+          {stream.text ||
+            (stream.thinking ? (
+              <Typography component="span" color="text.secondary">
+                생각하는 중…
+              </Typography>
+            ) : null)}
           {stream.running && (
             <Box
               component="span"

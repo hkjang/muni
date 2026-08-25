@@ -155,7 +155,9 @@ func toolResult(id string, value any) aiMessage {
 
 func contentText(value any) string {
 	if text, ok := normalizeMessageContent(value).(string); ok {
-		return text
+		// A model that reasons out loud must not have its working mistaken for
+		// the answer, least of all by the patch parser looking for JSON.
+		return stripReasoning(text)
 	}
 	return ""
 }

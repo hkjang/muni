@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { errorMessage } from "../../../lib/api";
+import { splitReasoning } from "./reasoning";
 
 export type AIStreamRequest = {
   prompt: string;
@@ -24,6 +25,7 @@ export type AIToolCall = {
  */
 export function useAIStream() {
   const [text, setText] = useState("");
+  const [thinking, setThinking] = useState(false);
   const [error, setError] = useState("");
   const [running, setRunning] = useState(false);
   const [toolCalls, setToolCalls] = useState<AIToolCall[]>([]);
@@ -37,6 +39,7 @@ export function useAIStream() {
   const reset = useCallback(() => {
     stop();
     setText("");
+    setThinking(false);
     setError("");
     setToolCalls([]);
     setRunning(false);
@@ -48,6 +51,7 @@ export function useAIStream() {
       const current = new AbortController();
       controller.current = current;
       setText("");
+      setThinking(false);
       setError("");
       setToolCalls([]);
       setRunning(true);
@@ -93,13 +97,15 @@ export function useAIStream() {
             const chunk = readChunk(line);
             if (chunk) {
               answer += chunk;
-              setText(answer);
+              const split = splitReasoning(answer);
+              setText(split.text);
+              setThinking(split.thinking);
             }
           }
         }
-        return answer;
+        return splitReasoning(answer).text;
       } catch (cause) {
-        if ((cause as Error).name === "AbortError") return answer;
+        if ((cause as Error).name === "AbortError") return splitReasoning(answer).text;
         setError(errorMessage(cause));
         return "";
       } finally {
@@ -110,7 +116,7 @@ export function useAIStream() {
     [],
   );
 
-  return { text, error, running, toolCalls, run, stop, reset };
+  return { text, thinking, error, running, toolCalls, run, stop, reset };
 }
 
 /**

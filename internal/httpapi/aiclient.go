@@ -212,7 +212,14 @@ func buildAIPayload(config settings.AI, request aiRequest, quirks aiQuirks) map[
 // prepareMessages drops empty turns and rewrites the system role for models
 // that renamed or removed it.
 func prepareMessages(messages []aiMessage, quirks aiQuirks) []map[string]any {
-	out := make([]map[string]any, 0, len(messages))
+	// Every system instruction is merged into one leading message. muni has
+	// several to give — the administrator's prompt, the document the question
+	// is about, how to use the tools — and sending them as separate system
+	// turns is rejected outright by gateways that allow only one, or only one
+	// at the front. A single system message is valid everywhere.
+	instructions := make([]string, 0, 3)
+	out := make([]map[string]any, 0, len(messages)+1)
+
 	for _, message := range messages {
 		content := normalizeMessageContent(message.Content)
 		// An assistant turn that only calls tools carries no text, and a tool
@@ -227,16 +234,13 @@ func prepareMessages(messages []aiMessage, quirks aiQuirks) []map[string]any {
 		if text, ok := content.(string); ok && strings.TrimSpace(text) == "" && !carriesToolPlumbing {
 			continue
 		}
-		role := message.Role
-		if role == "system" {
-			switch {
-			case quirks.NoSystemRole:
-				role = "user"
-			case quirks.DeveloperRole:
-				role = "developer"
+		if message.Role == "system" && !carriesToolPlumbing {
+			if text, ok := content.(string); ok {
+				instructions = append(instructions, strings.TrimSpace(text))
+				continue
 			}
 		}
-		entry := map[string]any{"role": role, "content": content}
+		entry := map[string]any{"role": message.Role, "content": content}
 		if len(message.ToolCalls) > 0 {
 			entry["tool_calls"] = message.ToolCalls
 		}
@@ -244,6 +248,19 @@ func prepareMessages(messages []aiMessage, quirks aiQuirks) []map[string]any {
 			entry["tool_call_id"] = message.ToolCallID
 		}
 		out = append(out, entry)
+	}
+
+	if len(instructions) > 0 {
+		role := "system"
+		switch {
+		case quirks.NoSystemRole:
+			role = "user"
+		case quirks.DeveloperRole:
+			role = "developer"
+		}
+		out = append([]map[string]any{{
+			"role": role, "content": strings.Join(instructions, "\n\n"),
+		}}, out...)
 	}
 	if len(out) == 0 {
 		out = append(out, map[string]any{"role": "user", "content": " "})
@@ -325,7 +342,12 @@ func adaptQuirks(quirks aiQuirks, status int, body string, request aiRequest) (a
 		quirks.DeveloperRole = true
 		return quirks, true
 	}
-	if unsupported("system") && !quirks.NoSystemRole {
+	// Anything the gateway says about the system message is worth one attempt
+	// without it: the instructions still reach the model as a user turn, which
+	// is worse than a system turn but far better than a failed request. The
+	// wording varies too much between gateways to match precisely — "must be
+	// first", "only one allowed", "not supported" are all seen.
+	if strings.Contains(lower, "system") && !quirks.NoSystemRole {
 		quirks.NoSystemRole = true
 		quirks.DeveloperRole = false
 		return quirks, true
@@ -421,7 +443,7 @@ func writeSSEFromJSON(w http.ResponseWriter, flusher http.Flusher, body []byte) 
 	content := ""
 	if json.Unmarshal(body, &response) == nil && len(response.Choices) > 0 {
 		if text, ok := normalizeMessageContent(response.Choices[0].Message.Content).(string); ok {
-			content = text
+			content = stripReasoning(text)
 		}
 	}
 	chunk := map[string]any{

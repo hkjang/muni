@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Add,
   AdminPanelSettingsOutlined,
@@ -20,6 +20,7 @@ import {
   Avatar,
   Box,
   Button,
+  Chip,
   Divider,
   Dialog,
   DialogActions,
@@ -43,6 +44,7 @@ import {
   useTheme,
 } from "@mui/material";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
+import { QuickSwitcher } from "../features/navigation/QuickSwitcher";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorMessage, jsonBody } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -61,10 +63,29 @@ export function AppShell() {
   const [workspaceName, setWorkspaceName] = useState("");
   const [workspaceSlug, setWorkspaceSlug] = useState("");
   const [workspaceDescription, setWorkspaceDescription] = useState("");
+  const [quickOpen, setQuickOpen] = useState(false);
   const { user, build, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
+  // Ctrl/Cmd+K anywhere, and "/" when the caret is not already in a field.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const inField = isTypingTarget(event.target);
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setQuickOpen(true);
+        return;
+      }
+      if (event.key === "/" && !inField && !event.metaKey && !event.ctrlKey) {
+        event.preventDefault();
+        setQuickOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const { data: workspaces = [] } = useQuery({
     queryKey: ["workspaces"],
     queryFn: () => api<Workspace[]>("/api/v1/workspaces"),
@@ -292,9 +313,17 @@ export function AppShell() {
             <InputBase
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onFocus={() => setQuickOpen(true)}
               placeholder="문서, 작성자, 태그 검색"
               inputProps={{ "aria-label": "통합 검색" }}
               sx={{ ml: 1, flex: 1, minHeight: 42, fontSize: 15 }}
+            />
+            <Chip
+              size="small"
+              variant="outlined"
+              label={shortcutHint()}
+              onClick={() => setQuickOpen(true)}
+              sx={{ display: { xs: "none", sm: "inline-flex" }, mr: 0.5 }}
             />
           </Box>
           <Tooltip title="프로필 메뉴">
@@ -340,6 +369,7 @@ export function AppShell() {
       <Box component="main" sx={{ flex: 1, minWidth: 0, pt: "69px" }}>
         <Outlet />
       </Box>
+      <QuickSwitcher open={quickOpen} onClose={() => setQuickOpen(false)} />
       <Menu
         anchorEl={profileAnchor}
         open={Boolean(profileAnchor)}
@@ -460,4 +490,20 @@ export function AppShell() {
       </Dialog>
     </Box>
   );
+}
+
+
+/** isTypingTarget keeps the "/" shortcut out of the way while someone writes. */
+function isTypingTarget(target: EventTarget | null): boolean {
+  const element = target as HTMLElement | null;
+  if (!element) return false;
+  if (element.isContentEditable) return true;
+  const tag = element.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function shortcutHint(): string {
+  const mac =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+  return mac ? "⌘K" : "Ctrl K";
 }
