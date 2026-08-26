@@ -33,19 +33,24 @@ func TestDevtoolsPDFHasPageNumbers(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(tempDir) })
 	htmlPath := filepath.Join(tempDir, "document.html")
+	// The content is deliberately ASCII. A machine without the CJK fonts the
+	// container ships renders Korean as empty boxes, and what this test is
+	// checking is the pagination and the footer, not the fonts.
+	const title = "muni page numbering"
 	var body strings.Builder
 	for page := 1; page <= 3; page++ {
-		body.WriteString("<h1>" + strings.Repeat("장 ", 3) + "</h1>")
+		body.WriteString("<h1>Chapter " + strconv.Itoa(page) + "</h1>")
 		for line := 0; line < 45; line++ {
-			body.WriteString("<p>본문이 이어집니다. 줄 " + strings.Repeat("내용 ", 6) + "</p>")
+			body.WriteString("<p>A line of body text that goes on for a while. " +
+				strings.Repeat("more words ", 6) + "</p>")
 		}
 	}
-	if err := os.WriteFile(htmlPath, []byte(fullHTML("검증 문서", body.String())), 0600); err != nil {
+	if err := os.WriteFile(htmlPath, []byte(fullHTML(title, body.String())), 0600); err != nil {
 		t.Fatal(err)
 	}
 
 	pdf, err := printToPDFWithDevtools(context.Background(), binary, tempDir, htmlPath,
-		pdfFooter{Title: "검증 문서"})
+		pdfFooter{Title: title})
 	if err != nil {
 		t.Fatalf("devtools render failed: %v", err)
 	}
@@ -71,7 +76,7 @@ func TestDevtoolsPDFHasPageNumbers(t *testing.T) {
 	if !strings.Contains(text, "1 / "+strconv.Itoa(parsed.Pages)) {
 		t.Fatalf("the page numbering is not in the document: %q", truncate(text, 300))
 	}
-	if !strings.Contains(text, "검증 문서") {
+	if !strings.Contains(text, title) {
 		t.Fatalf("the footer should name the document: %q", truncate(text, 300))
 	}
 	t.Logf("rendered %d pages, %d bytes", parsed.Pages, len(pdf))
