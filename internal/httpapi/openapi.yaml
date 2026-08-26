@@ -643,6 +643,360 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         '409': { $ref: '#/components/responses/Error' }
+  /admin/ai-usage:
+    get:
+      summary: AI 호출 기록과 합계
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/audit.csv:
+    get:
+      summary: 감사 로그를 CSV로 내려받기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/documents:
+    get:
+      summary: 모든 문서 찾기 (관리자)
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/documents/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 휴지통의 문서를 완전히 삭제
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/documents/{id}/transfer:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 문서 소유권 이전
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/overview:
+    get:
+      summary: 운영 현황과 연결 상태
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/retention/preview:
+    get:
+      summary: 보존 정책이 지울 항목 미리보기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/retention/run:
+    post:
+      summary: 보존 정책을 지금 적용
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/settings/test-ai:
+    post:
+      summary: AI 연결 시험
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/settings/test-oidc:
+    post:
+      summary: OIDC discovery 시험
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/settings/test-ptium:
+    post:
+      summary: 발표자료 연동 시험
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/settings/test-smtp:
+    post:
+      summary: 메일 발송 시험
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/users/{id}/password:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 사용자 비밀번호 초기화
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/users/{id}/sessions:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 사용자의 모든 세션 종료
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    get:
+      summary: 사용자의 열린 세션
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/workspaces:
+    get:
+      summary: 모든 워크스페이스
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/workspaces/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 워크스페이스 사용 중단
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/workspaces/{id}/restore:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 워크스페이스 되돌리기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/workspaces/{id}/transfer:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 워크스페이스 소유권 이전
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /attachments/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 첨부 파일 삭제
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    get:
+      summary: 첨부 파일 내려받기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/oidc/callback:
+    get:
+      summary: OIDC 로그인 완료
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /auth/oidc/start:
+    get:
+      summary: OIDC 로그인 시작
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /collab/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: 공동편집 WebSocket 연결
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /comments/{id}/reopen:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 댓글 스레드 다시 열기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /comments/{id}/resolve:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 댓글 스레드 해결
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/attachments:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: 첨부 목록
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      summary: 첨부 올리기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/favorite:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 즐겨찾기 해제
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      summary: 즐겨찾기 추가
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/move:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 다른 폴더나 워크스페이스로 옮기기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/permissions/{permissionId}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: permissionId, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 문서 공유 해제
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/restore:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 휴지통에서 복원
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/revisions/{revision}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revision, in: path, required: true, schema: { type: string } }
+    patch:
+      summary: 버전에 이름 붙이기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/revisions/{revision}/restore:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: revision, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 버전 복원
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/tags:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      summary: 문서 태그 지정
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /folders/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 폴더 삭제
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      summary: 폴더 이름 변경 또는 이동
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /mcp:
+    post:
+      summary: MCP JSON-RPC 엔드포인트
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /me/password:
+    post:
+      summary: 내 비밀번호 변경
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /notifications:
+    get:
+      summary: 내 알림
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /notifications/read-all:
+    post:
+      summary: 알림 모두 읽음 처리
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /notifications/{id}/read:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 알림 읽음 처리
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /suggestions/{id}/decision:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 수정 제안 반영 또는 거절
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /templates/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: 서식 삭제
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      summary: 서식 변경
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /users/search:
+    get:
+      summary: 사용자 찾기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /workspaces/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: 워크스페이스 정보
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /workspaces/{id}/tags:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: 워크스페이스 태그
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /workspaces/{id}/templates:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: 서식 목록
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      summary: 서식 만들기
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     sessionCookie:

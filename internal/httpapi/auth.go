@@ -157,15 +157,31 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &input) {
 		return
 	}
+	// Guessing has to cost something. A delay alone is served in parallel, so
+	// a hundred attempts sent together all finish together.
+	key := loginKey(r, input.Identity)
+	if s.logins != nil && s.logins.blocked(key) {
+		s.audit(r, nil, "LOGIN_BLOCKED", "USER", nil, map[string]any{"identity": truncate(input.Identity, 80)})
+		writeError(w, http.StatusTooManyRequests, "TOO_MANY_ATTEMPTS",
+			"로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.")
+		return
+	}
+
 	var user User
 	var passwordHash *string
 	err = s.db.QueryRow(r.Context(), `SELECT id,username,email,display_name,password_hash,role,status,avatar_url,locale,created_at
 		FROM users WHERE username=$1 OR email=$1`, strings.ToLower(strings.TrimSpace(input.Identity))).Scan(
 		&user.ID, &user.Username, &user.Email, &user.DisplayName, &passwordHash, &user.Role, &user.Status, &user.AvatarURL, &user.Locale, &user.CreatedAt)
 	if err != nil || passwordHash == nil || !database.VerifyPassword(*passwordHash, input.Password) {
+		if s.logins != nil {
+			s.logins.fail(key)
+		}
 		time.Sleep(200 * time.Millisecond)
 		writeError(w, http.StatusUnauthorized, "INVALID_CREDENTIALS", "아이디 또는 비밀번호가 올바르지 않습니다.")
 		return
+	}
+	if s.logins != nil {
+		s.logins.succeed(key)
 	}
 	if user.Status != "ACTIVE" {
 		writeError(w, http.StatusForbidden, "ACCOUNT_SUSPENDED", "사용할 수 없는 계정입니다.")

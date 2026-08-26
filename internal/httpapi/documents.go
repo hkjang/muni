@@ -615,21 +615,64 @@ func parseLimit(value string, fallback int) int {
 	return n
 }
 
+// searchFilter narrows a search to part of the library.
+//
+// One box was the whole of search: no way to say "only in this workspace",
+// "only mine", "only the ones tagged 대외비", "only this year". A result list
+// of three hundred documents cannot be read, so a search that cannot be
+// narrowed is a search that cannot be finished.
+type searchFilter struct {
+	Query       string
+	WorkspaceID *uuid.UUID
+	OwnerID     *uuid.UUID
+	Tag         string
+	// Since and Until bound when the document was last edited.
+	Since time.Time
+	Until time.Time
+}
+
 func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 	p, _ := principalFrom(r.Context())
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	if q == "" {
+	query := r.URL.Query()
+	filter := searchFilter{
+		Query: strings.TrimSpace(query.Get("q")),
+		Tag:   strings.TrimSpace(query.Get("tag")),
+		Since: parseDayBound(query.Get("from"), time.Time{}),
+		Until: parseDayBound(query.Get("to"), time.Time{}),
+	}
+	if !filter.Until.IsZero() {
+		// A day given as the end of a range includes that whole day.
+		filter.Until = filter.Until.Add(24 * time.Hour)
+	}
+	if parsed, err := uuid.Parse(strings.TrimSpace(query.Get("workspaceId"))); err == nil {
+		filter.WorkspaceID = &parsed
+	}
+	if strings.TrimSpace(query.Get("owner")) == "me" {
+		filter.OwnerID = &p.User.ID
+	} else if parsed, err := uuid.Parse(strings.TrimSpace(query.Get("ownerId"))); err == nil {
+		filter.OwnerID = &parsed
+	}
+
+	// A filter on its own is a useful search — "everything I wrote in this
+	// workspace last month" has no keyword in it.
+	if filter.Query == "" && filter.WorkspaceID == nil && filter.OwnerID == nil &&
+		filter.Tag == "" && filter.Since.IsZero() && filter.Until.IsZero() {
 		writeData(w, 200, []any{})
 		return
 	}
+
 	all, _ := s.settings.GetAll(r.Context(), false)
-	limit := parseLimit(r.URL.Query().Get("limit"), all.General.PageSize)
-	items, err := s.searchVisibleDocuments(r.Context(), p.User, q, limit)
+	limit := parseLimit(query.Get("limit"), all.General.PageSize)
+	items, err := s.searchWithFilter(r.Context(), p.User, filter, limit)
 	if err != nil {
 		writeError(w, 500, "SEARCH_FAILED", "검색하지 못했습니다.")
 		return
 	}
-	s.audit(r, &p.User.ID, "SEARCH_DOCUMENT", "SEARCH", nil, map[string]any{"queryLength": len([]rune(q))})
+	s.audit(r, &p.User.ID, "SEARCH_DOCUMENT", "SEARCH", nil, map[string]any{
+		"queryLength": len([]rune(filter.Query)),
+		"filtered": filter.WorkspaceID != nil || filter.OwnerID != nil ||
+			filter.Tag != "" || !filter.Since.IsZero() || !filter.Until.IsZero(),
+	})
 	writeData(w, 200, items)
 }
 
@@ -637,13 +680,16 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 // everywhere it is used, so the AI agent cannot reach documents the person
 // asking would not be shown.
 func (s *Server) searchVisibleDocuments(ctx context.Context, user User, query string, limit int) ([]map[string]any, error) {
-	rows, err := s.db.Query(ctx, `SELECT d.id,d.workspace_id,d.title,d.status,d.updated_at,u.display_name,snippet_around(d.content_text,$1) FROM documents d JOIN users u ON u.id=d.owner_id WHERE d.deleted_at IS NULL
-	AND (to_tsvector('simple',coalesce(d.title,'')||' '||coalesce(d.content_text,''))@@websearch_to_tsquery('simple',$1)
-		OR d.title ILIKE '%'||$1||'%' OR d.content_text ILIKE '%'||$1||'%' OR u.display_name ILIKE '%'||$1||'%'
-		OR EXISTS(SELECT 1 FROM comments c WHERE c.document_id=d.id AND c.deleted_at IS NULL AND c.body ILIKE '%'||$1||'%')
-		OR EXISTS(SELECT 1 FROM attachments a WHERE a.document_id=d.id AND a.name ILIKE '%'||$1||'%')
-		OR EXISTS(SELECT 1 FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=d.id AND t.name ILIKE '%'||$1||'%'))
-	AND (d.owner_id=$2 OR d.visibility='ORGANIZATION' OR EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=d.workspace_id AND wm.user_id=$2 AND d.visibility='WORKSPACE') OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id=d.id AND dp.subject_type='USER' AND dp.subject_id=$2 AND (dp.expires_at IS NULL OR dp.expires_at>now())) OR $3='ADMIN') ORDER BY ts_rank(to_tsvector('simple',coalesce(d.title,'')||' '||coalesce(d.content_text,'')),websearch_to_tsquery('simple',$1)) DESC,d.updated_at DESC LIMIT $4`, query, user.ID, user.Role, limit)
+	return s.searchWithFilter(ctx, user, searchFilter{Query: query}, limit)
+}
+
+// searchWithFilter is the one place the access rules live, so the AI agent
+// cannot reach a document the person asking would not be shown.
+func (s *Server) searchWithFilter(ctx context.Context, user User, filter searchFilter, limit int) ([]map[string]any, error) {
+	rows, err := s.db.Query(ctx, searchQuery,
+		filter.Query, user.ID, user.Role, limit,
+		filter.WorkspaceID, filter.OwnerID, filter.Tag,
+		nullTime(filter.Since), nullTime(filter.Until))
 	if err != nil {
 		return nil, err
 	}
@@ -659,3 +705,33 @@ func (s *Server) searchVisibleDocuments(ctx context.Context, user User, query st
 	}
 	return items, rows.Err()
 }
+
+// searchQuery finds documents the reader may see.
+//
+// The keyword and the filters are separate conditions: an empty keyword means
+// "everything the filters allow", which is what makes "everything I wrote in
+// this workspace last month" a search rather than a dead end.
+const searchQuery = `
+SELECT d.id, d.workspace_id, d.title, d.status, d.updated_at, u.display_name,
+	snippet_around(d.content_text, $1)
+FROM documents d JOIN users u ON u.id = d.owner_id
+WHERE d.deleted_at IS NULL
+	AND ($1 = '' OR
+		to_tsvector('simple', coalesce(d.title,'')||' '||coalesce(d.content_text,'')) @@ websearch_to_tsquery('simple',$1)
+		OR d.title ILIKE '%'||$1||'%' OR d.content_text ILIKE '%'||$1||'%' OR u.display_name ILIKE '%'||$1||'%'
+		OR EXISTS(SELECT 1 FROM comments c WHERE c.document_id=d.id AND c.deleted_at IS NULL AND c.body ILIKE '%'||$1||'%')
+		OR EXISTS(SELECT 1 FROM attachments a WHERE a.document_id=d.id AND a.name ILIKE '%'||$1||'%')
+		OR EXISTS(SELECT 1 FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=d.id AND t.name ILIKE '%'||$1||'%'))
+	AND ($5::uuid IS NULL OR d.workspace_id = $5)
+	AND ($6::uuid IS NULL OR d.owner_id = $6)
+	AND ($7 = '' OR EXISTS(SELECT 1 FROM document_tags dt2 JOIN tags t2 ON t2.id=dt2.tag_id
+		WHERE dt2.document_id = d.id AND t2.name = $7))
+	AND ($8::timestamptz IS NULL OR d.updated_at >= $8)
+	AND ($9::timestamptz IS NULL OR d.updated_at < $9)
+	AND (d.owner_id=$2 OR d.visibility='ORGANIZATION'
+		OR EXISTS(SELECT 1 FROM workspace_members wm WHERE wm.workspace_id=d.workspace_id AND wm.user_id=$2 AND d.visibility='WORKSPACE')
+		OR EXISTS(SELECT 1 FROM document_permissions dp WHERE dp.document_id=d.id AND dp.subject_type='USER' AND dp.subject_id=$2 AND (dp.expires_at IS NULL OR dp.expires_at>now()))
+		OR $3='ADMIN')
+ORDER BY ts_rank(to_tsvector('simple', coalesce(d.title,'')||' '||coalesce(d.content_text,'')),
+	websearch_to_tsquery('simple',$1)) DESC, d.updated_at DESC
+LIMIT $4`
