@@ -29,11 +29,35 @@ import (
 //	MUNI_TEST_DSN="postgres://postgres:muni@127.0.0.1:5433/muni?sslmode=disable" go test ./internal/httpapi/
 //
 // Without it they skip.
+// serverUnderTest is a muni talking to a real database, with an administrator
+// already signed in — what every test here needs before it can start.
+type serverUnderTest struct {
+	*httptest.Server
+	db    *pgxpool.Pool
+	admin *http.Client
+}
+
+func newServerUnderTest(t *testing.T) *serverUnderTest {
+	t.Helper()
+	srv, db := liveServer(t)
+	return &serverUnderTest{
+		Server: srv,
+		db:     db,
+		admin:  signIn(t, srv, "admin@muni.local", "provision-check-1234"),
+	}
+}
+
 func liveServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 	t.Helper()
 	dsn := os.Getenv("MUNI_TEST_DSN")
 	if dsn == "" {
-		t.Skip("no live database")
+		// Skipping is right on a laptop with no container running. In CI it
+		// would mean the tests quietly stopped running the day somebody
+		// removed the service, and nothing would say so.
+		if os.Getenv("CI") != "" {
+			t.Fatal("MUNI_TEST_DSN is unset in CI — the postgres service is gone, and these tests would have skipped silently")
+		}
+		t.Skip("set MUNI_TEST_DSN to run the integration tests")
 	}
 	ctx := context.Background()
 	db, err := database.Open(ctx, dsn)
@@ -53,7 +77,11 @@ func liveServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 	// into the settings row and the instance comes back with local login off.
 	// workspaces.owner_id has no ON DELETE, so the workspaces go first.
 	for _, statement := range []string{
+		`DELETE FROM documents WHERE owner_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')`,
+		`DELETE FROM documents WHERE workspace_id IN (SELECT id FROM workspaces WHERE owner_id IN (SELECT id FROM users WHERE email LIKE '%@example.com'))`,
 		`DELETE FROM workspaces WHERE owner_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')`,
+		`DELETE FROM api_keys WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')`,
+		`DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE email LIKE '%@example.com')`,
 		`DELETE FROM users WHERE email LIKE '%@example.com'`,
 	} {
 		if _, err := db.Exec(ctx, statement); err != nil {

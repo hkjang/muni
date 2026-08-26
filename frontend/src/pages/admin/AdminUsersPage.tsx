@@ -3,6 +3,7 @@ import {
   DevicesOutlined,
   KeyOutlined,
   LockResetOutlined,
+  LogoutOutlined,
   PersonAddAlt1Outlined,
   Search,
 } from "@mui/icons-material";
@@ -30,6 +31,7 @@ import { useState } from "react";
 import { api, errorMessage, formatDate, jsonBody } from "../../lib/api";
 import type { User } from "../../types";
 import { CreateUserDialog } from "./CreateUserDialog";
+import { OffboardDialog } from "./OffboardDialog";
 type AdminUser = User & {
   lastLoginAt?: string;
   mustChangePassword?: boolean;
@@ -52,6 +54,7 @@ type PersonalKey = {
 export function AdminUsersPage() {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
+  const [offboarding, setOffboarding] = useState<AdminUser | null>(null);
   const [keyUser, setKeyUser] = useState<AdminUser | null>(null);
   const [sessionUser, setSessionUser] = useState<AdminUser | null>(null);
   const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
@@ -163,6 +166,11 @@ export function AdminUsersPage() {
           client.invalidateQueries({ queryKey: ["admin-users"] })
         }
       />
+      <OffboardDialog
+        user={offboarding}
+        onClose={() => setOffboarding(null)}
+        onDone={() => client.invalidateQueries({ queryKey: ["admin-users"] })}
+      />
       {update.error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {errorMessage(update.error)}
@@ -233,6 +241,14 @@ export function AdminUsersPage() {
                 onClick={() => setKeyUser(user)}
               >
                 키 관리
+              </Button>
+              <Button
+                variant="outlined"
+                color="warning"
+                startIcon={<LogoutOutlined />}
+                onClick={() => setOffboarding(user)}
+              >
+                정리
               </Button>
               <FormControl size="small" sx={{ minWidth: 140 }}>
                 <InputLabel>계정 상태</InputLabel>

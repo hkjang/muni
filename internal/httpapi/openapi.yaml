@@ -646,6 +646,47 @@ paths:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/Error' }
         '413': { $ref: '#/components/responses/Error' }
+  /admin/users/{userId}/belongings:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: What a user holds, for offboarding
+      description: >-
+        Counts of documents, shared workspaces, memberships, API keys, open
+        sessions, and — the one that matters most — approval steps waiting on
+        this person. Each of those is a document nobody else can move forward.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /admin/users/{userId}/offboard:
+    parameters:
+      - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      summary: Hand over everything a departing user holds, then suspend them
+      description: >-
+        One transaction: documents and shared workspaces move to `transferTo`
+        (who is added to the affected workspaces), approval steps are reassigned
+        or skipped, API keys are revoked, sessions end, and the account is
+        suspended. The account is never deleted — the tables that record what a
+        person did reference them without ON DELETE, and that is deliberate.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transferTo]
+              properties:
+                transferTo: { type: string, format: uuid, description: Must be an ACTIVE account }
+                includeTrashed: { type: boolean, default: false }
+                reassignApprovals: { type: boolean, default: false, description: A request whose line is emptied is cancelled and its document returns to DRAFT — never auto-approved }
+                revokeApiKeys: { type: boolean, default: false }
+                endSessions: { type: boolean, default: false }
+                suspend: { type: boolean, default: false }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
   /admin/users/{userId}:
     parameters:
       - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }

@@ -158,6 +158,8 @@ func (s *Server) routes() {
 	s.handle("GET /api/v1/admin/users", s.requireAdmin(http.HandlerFunc(s.listUsers)))
 	s.handle("POST /api/v1/admin/users", s.requireAdmin(http.HandlerFunc(s.createUser)))
 	s.handle("POST /api/v1/admin/users/import", s.requireAdmin(http.HandlerFunc(s.importUsers)))
+	s.handle("GET /api/v1/admin/users/{id}/belongings", s.requireAdmin(http.HandlerFunc(s.userBelongings)))
+	s.handle("POST /api/v1/admin/users/{id}/offboard", s.requireAdmin(http.HandlerFunc(s.offboardUser)))
 	s.handle("PATCH /api/v1/admin/users/{id}", s.requireAdmin(http.HandlerFunc(s.updateUser)))
 	s.handle("GET /api/v1/admin/users/{id}/keys", s.requireAdmin(http.HandlerFunc(s.listAnyUserKeys)))
 	s.handle("POST /api/v1/admin/users/{id}/keys/rotate", s.requireAdmin(http.HandlerFunc(s.rotateAnyUserKey)))
