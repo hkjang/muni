@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Add,
   CreateNewFolderOutlined,
+  DownloadOutlined,
   MoreVert,
   FolderOpenOutlined,
   FolderOutlined,
@@ -198,6 +199,16 @@ export function WorkspacePage() {
                 onClick={() => setMembersOpen(true)}
               >
                 구성원
+              </Button>
+            )}
+            {(workspace?.role === "OWNER" || workspace?.role === "MANAGER") && (
+              <Button
+                variant="outlined"
+                startIcon={<DownloadOutlined />}
+                component="a"
+                href={`/api/v1/workspaces/${workspaceId}/export.zip?format=md`}
+              >
+                전체 내보내기
               </Button>
             )}
             <Button

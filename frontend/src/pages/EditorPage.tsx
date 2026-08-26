@@ -49,6 +49,7 @@ import {
   DashboardCustomizeOutlined,
   DownloadOutlined,
   DeleteOutline,
+  ContentCopyOutlined,
   DriveFileMoveOutlined,
   PeopleOutline,
 } from "@mui/icons-material";
@@ -380,6 +381,17 @@ export function EditorPage() {
     }
   };
   // A template usually starts life as a document somebody already wrote.
+  const duplicate = useMutation({
+    mutationFn: () =>
+      api<DocumentItem>(`/api/v1/documents/${documentId}/duplicate`, {
+        method: "POST",
+      }),
+    onSuccess: (copy) => {
+      void queryClient.invalidateQueries({ queryKey: ["documents"] });
+      void queryClient.invalidateQueries({ queryKey: ["user-documents"] });
+      navigate(`/docs/${copy.id}`);
+    },
+  });
   const saveTemplate = useMutation({
     mutationFn: () =>
       api(`/api/v1/workspaces/${document?.workspaceId}/templates`, {
@@ -832,6 +844,17 @@ export function EditorPage() {
           </MenuItem>,
           <Divider key="deck-divider" />,
         ]}
+        <MenuItem
+          onClick={() => {
+            setExportAnchor(null);
+            duplicate.mutate();
+          }}
+        >
+          <ListItemIcon>
+            <ContentCopyOutlined />
+          </ListItemIcon>
+          문서 복제
+        </MenuItem>,
         <MenuItem
           onClick={() => {
             setExportAnchor(null);

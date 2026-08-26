@@ -997,6 +997,28 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/duplicate:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: 문서 복제 (태그를 함께 가져오고, 댓글과 버전 기록은 원본에 남습니다)
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+  /workspaces/{id}/export.zip:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: format, in: query, schema: { type: string, enum: [md, html, txt], default: md } }
+      - { name: trash, in: query, schema: { type: boolean, default: false } }
+    get:
+      summary: 워크스페이스의 모든 문서를 압축 파일 하나로 내보내기
+      responses:
+        '200':
+          description: 폴더 구조를 그대로 담은 zip
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        default: { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     sessionCookie:
