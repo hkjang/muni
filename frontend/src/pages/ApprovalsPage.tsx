@@ -1,5 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApprovalOutlined, Check, Close } from "@mui/icons-material";
+import {
+  ApprovalOutlined,
+  Check,
+  CheckCircle,
+  Close,
+  RadioButtonUnchecked,
+  RemoveCircleOutline,
+} from "@mui/icons-material";
 import {
   Alert,
   Box,
@@ -23,7 +30,71 @@ type Approval = {
   requiredApprovals: number;
   approvedCount: number;
   createdAt: string;
+  mode: "ANY" | "SEQUENTIAL";
+  /** True when the reader is the person this request is waiting on. */
+  myTurn: boolean;
+  currentApprover?: { id: string; displayName: string };
+  stepCount?: number;
+  stepsApproved?: number;
+  steps: ApprovalStep[];
 };
+
+type ApprovalStep = {
+  position: number;
+  approver: { id: string; displayName: string };
+  status: "PENDING" | "APPROVED" | "REJECTED" | "SKIPPED";
+  isFinal: boolean;
+  comment: string;
+  decidedAt?: string;
+};
+
+/** The line, drawn so the reader can see where a document is sitting. */
+function ApprovalLine({ steps }: { steps: ApprovalStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <Stack direction="row" gap={0.5} flexWrap="wrap" alignItems="center" mt={1}>
+      {steps.map((step, index) => {
+        const Icon =
+          step.status === "APPROVED"
+            ? CheckCircle
+            : step.status === "REJECTED"
+              ? Close
+              : step.status === "SKIPPED"
+                ? RemoveCircleOutline
+                : RadioButtonUnchecked;
+        const color =
+          step.status === "APPROVED"
+            ? "success.main"
+            : step.status === "REJECTED"
+              ? "error.main"
+              : step.status === "SKIPPED"
+                ? "text.disabled"
+                : "primary.main";
+        return (
+          <Stack key={step.position} direction="row" gap={0.4} alignItems="center">
+            {index > 0 && (
+              <Typography color="text.disabled" sx={{ mx: 0.25 }}>
+                ›
+              </Typography>
+            )}
+            <Icon sx={{ fontSize: 16, color }} />
+            <Typography
+              variant="caption"
+              sx={{
+                color,
+                fontWeight: step.status === "PENDING" ? 700 : 400,
+                textDecoration: step.status === "SKIPPED" ? "line-through" : "none",
+              }}
+            >
+              {step.approver.displayName}
+              {step.isFinal ? " (전결)" : ""}
+            </Typography>
+          </Stack>
+        );
+      })}
+    </Stack>
+  );
+}
 export function ApprovalsPage() {
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -72,13 +143,25 @@ export function ApprovalsPage() {
                   </Stack>
                   <Typography variant="body2" color="text.secondary" mt={0.6}>
                     {item.requester.displayName} 요청 ·{" "}
-                    {formatDate(item.createdAt)} · 승인 {item.approvedCount}/
-                    {item.requiredApprovals}
+                    {formatDate(item.createdAt)} ·{" "}
+                    {item.mode === "SEQUENTIAL"
+                      ? `결재 ${item.stepsApproved ?? 0}/${item.stepCount ?? 0}`
+                      : `승인 ${item.approvedCount}/${item.requiredApprovals}`}
+                    {item.mode === "SEQUENTIAL" && item.currentApprover
+                      ? ` · ${item.currentApprover.displayName} 차례`
+                      : ""}
                   </Typography>
+                  <ApprovalLine steps={item.steps} />
                 </Box>
-                <Stack direction="row" gap={1}>
+                <Stack direction="row" gap={1} alignItems="center">
+                  {item.mode === "SEQUENTIAL" && !item.myTurn && (
+                    <Typography variant="body2" color="text.secondary">
+                      내 차례가 아닙니다
+                    </Typography>
+                  )}
                   <Button
                     color="error"
+                    disabled={item.mode === "SEQUENTIAL" && !item.myTurn}
                     variant="outlined"
                     startIcon={<Close />}
                     onClick={() =>
@@ -90,6 +173,7 @@ export function ApprovalsPage() {
                   <Button
                     color="success"
                     variant="contained"
+                    disabled={item.mode === "SEQUENTIAL" && !item.myTurn}
                     startIcon={<Check />}
                     onClick={() =>
                       decide.mutate({ id: item.id, decision: "APPROVED" })

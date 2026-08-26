@@ -20,6 +20,7 @@ import { EditorStatusBar } from "../features/editor/EditorStatusBar";
 import { ImageMenu } from "../features/editor/ImageMenu";
 import { NotificationBell } from "../features/notifications/NotificationBell";
 import { DocumentTags } from "../features/editor/DocumentTags";
+import { ApprovalLineDialog } from "../features/editor/ApprovalLineDialog";
 import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
@@ -116,6 +117,7 @@ export function EditorPage() {
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [templateName, setTemplateName] = useState<string | null>(null);
+  const [approvalOpen, setApprovalOpen] = useState(false);
   const [zoom, setZoom] = useState(() => readZoom());
   const revisionRef = useRef(0);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -376,14 +378,6 @@ export function EditorPage() {
       setSaveState("error");
     }
   };
-  const submitApproval = useMutation({
-    mutationFn: () =>
-      api(`/api/v1/documents/${documentId}/workflow/submit`, {
-        method: "POST",
-      }),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["document", documentId] }),
-  });
   // A template usually starts life as a document somebody already wrote.
   const saveTemplate = useMutation({
     mutationFn: () =>
@@ -514,8 +508,7 @@ export function EditorPage() {
             document.workflowStatus !== "PENDING" && (
               <Button
                 variant="outlined"
-                onClick={() => submitApproval.mutate()}
-                disabled={submitApproval.isPending}
+                onClick={() => setApprovalOpen(true)}
                 sx={{ display: { xs: "none", lg: "inline-flex" } }}
               >
                 검토 요청
@@ -792,6 +785,14 @@ export function EditorPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <ApprovalLineDialog
+        open={approvalOpen}
+        onClose={() => setApprovalOpen(false)}
+        documentId={documentId}
+        onSubmitted={() =>
+          queryClient.invalidateQueries({ queryKey: ["document", documentId] })
+        }
+      />
       <ShareDialog
         open={shareOpen}
         onClose={() => setShareOpen(false)}
