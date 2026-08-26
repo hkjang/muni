@@ -30,7 +30,7 @@ func TestConfigNormalizeFillsTheGaps(t *testing.T) {
 	if config.WebURL != "https://ptium.example.com" {
 		t.Errorf("web url = %q", config.WebURL)
 	}
-	if link := config.EditorURL("abc"); link != "https://ptium.example.com/presentations/abc" {
+	if link := config.EditorURL("abc"); link != "https://ptium.example.com/presentations/abc/editor" {
 		t.Errorf("editor link = %q", link)
 	}
 }

@@ -65,7 +65,7 @@ func TestPresentationIsStaleWhenTheDocumentMovedOn(t *testing.T) {
 	if !old.Stale {
 		t.Error("a deck built from an older revision is stale")
 	}
-	if old.EditorURL != "https://ptium.example.com/presentations/pres-1" {
+	if old.EditorURL != "https://ptium.example.com/presentations/pres-1/editor" {
 		t.Errorf("editor link = %q", old.EditorURL)
 	}
 }

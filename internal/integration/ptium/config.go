@@ -54,9 +54,13 @@ func (c Config) Usable() bool {
 }
 
 // EditorURL is the deep link that takes a person to the deck in Ptium.
+//
+// The trailing /editor is not decoration. Ptium routes on the exact path
+// /presentations/{id}/editor and has no route for the deck on its own, so a
+// link without it lands on the not-found page.
 func (c Config) EditorURL(presentationID string) string {
 	if c.WebURL == "" || presentationID == "" {
 		return ""
 	}
-	return c.WebURL + "/presentations/" + presentationID
+	return c.WebURL + "/presentations/" + url.PathEscape(presentationID) + "/editor"
 }
