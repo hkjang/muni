@@ -18,6 +18,7 @@ import { EditorToolbar } from "../features/editor/EditorToolbar";
 import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { EditorStatusBar } from "../features/editor/EditorStatusBar";
 import { ImageMenu } from "../features/editor/ImageMenu";
+import { NotificationBell } from "../features/notifications/NotificationBell";
 import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
@@ -42,6 +43,7 @@ import {
   AutoAwesome,
   SlideshowOutlined,
   CommentOutlined,
+  DashboardCustomizeOutlined,
   DownloadOutlined,
   DeleteOutline,
   Menu as MenuIcon,
@@ -54,6 +56,10 @@ import {
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
   Drawer,
   FormControl,
@@ -108,6 +114,7 @@ export function EditorPage() {
     replace: false,
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [templateName, setTemplateName] = useState<string | null>(null);
   const [zoom, setZoom] = useState(() => readZoom());
   const revisionRef = useRef(0);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -376,6 +383,15 @@ export function EditorPage() {
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: ["document", documentId] }),
   });
+  // A template usually starts life as a document somebody already wrote.
+  const saveTemplate = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/workspaces/${document?.workspaceId}/templates`, {
+        method: "POST",
+        ...jsonBody({ name: templateName, fromDocumentId: documentId }),
+      }),
+    onSuccess: () => setTemplateName(null),
+  });
   const removeDocument = useMutation({
     mutationFn: () =>
       api<void>(`/api/v1/documents/${documentId}`, { method: "DELETE" }),
@@ -567,6 +583,7 @@ export function EditorPage() {
           >
             <AutoAwesome />
           </IconButton>
+          <NotificationBell />
           <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)}>
             <Avatar
               src={user?.avatarUrl}
@@ -733,6 +750,44 @@ export function EditorPage() {
       >
         {side}
       </Drawer>
+      <Dialog
+        open={templateName !== null}
+        onClose={() => setTemplateName(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>서식으로 저장</DialogTitle>
+        <DialogContent>
+          {saveTemplate.error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {errorMessage(saveTemplate.error)}
+            </Alert>
+          )}
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            이 문서의 현재 내용을 워크스페이스 서식으로 저장합니다. 새 문서를
+            만들 때 시작점으로 고를 수 있습니다. 서식은 복사되는 것이라, 나중에
+            서식을 바꾸거나 지워도 이미 만든 문서는 그대로입니다.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            label="서식 이름"
+            value={templateName ?? ""}
+            inputProps={{ maxLength: 120 }}
+            onChange={(event) => setTemplateName(event.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTemplateName(null)}>취소</Button>
+          <Button
+            variant="contained"
+            disabled={!templateName?.trim() || saveTemplate.isPending}
+            onClick={() => saveTemplate.mutate()}
+          >
+            저장
+          </Button>
+        </DialogActions>
+      </Dialog>
       <ShareDialog
         open={shareOpen}
         onClose={() => setShareOpen(false)}
@@ -769,6 +824,18 @@ export function EditorPage() {
           </MenuItem>,
           <Divider key="deck-divider" />,
         ]}
+        <MenuItem
+          onClick={() => {
+            setExportAnchor(null);
+            setTemplateName(document?.title ?? "");
+          }}
+        >
+          <ListItemIcon>
+            <DashboardCustomizeOutlined />
+          </ListItemIcon>
+          서식으로 저장
+        </MenuItem>,
+        <Divider key="template-divider" />,
         {capabilities.data?.docxExport && (
           <MenuItem
             component="a"

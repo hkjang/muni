@@ -46,6 +46,7 @@ import {
 } from "@mui/material";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { QuickSwitcher } from "../features/navigation/QuickSwitcher";
+import { NotificationBell } from "../features/notifications/NotificationBell";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, errorMessage, jsonBody } from "../lib/api";
 import { useAuth } from "../contexts/AuthContext";
@@ -338,6 +339,7 @@ export function AppShell() {
               sx={{ display: { xs: "none", sm: "inline-flex" }, mr: 0.5 }}
             />
           </Box>
+          <NotificationBell />
           <Tooltip title="프로필 메뉴">
             <IconButton
               onClick={(event) => setProfileAnchor(event.currentTarget)}

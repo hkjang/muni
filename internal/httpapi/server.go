@@ -59,6 +59,10 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/v1/workspaces/{id}/folders", s.requireAuth(http.HandlerFunc(s.createFolder)))
 	s.mux.Handle("GET /api/v1/workspaces/{id}/folders", s.requireAuth(http.HandlerFunc(s.listFolders)))
 	s.mux.Handle("GET /api/v1/workspaces/{id}/documents", s.requireAuth(http.HandlerFunc(s.listDocuments)))
+	s.mux.Handle("GET /api/v1/workspaces/{id}/templates", s.requireAuth(http.HandlerFunc(s.listTemplates)))
+	s.mux.Handle("POST /api/v1/workspaces/{id}/templates", s.requireAuth(http.HandlerFunc(s.createTemplate)))
+	s.mux.Handle("PATCH /api/v1/templates/{id}", s.requireAuth(http.HandlerFunc(s.updateTemplate)))
+	s.mux.Handle("DELETE /api/v1/templates/{id}", s.requireAuth(http.HandlerFunc(s.deleteTemplate)))
 
 	s.mux.Handle("POST /api/v1/documents", s.requireAuth(http.HandlerFunc(s.createDocument)))
 	s.mux.Handle("GET /api/v1/documents", s.requireAuth(http.HandlerFunc(s.listUserDocuments)))
@@ -103,6 +107,9 @@ func (s *Server) routes() {
 	s.mux.Handle("DELETE /api/v1/attachments/{id}", s.requireAuth(http.HandlerFunc(s.deleteAttachment)))
 	s.mux.Handle("GET /api/v1/collab/{id}", s.requireAuth(http.HandlerFunc(s.collaboration)))
 
+	s.mux.Handle("GET /api/v1/notifications", s.requireAuth(http.HandlerFunc(s.listNotifications)))
+	s.mux.Handle("POST /api/v1/notifications/{id}/read", s.requireAuth(http.HandlerFunc(s.readNotification)))
+	s.mux.Handle("POST /api/v1/notifications/read-all", s.requireAuth(http.HandlerFunc(s.readAllNotifications)))
 	s.mux.Handle("POST /api/v1/me/password", s.requireAuth(http.HandlerFunc(s.changeOwnPassword)))
 	s.mux.Handle("GET /api/v1/me/keys", s.requireAuth(http.HandlerFunc(s.listUserKeys)))
 	s.mux.Handle("POST /api/v1/me/keys/rotate", s.requireAuth(http.HandlerFunc(s.rotateUserKey)))

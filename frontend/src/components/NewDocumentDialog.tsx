@@ -15,7 +15,7 @@ import {
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { api, errorMessage, jsonBody } from "../lib/api";
-import type { DocumentItem, Folder, Workspace } from "../types";
+import type { DocumentItem, Folder, Template, Workspace } from "../types";
 import { UploadFileOutlined } from "@mui/icons-material";
 
 export function NewDocumentDialog({
@@ -33,6 +33,7 @@ export function NewDocumentDialog({
   const [workspaceId, setWorkspaceId] = useState(initialWorkspaceId ?? "");
   const [folderId, setFolderId] = useState(initialFolderId ?? "");
   const [file, setFile] = useState<File | null>(null);
+  const [templateId, setTemplateId] = useState("");
   const navigate = useNavigate();
   const client = useQueryClient();
   const { data: workspaces = [] } = useQuery({
@@ -44,10 +45,16 @@ export function NewDocumentDialog({
     queryFn: () => api<Folder[]>(`/api/v1/workspaces/${workspaceId}/folders`),
     enabled: Boolean(workspaceId),
   });
+  const { data: templates = [] } = useQuery({
+    queryKey: ["templates", workspaceId],
+    queryFn: () => api<Template[]>(`/api/v1/workspaces/${workspaceId}/templates`),
+    enabled: Boolean(workspaceId),
+  });
   useEffect(() => {
     if (!open) return;
     if (initialWorkspaceId) setWorkspaceId(initialWorkspaceId);
     setFolderId(initialFolderId ?? "");
+    setTemplateId("");
   }, [initialFolderId, initialWorkspaceId, open]);
   useEffect(() => {
     if (open && !workspaceId) {
@@ -73,6 +80,7 @@ export function NewDocumentDialog({
           workspaceId,
           folderId: folderId || null,
           title: title.trim() || "제목 없는 문서",
+          templateId: templateId || null,
         }),
       });
     },
@@ -111,6 +119,7 @@ export function NewDocumentDialog({
             onChange={(event) => {
               setWorkspaceId(event.target.value);
               setFolderId("");
+              setTemplateId("");
             }}
           >
             {workspaces
@@ -122,6 +131,24 @@ export function NewDocumentDialog({
               ))}
           </Select>
         </FormControl>
+        {!file && templates.length > 0 && (
+          <FormControl size="small">
+            <InputLabel>서식 (선택)</InputLabel>
+            <Select
+              value={templateId}
+              label="서식 (선택)"
+              onChange={(event) => setTemplateId(event.target.value)}
+            >
+              <MenuItem value="">빈 문서</MenuItem>
+              {templates.map((template) => (
+                <MenuItem key={template.id} value={template.id}>
+                  {template.name}
+                  {template.workspaceId ? "" : " · 공용"}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
         <FormControl size="small">
           <InputLabel>폴더 (선택)</InputLabel>
           <Select

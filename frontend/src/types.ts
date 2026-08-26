@@ -142,6 +142,17 @@ export type Settings = {
   };
 };
 
+export type Template = {
+  id: string;
+  /** Absent for a template shared across the whole service. */
+  workspaceId?: string;
+  name: string;
+  description: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type CommentItem = {
   id: string;
   parentId?: string;

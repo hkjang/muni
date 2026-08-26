@@ -89,6 +89,28 @@ func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "INVALID_TITLE", "제목은 240자 이하여야 합니다.")
 		return
 	}
+	// A template is a starting point, so it only applies to a document that
+	// arrived without content of its own.
+	if len(input.Content) == 0 && input.TemplateID != nil {
+		var content json.RawMessage
+		var owner *uuid.UUID
+		err := s.db.QueryRow(r.Context(), `SELECT content_json,workspace_id FROM templates WHERE id=$1`, *input.TemplateID).Scan(&content, &owner)
+		if err != nil {
+			writeError(w, 404, "TEMPLATE_NOT_FOUND", "서식을 찾을 수 없습니다.")
+			return
+		}
+		// A workspace cannot start from another workspace's template; one with
+		// no workspace is shared across the service.
+		if owner != nil && *owner != input.WorkspaceID {
+			writeError(w, 403, "TEMPLATE_PERMISSION_DENIED", "이 워크스페이스에서 쓸 수 없는 서식입니다.")
+			return
+		}
+		if !validDocumentJSON(content) {
+			writeError(w, 409, "TEMPLATE_INVALID", "서식 내용을 읽을 수 없습니다.")
+			return
+		}
+		input.Content = content
+	}
 	if len(input.Content) == 0 {
 		input.Content = json.RawMessage(`{"type":"doc","content":[{"type":"paragraph"}]}`)
 	}
@@ -113,7 +135,7 @@ func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "DOCUMENT_CREATE_FAILED", "문서를 만들지 못했습니다.")
 		return
 	}
-	s.audit(r, &p.User.ID, "CREATE_DOCUMENT", "DOCUMENT", &id, nil)
+	s.audit(r, &p.User.ID, "CREATE_DOCUMENT", "DOCUMENT", &id, map[string]any{"templateId": input.TemplateID})
 	s.getDocumentByID(w, r, id)
 }
 
