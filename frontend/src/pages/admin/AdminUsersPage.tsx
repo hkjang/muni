@@ -35,7 +35,16 @@ import { OffboardDialog } from "./OffboardDialog";
 type AdminUser = User & {
   lastLoginAt?: string;
   mustChangePassword?: boolean;
+  hasPassword?: boolean;
+  hasSSO?: boolean;
 };
+type UserPage = {
+  items: AdminUser[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+const PAGE_SIZE = 25;
 type AdminSession = {
   createdAt: string;
   lastSeenAt: string;
@@ -53,6 +62,13 @@ type PersonalKey = {
 };
 export function AdminUsersPage() {
   const [q, setQ] = useState("");
+  const [status, setStatus] = useState("");
+  const [role, setRole] = useState("");
+  const [auth, setAuth] = useState("");
+  const [inactiveDays, setInactiveDays] = useState("");
+  const [pendingPassword, setPendingPassword] = useState(false);
+  const [sort, setSort] = useState("recent");
+  const [offset, setOffset] = useState(0);
   const [creating, setCreating] = useState(false);
   const [offboarding, setOffboarding] = useState<AdminUser | null>(null);
   const [keyUser, setKeyUser] = useState<AdminUser | null>(null);
@@ -60,11 +76,37 @@ export function AdminUsersPage() {
   const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
   const [password, setPassword] = useState("");
   const client = useQueryClient();
-  const query = useQuery({
-    queryKey: ["admin-users", q],
-    queryFn: () =>
-      api<AdminUser[]>(`/api/v1/admin/users?q=${encodeURIComponent(q)}`),
+  // Any change to what is being asked puts you back on the first page.
+  // Staying on page four of a different question shows an empty list and
+  // reads as "nobody matches".
+  const filters = { q, status, role, auth, inactiveDays, pendingPassword, sort };
+  const [lastFilters, setLastFilters] = useState(filters);
+  if (JSON.stringify(filters) !== JSON.stringify(lastFilters)) {
+    setLastFilters(filters);
+    if (offset !== 0) setOffset(0);
+  }
+
+  const params = new URLSearchParams({
+    q,
+    sort,
+    limit: String(PAGE_SIZE),
+    offset: String(offset),
   });
+  if (status) params.set("status", status);
+  if (role) params.set("role", role);
+  if (auth) params.set("auth", auth);
+  if (inactiveDays) params.set("inactiveDays", inactiveDays);
+  if (pendingPassword) params.set("pendingPassword", "true");
+
+  const query = useQuery({
+    queryKey: ["admin-users", params.toString()],
+    queryFn: () => api<UserPage>(`/api/v1/admin/users?${params}`),
+    placeholderData: (previous) => previous,
+  });
+  const page = query.data;
+  const shown = page?.items ?? [];
+  const filtered =
+    Boolean(status || role || auth || inactiveDays || pendingPassword || q);
   const update = useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: Partial<AdminUser> }) =>
       api(`/api/v1/admin/users/${id}`, { method: "PATCH", ...jsonBody(patch) }),
@@ -150,7 +192,7 @@ export function AdminUsersPage() {
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder="이름, 이메일, 아이디 검색"
-        sx={{ width: "100%", maxWidth: 520, mb: 3 }}
+        sx={{ width: "100%", maxWidth: 520, mb: 2 }}
         InputProps={{
           startAdornment: (
             <InputAdornment position="start">
@@ -159,6 +201,70 @@ export function AdminUsersPage() {
           ),
         }}
       />
+      <Stack direction="row" gap={1.25} flexWrap="wrap" alignItems="center" mb={1.5}>
+        <Picker label="상태" value={status} onChange={setStatus} width={130}>
+          <MenuItem value="">전체</MenuItem>
+          <MenuItem value="ACTIVE">사용 중</MenuItem>
+          <MenuItem value="SUSPENDED">정지</MenuItem>
+        </Picker>
+        <Picker label="역할" value={role} onChange={setRole} width={120}>
+          <MenuItem value="">전체</MenuItem>
+          <MenuItem value="ADMIN">ADMIN</MenuItem>
+          <MenuItem value="USER">USER</MenuItem>
+        </Picker>
+        <Picker label="로그인 방식" value={auth} onChange={setAuth} width={140}>
+          <MenuItem value="">전체</MenuItem>
+          <MenuItem value="LOCAL">비밀번호</MenuItem>
+          <MenuItem value="SSO">SSO</MenuItem>
+        </Picker>
+        <Picker
+          label="마지막 로그인"
+          value={inactiveDays}
+          onChange={setInactiveDays}
+          width={165}
+        >
+          <MenuItem value="">전체</MenuItem>
+          <MenuItem value="30">30일 이상 없음</MenuItem>
+          <MenuItem value="90">90일 이상 없음</MenuItem>
+          <MenuItem value="180">180일 이상 없음</MenuItem>
+        </Picker>
+        <Picker label="정렬" value={sort} onChange={setSort} width={150}>
+          <MenuItem value="recent">최근 추가순</MenuItem>
+          <MenuItem value="oldest">오래된 순</MenuItem>
+          <MenuItem value="lastLogin">최근 로그인순</MenuItem>
+          <MenuItem value="stale">오래 안 온 순</MenuItem>
+          <MenuItem value="name">이름순</MenuItem>
+        </Picker>
+        <Chip
+          label="아직 비밀번호를 안 바꾼 사람"
+          variant={pendingPassword ? "filled" : "outlined"}
+          color={pendingPassword ? "warning" : "default"}
+          onClick={() => setPendingPassword((on) => !on)}
+        />
+        {filtered && (
+          <Button
+            size="small"
+            color="inherit"
+            onClick={() => {
+              setQ("");
+              setStatus("");
+              setRole("");
+              setAuth("");
+              setInactiveDays("");
+              setPendingPassword(false);
+            }}
+          >
+            조건 지우기
+          </Button>
+        )}
+      </Stack>
+      <Typography variant="body2" color="text.secondary" mb={2}>
+        {page
+          ? filtered
+            ? `조건에 맞는 ${page.total}명 중 ${shown.length}명`
+            : `${page.total}명`
+          : "\u00a0"}
+      </Typography>
       <CreateUserDialog
         open={creating}
         onClose={() => setCreating(false)}
@@ -176,8 +282,13 @@ export function AdminUsersPage() {
           {errorMessage(update.error)}
         </Alert>
       )}
+      {page && page.total === 0 && (
+        <Alert severity="info">
+          조건에 맞는 사람이 없습니다. 조건을 지우면 전체가 보입니다.
+        </Alert>
+      )}
       <Stack gap={1.25}>
-        {(query.data ?? []).map((user) => (
+        {shown.map((user) => (
           <Card key={user.id} sx={{ p: 2 }}>
             <Stack
               direction={{ xs: "column", md: "row" }}
@@ -270,6 +381,31 @@ export function AdminUsersPage() {
           </Card>
         ))}
       </Stack>
+      {page && page.total > PAGE_SIZE && (
+        <Stack
+          direction="row"
+          gap={1.5}
+          alignItems="center"
+          justifyContent="center"
+          mt={3}
+        >
+          <Button
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          >
+            이전
+          </Button>
+          <Typography variant="body2" color="text.secondary">
+            {offset + 1}–{Math.min(offset + PAGE_SIZE, page.total)} / {page.total}
+          </Typography>
+          <Button
+            disabled={offset + PAGE_SIZE >= page.total}
+            onClick={() => setOffset(offset + PAGE_SIZE)}
+          >
+            다음
+          </Button>
+        </Stack>
+      )}
       <Dialog
         open={Boolean(passwordUser)}
         onClose={() => setPasswordUser(null)}
@@ -431,5 +567,32 @@ export function AdminUsersPage() {
         </DialogActions>
       </Dialog>
     </Box>
+  );
+}
+
+function Picker({
+  label,
+  value,
+  onChange,
+  width,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange: (next: string) => void;
+  width: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <FormControl size="small" sx={{ minWidth: width }}>
+      <InputLabel>{label}</InputLabel>
+      <Select
+        label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        {children}
+      </Select>
+    </FormControl>
   );
 }

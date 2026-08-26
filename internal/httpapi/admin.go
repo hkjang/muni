@@ -39,10 +39,82 @@ func (s *Server) searchUsers(w http.ResponseWriter, r *http.Request) {
 	writeData(w, http.StatusOK, items)
 }
 
+// listUsers answers the questions an administrator actually has.
+//
+// It used to be one ILIKE and `ORDER BY created_at DESC LIMIT 50`. With three
+// hundred staff that shows the fifty most recently added and nothing else —
+// there was no second page. "Who has not signed in since March", "who was
+// invited and never arrived", "who are the administrators" had no answer at
+// all, which is a strange gap in the screen whose whole job is those
+// questions.
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
-	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	limit := parseLimit(r.URL.Query().Get("limit"), 50)
-	rows, err := s.db.Query(r.Context(), `SELECT id,username,email,display_name,role,status,avatar_url,locale,created_at,last_login_at,password_reset_required FROM users WHERE $1='' OR username ILIKE '%'||$1||'%' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%' ORDER BY created_at DESC LIMIT $2`, q, limit)
+	query := r.URL.Query()
+	q := strings.TrimSpace(query.Get("q"))
+	limit := parseLimit(query.Get("limit"), 50)
+	offset, _ := strconv.Atoi(query.Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	status := strings.ToUpper(strings.TrimSpace(query.Get("status")))
+	if !contains([]string{"", "ACTIVE", "SUSPENDED"}, status) {
+		writeError(w, 400, "INVALID_STATUS", "상태 값이 올바르지 않습니다.")
+		return
+	}
+	role := strings.ToUpper(strings.TrimSpace(query.Get("role")))
+	if !contains([]string{"", "ADMIN", "USER"}, role) {
+		writeError(w, 400, "INVALID_ROLE", "역할 값이 올바르지 않습니다.")
+		return
+	}
+	// LOCAL and SSO answer "who still has a password here", which is what an
+	// organisation moving onto its identity provider needs to see.
+	auth := strings.ToUpper(strings.TrimSpace(query.Get("auth")))
+	if !contains([]string{"", "LOCAL", "SSO"}, auth) {
+		writeError(w, 400, "INVALID_AUTH", "인증 방식 값이 올바르지 않습니다.")
+		return
+	}
+	// Zero means no filter. An account that has never signed in counts as
+	// inactive however long ago it was made — that is the invitation nobody
+	// accepted, and it is the row worth finding.
+	inactiveDays, _ := strconv.Atoi(query.Get("inactiveDays"))
+	if inactiveDays < 0 || inactiveDays > 3650 {
+		inactiveDays = 0
+	}
+	pendingPassword := query.Get("pendingPassword") == "true"
+
+	// The sort is a fixed set, never text from the request: an ORDER BY built
+	// from a parameter is how a list endpoint becomes an injection.
+	order := map[string]string{
+		"recent":    "created_at DESC, id",
+		"oldest":    "created_at ASC, id",
+		"lastLogin": "last_login_at DESC NULLS LAST, id",
+		"stale":     "last_login_at ASC NULLS FIRST, id",
+		"name":      "display_name ASC, id",
+	}[query.Get("sort")]
+	if order == "" {
+		order = "created_at DESC, id"
+	}
+
+	const where = `
+		WHERE ($1='' OR username ILIKE '%'||$1||'%' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
+			AND ($2='' OR status=$2)
+			AND ($3='' OR role=$3)
+			AND ($4='' OR ($4='LOCAL' AND password_hash IS NOT NULL) OR ($4='SSO' AND oidc_subject IS NOT NULL))
+			AND ($5=0 OR last_login_at IS NULL OR last_login_at < now() - make_interval(days => $5))
+			AND (NOT $6 OR password_reset_required)`
+
+	var total int
+	if err := s.db.QueryRow(r.Context(), `SELECT count(*) FROM users`+where,
+		q, status, role, auth, inactiveDays, pendingPassword).Scan(&total); err != nil {
+		writeError(w, 500, "DATABASE_ERROR", "사용자 수를 세지 못했습니다.")
+		return
+	}
+
+	rows, err := s.db.Query(r.Context(),
+		`SELECT id,username,email,display_name,role,status,avatar_url,locale,created_at,last_login_at,password_reset_required,
+			password_hash IS NOT NULL, oidc_subject IS NOT NULL
+		 FROM users`+where+` ORDER BY `+order+` LIMIT $7 OFFSET $8`,
+		q, status, role, auth, inactiveDays, pendingPassword, limit, offset)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "사용자 목록을 불러오지 못했습니다.")
 		return
@@ -52,12 +124,23 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u User
 		var lastLogin *time.Time
-		if rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.AvatarURL, &u.Locale, &u.CreatedAt, &lastLogin, &u.MustChangePassword) == nil {
-			items = append(items, map[string]any{"id": u.ID, "username": u.Username, "email": u.Email, "displayName": u.DisplayName, "role": u.Role, "status": u.Status, "avatarUrl": u.AvatarURL, "locale": u.Locale, "createdAt": u.CreatedAt, "lastLoginAt": lastLogin, "mustChangePassword": u.MustChangePassword})
+		var hasPassword, hasSSO bool
+		if rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.AvatarURL,
+			&u.Locale, &u.CreatedAt, &lastLogin, &u.MustChangePassword, &hasPassword, &hasSSO) == nil {
+			items = append(items, map[string]any{
+				"id": u.ID, "username": u.Username, "email": u.Email,
+				"displayName": u.DisplayName, "role": u.Role, "status": u.Status,
+				"avatarUrl": u.AvatarURL, "locale": u.Locale, "createdAt": u.CreatedAt,
+				"lastLoginAt": lastLogin, "mustChangePassword": u.MustChangePassword,
+				"hasPassword": hasPassword, "hasSSO": hasSSO,
+			})
 		}
 	}
-	writeData(w, 200, items)
+	writeData(w, 200, map[string]any{
+		"items": items, "total": total, "limit": limit, "offset": offset,
+	})
 }
+
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathUUID(w, r, "id")
 	if !ok {

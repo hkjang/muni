@@ -80,7 +80,10 @@ export function OffboardDialog({
 
   const candidates = useQuery({
     queryKey: ["admin-users", "offboard-candidates"],
-    queryFn: () => api<User[]>("/api/v1/admin/users?limit=200"),
+    queryFn: () =>
+      api<{ items: User[] }>(
+        "/api/v1/admin/users?limit=100&status=ACTIVE",
+      ).then((page) => page.items),
     enabled: Boolean(user),
   });
 

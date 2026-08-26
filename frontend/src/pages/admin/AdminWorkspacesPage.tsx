@@ -80,7 +80,9 @@ export function AdminWorkspacesPage() {
   const candidates = useQuery({
     queryKey: ["admin-users", "ws-transfer", ownerQuery],
     queryFn: () =>
-      api<User[]>(`/api/v1/admin/users?q=${encodeURIComponent(ownerQuery)}&limit=20`),
+      api<{ items: User[] }>(
+        `/api/v1/admin/users?q=${encodeURIComponent(ownerQuery)}&limit=20`,
+      ).then((page) => page.items),
     enabled: Boolean(transfer),
   });
   const refresh = () =>

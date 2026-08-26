@@ -595,9 +595,24 @@ paths:
         '200': { $ref: '#/components/responses/Success' }
   /admin/users:
     get:
-      summary: Search and list service users
+      summary: Search, filter, sort, and page through service users
+      description: >-
+        Returns `{items, total, limit, offset}`. `total` counts every match,
+        not the page. `sort` is matched against a fixed set and falls back to
+        `recent` for anything else — it never reaches the query.
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Matches username, email, or display name }
+        - { name: status, in: query, schema: { type: string, enum: [ACTIVE, SUSPENDED] } }
+        - { name: role, in: query, schema: { type: string, enum: [ADMIN, USER] } }
+        - { name: auth, in: query, schema: { type: string, enum: [LOCAL, SSO] }, description: Whether the account has a local password or an identity-provider subject }
+        - { name: inactiveDays, in: query, schema: { type: integer, minimum: 0, maximum: 3650 }, description: "Not signed in for this many days. An account that never signed in always matches." }
+        - { name: pendingPassword, in: query, schema: { type: boolean }, description: Still holding a password somebody else chose }
+        - { name: sort, in: query, schema: { type: string, enum: [recent, oldest, lastLogin, stale, name], default: recent } }
+        - { name: limit, in: query, schema: { type: integer, default: 50, maximum: 100 } }
+        - { name: offset, in: query, schema: { type: integer, default: 0 } }
       responses:
         '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
     post:
       summary: Create a local account
       description: >-
