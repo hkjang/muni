@@ -106,6 +106,40 @@ func (s *Server) documentAccess(w http.ResponseWriter, r *http.Request) {
 		`SELECT count(*) FILTER (WHERE role='ADMIN' AND status='ACTIVE'), count(*) FILTER (WHERE status='ACTIVE')
 		 FROM users`).Scan(&admins, &activeUsers)
 
+	// Anyone holding a live share link can read this document without an
+	// account. Leaving it out would make this screen answer "who can open
+	// this" with only the people muni knows the names of, which is the wrong
+	// answer in exactly the case an audit cares about.
+	links := make([]map[string]any, 0)
+	linkRows, err := s.db.Query(r.Context(), `
+		SELECT l.id, l.label, l.token_prefix, l.password_hash IS NOT NULL,
+			l.expires_at, l.max_views, l.view_count, l.last_viewed_at, u.display_name
+		FROM document_links l JOIN users u ON u.id = l.created_by
+		WHERE l.document_id = $1 AND l.revoked_at IS NULL
+			AND (l.expires_at IS NULL OR l.expires_at > now())
+			AND (l.max_views IS NULL OR l.view_count < l.max_views)
+		ORDER BY l.created_at DESC`, id)
+	if err == nil {
+		defer linkRows.Close()
+		for linkRows.Next() {
+			var linkID uuid.UUID
+			var label, prefix, creator string
+			var hasPassword bool
+			var expires, lastViewed *time.Time
+			var maxViews *int
+			var views int64
+			if linkRows.Scan(&linkID, &label, &prefix, &hasPassword, &expires,
+				&maxViews, &views, &lastViewed, &creator) == nil {
+				links = append(links, map[string]any{
+					"id": linkID, "label": label, "prefix": prefix,
+					"hasPassword": hasPassword, "expiresAt": expires,
+					"maxViews": maxViews, "viewCount": views,
+					"lastViewedAt": lastViewed, "createdBy": creator,
+				})
+			}
+		}
+	}
+
 	notes := make([]string, 0)
 	everyone := map[string]any{"applies": false}
 	if doc.Visibility == "ORGANIZATION" {
@@ -115,12 +149,14 @@ func (s *Server) documentAccess(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if doc.Visibility == "LINK" {
-		// The option exists and the API accepts it, but no code grants access
-		// on it and no route serves a document by link. Saying "anyone with
-		// the link" here would be the screen inventing a hole that is not
-		// there; saying nothing would leave an administrator believing the
-		// setting did something.
-		notes = append(notes, "공개 범위가 'LINK'로 되어 있지만 muni에는 링크로 문서를 여는 기능이 아직 없습니다. 실제로는 '제한됨'과 같게 동작합니다.")
+		// Sharing by link is now its own thing — a row with a token, an
+		// expiry, and a use count — not a visibility setting. A document left
+		// on the old value reaches nobody through it, and the links below are
+		// the real answer.
+		notes = append(notes, "공개 범위가 'LINK'로 되어 있습니다. 링크 공유는 이제 공개 범위가 아니라 개별 링크로 관리되므로, 이 값 자체로는 아무에게도 권한이 가지 않습니다. 실제 공유는 아래 '공개 링크' 목록입니다.")
+	}
+	if len(links) > 0 {
+		notes = append(notes, "살아 있는 공개 링크가 있습니다. 이 링크를 가진 사람은 계정 없이 문서를 읽을 수 있고, muni는 그 사람이 누구인지 알지 못합니다.")
 	}
 	if doc.Deleted != nil {
 		notes = append(notes, "휴지통에 있는 문서입니다. 목록에는 보이지 않지만 위 권한은 그대로입니다.")
@@ -141,6 +177,7 @@ func (s *Server) documentAccess(w http.ResponseWriter, r *http.Request) {
 		"entries":  entries,
 		"everyone": everyone,
 		"admins":   admins,
+		"links":    links,
 		"notes":    notes,
 	})
 }

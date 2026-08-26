@@ -22,7 +22,7 @@ func (s *Server) submitApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	// An approval line is an ordered list of people. Without one the request

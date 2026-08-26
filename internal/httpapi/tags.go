@@ -66,7 +66,7 @@ func (s *Server) setDocumentTags(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	var input struct {

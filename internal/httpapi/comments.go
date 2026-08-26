@@ -50,7 +50,7 @@ func (s *Server) createComment(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "COMMENTER") {
+	if !documentAllowed(w, role, err, "COMMENTER") {
 		return
 	}
 	var input struct {
@@ -159,7 +159,7 @@ func (s *Server) createSuggestion(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "COMMENTER") {
+	if !documentAllowed(w, role, err, "COMMENTER") {
 		return
 	}
 	var input struct {
@@ -211,7 +211,7 @@ func (s *Server) decideSuggestion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	_, err = s.db.Exec(r.Context(), `UPDATE suggestions SET status=$2,decided_by=$3,decided_at=now() WHERE id=$1 AND status='PENDING'`, suggestionID, input.Decision, p.User.ID)

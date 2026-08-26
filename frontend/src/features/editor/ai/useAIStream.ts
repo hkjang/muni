@@ -9,7 +9,14 @@ export type AIStreamRequest = {
   maxTokens?: number;
   /** Let the model search and read documents before it answers. */
   tools?: boolean;
+  /**
+   * What has already been said in this conversation, oldest first. Without it
+   * every question starts from nothing, so "더 짧게" has nothing to shorten.
+   */
+  history?: AIHistoryTurn[];
 };
+
+export type AIHistoryTurn = { role: "user" | "assistant"; content: string };
 
 /** A tool the agent ran on the way to its answer. */
 export type AIToolCall = {
@@ -31,6 +38,14 @@ export function useAIStream() {
   const [running, setRunning] = useState(false);
   const [toolCalls, setToolCalls] = useState<AIToolCall[]>([]);
   const controller = useRef<AbortController | null>(null);
+  // What the finished run produced. State read straight after `await run(...)`
+  // is whatever the calling render captured, which is the value from before
+  // the run started — so anything the caller needs at that moment is kept
+  // here as well.
+  const finished = useRef<{ toolCalls: AIToolCall[]; reasoning: string }>({
+    toolCalls: [],
+    reasoning: "",
+  });
 
   const stop = useCallback(() => {
     controller.current?.abort();
@@ -57,6 +72,7 @@ export function useAIStream() {
     setError("");
     setToolCalls([]);
     setRunning(true);
+    finished.current = { toolCalls: [], reasoning: "" };
 
     let answer = "";
     try {
@@ -70,7 +86,10 @@ export function useAIStream() {
         body: JSON.stringify({
           action: request.action,
           documentId: request.documentId ?? null,
-          messages: [{ role: "user", content: request.prompt }],
+          messages: [
+            ...(request.history ?? []),
+            { role: "user", content: request.prompt },
+          ],
           ...(request.maxTokens ? { maxTokens: request.maxTokens } : {}),
           ...(request.tools ? { tools: true } : {}),
         }),
@@ -100,6 +119,7 @@ export function useAIStream() {
           }
           const call = readToolEvent(line);
           if (call) {
+            finished.current.toolCalls = [...finished.current.toolCalls, call];
             setToolCalls((current) => [...current, call]);
             continue;
           }
@@ -107,6 +127,7 @@ export function useAIStream() {
           if (chunk) {
             answer += chunk;
             const split = splitReasoning(answer);
+            finished.current.reasoning = split.reasoning;
             setText(split.text);
             setThinking(split.thinking);
             setReasoning(split.reasoning);
@@ -132,6 +153,7 @@ export function useAIStream() {
     error,
     running,
     toolCalls,
+    finished,
     run,
     stop,
     reset,

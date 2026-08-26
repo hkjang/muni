@@ -21,6 +21,7 @@ import {
 import { api, errorMessage, jsonBody } from "../../../lib/api";
 import type { DocumentItem } from "../../../types";
 import type { Permission, UserSearch } from "../types";
+import { PublicLinks } from "./PublicLinks";
 
 export function ShareDialog({
   open,
@@ -169,6 +170,10 @@ export function ShareDialog({
             ))}
           </Stack>
         )}
+        <PublicLinks
+          documentId={document.id}
+          allowed={document.permission === "OWNER"}
+        />
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>닫기</Button>

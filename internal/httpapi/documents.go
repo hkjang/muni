@@ -261,7 +261,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, id, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	var input struct {
@@ -384,7 +384,7 @@ func (s *Server) deleteDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, id, false)
-	if err != nil || !requireDocumentRole(w, role, "OWNER") {
+	if !documentAllowed(w, role, err, "OWNER") {
 		return
 	}
 	result, err := s.db.Exec(r.Context(), `UPDATE documents SET deleted_at=now(),updated_at=now() WHERE id=$1 AND deleted_at IS NULL AND workflow_status<>'PENDING'`, id)
@@ -407,7 +407,7 @@ func (s *Server) restoreDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, id, true)
-	if err != nil || !requireDocumentRole(w, role, "OWNER") {
+	if !documentAllowed(w, role, err, "OWNER") {
 		return
 	}
 	_, err = s.db.Exec(r.Context(), `UPDATE documents SET deleted_at=NULL,updated_at=now() WHERE id=$1`, id)
@@ -499,7 +499,7 @@ func (s *Server) nameRevision(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, id, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	tag, err := s.db.Exec(r.Context(),
@@ -530,7 +530,7 @@ func (s *Server) restoreRevision(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, id, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {

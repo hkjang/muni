@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import { useAuth } from "./contexts/AuthContext";
 import { LoadingScreen } from "./components/LoadingScreen";
 import { AppShell } from "./layouts/AppShell";
@@ -20,6 +20,12 @@ import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
 import { AdminAIUsagePage } from "./pages/admin/AdminAIUsagePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { ChangeTemporaryPasswordPage } from "./pages/ChangeTemporaryPasswordPage";
+import { SharedDocumentPage } from "./pages/SharedDocumentPage";
+
+function SharedRoute() {
+  const { token } = useParams();
+  return <SharedDocumentPage token={token ?? ""} />;
+}
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -44,6 +50,8 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* Outside Protected on purpose: whoever opens this has no account. */}
+      <Route path="/s/:token" element={<SharedRoute />} />
       <Route
         path="/docs/:documentId"
         element={

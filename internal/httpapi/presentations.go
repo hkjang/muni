@@ -93,7 +93,7 @@ func (s *Server) createPresentation(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "COMMENTER") {
+	if !documentAllowed(w, role, err, "COMMENTER") {
 		return
 	}
 	config, err := s.ptiumConfig(r.Context())

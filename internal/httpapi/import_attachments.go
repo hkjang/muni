@@ -288,7 +288,7 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	all, err := s.settings.GetAll(r.Context(), false)
@@ -420,7 +420,7 @@ func (s *Server) deleteAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "EDITOR") {
+	if !documentAllowed(w, role, err, "EDITOR") {
 		return
 	}
 	_, err = s.db.Exec(r.Context(), `DELETE FROM attachments WHERE id=$1`, id)

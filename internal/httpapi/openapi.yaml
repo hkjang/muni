@@ -266,6 +266,77 @@ paths:
       summary: Create a range-based change suggestion
       responses:
         '201': { $ref: '#/components/responses/Success' }
+  /documents/{documentId}/links:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: List the share links on a document
+      description: >-
+        Owner only. Returns each link's prefix — enough to tell two apart on
+        screen, not enough to open one. The token is returned when the link is
+        created and never again; it is stored only as a hash.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      summary: Create a read-only public link
+      description: >-
+        Owner only, and refused entirely while the `allowPublicLinks` policy is
+        off. The response carries the only copy of the token muni will ever
+        produce. Links are read-only: an anonymous editor would make changes
+        with nobody to attribute them to.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string, maxLength: 100, description: For telling links apart later }
+                password: { type: string, minLength: 4, description: Optional second factor, stored hashed }
+                expiresAt: { type: string, format: date-time }
+                maxViews: { type: integer, minimum: 1, maximum: 100000, description: Enforced in the same statement that counts the view, so a last view cannot be used twice }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+  /documents/{documentId}/links/{linkId}:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: linkId, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      summary: Revoke a share link
+      description: >-
+        The row is kept, marked revoked: it is the record that this document
+        was shared outside and how often it was opened.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
+  /public/documents/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Open a document with a share link
+      description: >-
+        The only endpoint that answers without a session. POST because the
+        password travels in the body — in a query string it would sit in
+        browser history, proxy logs, and the Referer of every request the page
+        makes. A wrong token and an unknown one give the same 404. The response
+        carries the document and nothing else: no workspace, no owner, no
+        neighbouring documents.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '410': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /documents/{documentId}/revisions:
     parameters:
       - $ref: '#/components/parameters/DocumentId'

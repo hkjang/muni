@@ -54,7 +54,34 @@ func (s *Server) documentRole(ctx context.Context, user User, documentID uuid.UU
 	return "", errForbidden
 }
 
-func databaseNotFound() error { return errors.New("not found") }
+// errDocumentNotFound is a sentinel so callers can tell "you may not" from
+// "there is nothing there" and answer with the right status.
+var errDocumentNotFound = errors.New("document not found")
+
+func databaseNotFound() error { return errDocumentNotFound }
+
+// documentAllowed reports whether the caller may go ahead, and writes the
+// refusal when they may not.
+//
+// It replaces `if err != nil || !requireDocumentRole(...)`, which returned from
+// the handler without writing anything whenever the role lookup failed — and a
+// handler that writes nothing sends 200 with an empty body. The action was
+// correctly refused, but every client was told it had succeeded: an editor
+// without permission saw its save confirmed, a share that never happened
+// looked shared.
+func documentAllowed(w http.ResponseWriter, role string, err error, minimum string) bool {
+	switch {
+	case err == nil:
+		return requireDocumentRole(w, role, minimum)
+	case errors.Is(err, errDocumentNotFound):
+		writeError(w, http.StatusNotFound, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
+	case errors.Is(err, errForbidden):
+		writeError(w, http.StatusForbidden, "DOCUMENT_PERMISSION_DENIED", "이 작업을 수행할 문서 권한이 없습니다.")
+	default:
+		writeError(w, http.StatusInternalServerError, "DATABASE_ERROR", "문서 권한을 확인하지 못했습니다.")
+	}
+	return false
+}
 
 func requireDocumentRole(w http.ResponseWriter, role string, minimum string) bool {
 	if roleRank[role] < roleRank[minimum] {
@@ -81,7 +108,7 @@ func (s *Server) listDocumentPermissions(w http.ResponseWriter, r *http.Request)
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "OWNER") {
+	if !documentAllowed(w, role, err, "OWNER") {
 		return
 	}
 	rows, err := s.db.Query(r.Context(), `SELECT p.id,p.subject_type,p.subject_id,p.role,p.expires_at,p.created_at,
@@ -114,7 +141,7 @@ func (s *Server) upsertDocumentPermission(w http.ResponseWriter, r *http.Request
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "OWNER") {
+	if !documentAllowed(w, role, err, "OWNER") {
 		return
 	}
 	var input struct {
@@ -152,7 +179,7 @@ func (s *Server) deleteDocumentPermission(w http.ResponseWriter, r *http.Request
 	}
 	p, _ := principalFrom(r.Context())
 	role, err := s.documentRole(r.Context(), p.User, documentID, false)
-	if err != nil || !requireDocumentRole(w, role, "OWNER") {
+	if !documentAllowed(w, role, err, "OWNER") {
 		return
 	}
 	result, err := s.db.Exec(r.Context(), `DELETE FROM document_permissions WHERE id=$1 AND document_id=$2`, permissionID, documentID)

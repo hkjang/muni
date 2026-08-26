@@ -133,3 +133,95 @@ describe("reasoning", () => {
     expect(returned).toBe("요약: 세 항목입니다.");
   });
 });
+
+describe("conversation history", () => {
+  it("sends what was already said, oldest first, with the new question last", async () => {
+    // The panel used to send one message per request, so a follow-up like
+    // "더 짧게" arrived with nothing to shorten.
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      sse(chunk("네"), "data: [DONE]\n\n"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAIStream());
+
+    await act(async () => {
+      await result.current.run({
+        prompt: "더 짧게",
+        action: "document_agent",
+        history: [
+          { role: "user", content: "요약해줘" },
+          { role: "assistant", content: "긴 요약입니다" },
+        ],
+      });
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.messages).toEqual([
+      { role: "user", content: "요약해줘" },
+      { role: "assistant", content: "긴 요약입니다" },
+      { role: "user", content: "더 짧게" },
+    ]);
+  });
+
+  it("sends only the new question when nothing has been said", async () => {
+    const fetchMock = vi.fn(async (_url: string, _init: RequestInit) =>
+      sse(chunk("네"), "data: [DONE]\n\n"),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { result } = renderHook(() => useAIStream());
+
+    await act(async () => {
+      await result.current.run({ prompt: "요약해줘", action: "document_agent" });
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0]![1].body as string);
+    expect(body.messages).toEqual([{ role: "user", content: "요약해줘" }]);
+  });
+
+  it("exposes the finished run's tool calls where a caller can read them after awaiting", async () => {
+    // State read straight after `await run(...)` is the value the calling
+    // render captured — from before the run. The panel needs the real one to
+    // attach it to the turn it is about to record.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sse(
+          `data: ${JSON.stringify({ tool: "search_documents" })}\n\n`,
+          chunk("찾았습니다"),
+          "data: [DONE]\n\n",
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useAIStream());
+
+    let seen: string[] = [];
+    await act(async () => {
+      await result.current.run({ prompt: "질문", action: "test" });
+      seen = result.current.finished.current.toolCalls.map((call) => call.tool);
+    });
+    expect(seen).toEqual(["search_documents"]);
+  });
+
+  it("forgets the previous run's tools when a new one starts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        sse(
+          `data: ${JSON.stringify({ tool: "read_document" })}\n\n`,
+          chunk("첫 답"),
+          "data: [DONE]\n\n",
+        ),
+      ),
+    );
+    const { result } = renderHook(() => useAIStream());
+    await act(async () => {
+      await result.current.run({ prompt: "질문", action: "test" });
+    });
+
+    vi.stubGlobal("fetch", vi.fn(async () => sse(chunk("둘째 답"), "data: [DONE]\n\n")));
+    await act(async () => {
+      await result.current.run({ prompt: "이어서", action: "test" });
+    });
+    expect(result.current.finished.current.toolCalls).toEqual([]);
+  });
+});

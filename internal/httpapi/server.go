@@ -102,6 +102,13 @@ func (s *Server) routes() {
 	s.handle("GET /api/v1/documents/{id}/permissions", s.requireAuth(http.HandlerFunc(s.listDocumentPermissions)))
 	s.handle("PUT /api/v1/documents/{id}/permissions", s.requireAuth(http.HandlerFunc(s.upsertDocumentPermission)))
 	s.handle("DELETE /api/v1/documents/{id}/permissions/{permissionId}", s.requireAuth(http.HandlerFunc(s.deleteDocumentPermission)))
+	s.handle("GET /api/v1/documents/{id}/links", s.requireAuth(http.HandlerFunc(s.listDocumentLinks)))
+	s.handle("POST /api/v1/documents/{id}/links", s.requireAuth(http.HandlerFunc(s.createDocumentLink)))
+	s.handle("DELETE /api/v1/documents/{id}/links/{linkId}", s.requireAuth(http.HandlerFunc(s.revokeDocumentLink)))
+	// Outside requireAuth on purpose: the person holding the link has no
+	// account here. Everything that would normally be decided by who they are
+	// is decided by the link row instead.
+	s.handleFunc("POST /api/v1/public/documents/{token}", s.openPublicDocument)
 	s.handle("GET /api/v1/documents/{id}/revisions", s.requireAuth(http.HandlerFunc(s.listRevisions)))
 	s.handle("POST /api/v1/documents/{id}/revisions/{revision}/restore", s.requireAuth(http.HandlerFunc(s.restoreRevision)))
 	s.handle("PATCH /api/v1/documents/{id}/revisions/{revision}", s.requireAuth(http.HandlerFunc(s.nameRevision)))
