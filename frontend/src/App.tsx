@@ -19,6 +19,7 @@ import { AdminKeyPoliciesPage } from "./pages/admin/AdminKeyPoliciesPage";
 import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
 import { AdminAIUsagePage } from "./pages/admin/AdminAIUsagePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
+import { ChangeTemporaryPasswordPage } from "./pages/ChangeTemporaryPasswordPage";
 
 function Protected({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -32,6 +33,10 @@ function Protected({ children }: { children: React.ReactNode }) {
         state={{ returnTo: location.pathname + location.search }}
       />
     );
+  // Every protected route funnels through here, so this is the one place the
+  // check belongs. The server refuses the requests anyway; this turns that
+  // refusal into a screen that says what to do about it.
+  if (user.mustChangePassword) return <ChangeTemporaryPasswordPage />;
   return children;
 }
 

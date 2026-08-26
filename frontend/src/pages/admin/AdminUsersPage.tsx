@@ -3,6 +3,7 @@ import {
   DevicesOutlined,
   KeyOutlined,
   LockResetOutlined,
+  PersonAddAlt1Outlined,
   Search,
 } from "@mui/icons-material";
 import {
@@ -28,7 +29,11 @@ import {
 import { useState } from "react";
 import { api, errorMessage, formatDate, jsonBody } from "../../lib/api";
 import type { User } from "../../types";
-type AdminUser = User & { lastLoginAt?: string };
+import { CreateUserDialog } from "./CreateUserDialog";
+type AdminUser = User & {
+  lastLoginAt?: string;
+  mustChangePassword?: boolean;
+};
 type AdminSession = {
   createdAt: string;
   lastSeenAt: string;
@@ -46,6 +51,7 @@ type PersonalKey = {
 };
 export function AdminUsersPage() {
   const [q, setQ] = useState("");
+  const [creating, setCreating] = useState(false);
   const [keyUser, setKeyUser] = useState<AdminUser | null>(null);
   const [sessionUser, setSessionUser] = useState<AdminUser | null>(null);
   const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
@@ -116,10 +122,27 @@ export function AdminUsersPage() {
   });
   return (
     <Box sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1200, mx: "auto" }}>
-      <Typography variant="h1">사용자 관리</Typography>
-      <Typography color="text.secondary" mt={0.7} mb={3}>
-        OIDC 자동 생성 사용자와 로컬 관리자를 함께 관리합니다.
-      </Typography>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        alignItems={{ sm: "flex-start" }}
+        justifyContent="space-between"
+        gap={2}
+      >
+        <Box>
+          <Typography variant="h1">사용자 관리</Typography>
+          <Typography color="text.secondary" mt={0.7} mb={3}>
+            계정을 만들고, 역할과 상태를 바꾸고, 키와 세션을 관리합니다.
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<PersonAddAlt1Outlined />}
+          onClick={() => setCreating(true)}
+          sx={{ flexShrink: 0 }}
+        >
+          계정 만들기
+        </Button>
+      </Stack>
       <TextField
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -132,6 +155,13 @@ export function AdminUsersPage() {
             </InputAdornment>
           ),
         }}
+      />
+      <CreateUserDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={() =>
+          client.invalidateQueries({ queryKey: ["admin-users"] })
+        }
       />
       {update.error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -147,9 +177,17 @@ export function AdminUsersPage() {
               gap={2}
             >
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Stack direction="row" gap={1} alignItems="center">
+                <Stack direction="row" gap={1} alignItems="center" flexWrap="wrap">
                   <Typography fontWeight={720}>{user.displayName}</Typography>
                   <Chip size="small" label={user.username} />
+                  {user.mustChangePassword && (
+                    <Chip
+                      size="small"
+                      color="warning"
+                      variant="outlined"
+                      label="임시 비밀번호"
+                    />
+                  )}
                 </Stack>
                 <Typography variant="body2" color="text.secondary" mt={0.4}>
                   {user.email} · 최근 로그인 {formatDate(user.lastLoginAt)}

@@ -8,6 +8,13 @@ export type User = {
   avatarUrl?: string;
   locale: string;
   createdAt: string;
+  /**
+   * Set when the password was chosen by somebody else — muni generated it, or
+   * an administrator typed it. The server refuses every other endpoint until
+   * it is replaced, so the app has to send the person to that screen rather
+   * than to a wall of 403s.
+   */
+  mustChangePassword?: boolean;
 };
 
 export type BuildInfo = { version: string; commit: string; buildTime: string };
