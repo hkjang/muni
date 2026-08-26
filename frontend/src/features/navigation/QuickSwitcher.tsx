@@ -80,10 +80,24 @@ const staticDestinations: QuickCommand[] = [
 const adminDestinations: QuickCommand[] = [
   {
     id: "go:admin",
-    label: "서비스 관리",
+    label: "운영 현황",
     group: "이동",
     to: "/admin",
-    keywords: "admin 관리자 service settings",
+    keywords: "admin 관리자 현황 dashboard overview",
+  },
+  {
+    id: "go:admin-settings",
+    label: "서비스 설정",
+    group: "이동",
+    to: "/admin/settings",
+    keywords: "admin service settings 설정",
+  },
+  {
+    id: "go:admin-workspaces",
+    label: "워크스페이스 관리",
+    group: "이동",
+    to: "/admin/workspaces",
+    keywords: "admin workspaces 워크스페이스",
   },
   {
     id: "go:admin-users",

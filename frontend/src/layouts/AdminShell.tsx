@@ -1,8 +1,10 @@
 import {
   AdminPanelSettingsOutlined,
   ArrowBack,
+  DashboardOutlined,
   GroupsOutlined,
   KeyOutlined,
+  FolderSharedOutlined,
   Menu as MenuIcon,
   PsychologyOutlined,
   PolicyOutlined,
@@ -37,8 +39,10 @@ export function AdminShell() {
   const navigate = useNavigate();
   if (user?.role !== "ADMIN") return <Navigate to="/" replace />;
   const items = [
-    ["/admin", "서비스 설정", SettingsOutlined],
+    ["/admin", "운영 현황", DashboardOutlined],
+    ["/admin/settings", "서비스 설정", SettingsOutlined],
     ["/admin/users", "사용자 관리", GroupsOutlined],
+    ["/admin/workspaces", "워크스페이스", FolderSharedOutlined],
     ["/admin/key-policies", "키 권한 정책", KeyOutlined],
     ["/admin/ai-usage", "AI 호출 감사", PsychologyOutlined],
     ["/admin/audit", "감사 로그", PolicyOutlined],

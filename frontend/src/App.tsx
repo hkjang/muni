@@ -10,7 +10,9 @@ import { SearchPage } from "./pages/SearchPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { PersonalSettingsPage } from "./pages/PersonalSettingsPage";
 import { EditorPage } from "./pages/EditorPage";
+import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
 import { AdminSettingsPage } from "./pages/admin/AdminSettingsPage";
+import { AdminWorkspacesPage } from "./pages/admin/AdminWorkspacesPage";
 import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
 import { AdminKeyPoliciesPage } from "./pages/admin/AdminKeyPoliciesPage";
 import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
@@ -68,7 +70,9 @@ export default function App() {
           </Protected>
         }
       >
-        <Route index element={<AdminSettingsPage />} />
+        <Route index element={<AdminOverviewPage />} />
+        <Route path="settings" element={<AdminSettingsPage />} />
+        <Route path="workspaces" element={<AdminWorkspacesPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="key-policies" element={<AdminKeyPoliciesPage />} />
         <Route path="ai-usage" element={<AdminAIUsagePage />} />
