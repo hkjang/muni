@@ -36,6 +36,7 @@ type documentItem struct {
 	// wholesale — a restore, say. The editor keys its offline copy on it so a
 	// stale local state cannot be pushed back over the restored content.
 	CRDTGeneration int        `json:"crdtGeneration"`
+	Tags           []string   `json:"tags"`
 	Favorite       bool       `json:"favorite"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
@@ -45,11 +46,12 @@ type documentItem struct {
 
 func documentSelect() string {
 	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,d.heading_numbering,
+	ARRAY(SELECT t.name::text FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=d.id ORDER BY t.name),
 	EXISTS(SELECT 1 FROM favorites f WHERE f.document_id=d.id AND f.user_id=$2),d.created_at,d.updated_at,d.deleted_at FROM documents d JOIN users u ON u.id=d.owner_id`
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
+	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
 }
 
 func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {

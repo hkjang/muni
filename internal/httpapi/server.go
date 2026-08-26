@@ -59,6 +59,8 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/v1/workspaces/{id}/folders", s.requireAuth(http.HandlerFunc(s.createFolder)))
 	s.mux.Handle("GET /api/v1/workspaces/{id}/folders", s.requireAuth(http.HandlerFunc(s.listFolders)))
 	s.mux.Handle("GET /api/v1/workspaces/{id}/documents", s.requireAuth(http.HandlerFunc(s.listDocuments)))
+	s.mux.Handle("GET /api/v1/workspaces/{id}/tags", s.requireAuth(http.HandlerFunc(s.listWorkspaceTags)))
+	s.mux.Handle("PUT /api/v1/documents/{id}/tags", s.requireAuth(http.HandlerFunc(s.setDocumentTags)))
 	s.mux.Handle("GET /api/v1/workspaces/{id}/templates", s.requireAuth(http.HandlerFunc(s.listTemplates)))
 	s.mux.Handle("POST /api/v1/workspaces/{id}/templates", s.requireAuth(http.HandlerFunc(s.createTemplate)))
 	s.mux.Handle("PATCH /api/v1/templates/{id}", s.requireAuth(http.HandlerFunc(s.updateTemplate)))

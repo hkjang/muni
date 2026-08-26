@@ -62,6 +62,8 @@ export type DocumentItem = {
   crdtGeneration: number;
   /** "none", "decimal" or "korean"; the numbers themselves are never stored. */
   headingNumbering: string;
+  /** Labels that group documents across folders. */
+  tags: string[];
   favorite: boolean;
   permission: "OWNER" | "EDITOR" | "COMMENTER" | "VIEWER";
   createdAt: string;

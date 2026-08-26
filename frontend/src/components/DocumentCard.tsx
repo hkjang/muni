@@ -97,6 +97,20 @@ export function DocumentCard({
         <Typography variant="body2" color="text.secondary">
           {document.ownerName} · {formatDate(document.updatedAt)}
         </Typography>
+        {(document.tags ?? []).length > 0 && (
+          <Stack direction="row" gap={0.5} mt={1} flexWrap="wrap">
+            {(document.tags ?? []).slice(0, 3).map((tag) => (
+              <Chip key={tag} size="small" label={tag} />
+            ))}
+            {(document.tags ?? []).length > 3 && (
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`+${(document.tags ?? []).length - 3}`}
+              />
+            )}
+          </Stack>
+        )}
         <Stack direction="row" gap={0.75} mt={2}>
           <Chip
             label={document.deletedAt ? "휴지통" : statusLabel[document.status]}

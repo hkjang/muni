@@ -19,6 +19,7 @@ import { AISelectionMenu } from "../features/editor/ai/AISelectionMenu";
 import { EditorStatusBar } from "../features/editor/EditorStatusBar";
 import { ImageMenu } from "../features/editor/ImageMenu";
 import { NotificationBell } from "../features/notifications/NotificationBell";
+import { DocumentTags } from "../features/editor/DocumentTags";
 import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
@@ -669,6 +670,9 @@ export function EditorPage() {
               transition: "transform .12s ease-out",
             }}
           >
+            <Box sx={{ mb: 2 }}>
+              <DocumentTags document={document} canEdit={canEdit} />
+            </Box>
             {mode === "suggesting" && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 제안 모드입니다. 문장을 선택한 뒤 오른쪽 ‘제안’ 패널에서 대체
