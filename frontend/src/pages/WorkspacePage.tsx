@@ -75,6 +75,10 @@ export function WorkspacePage() {
   } | null>(null);
   const [renaming, setRenaming] = useState<Folder | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  // Filing a month of meeting records was one document at a time, which is why
+  // folders were tidy in nobody's workspace.
+  const [selected, setSelected] = useState<string[]>([]);
+  const [bulkTag, setBulkTag] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
   const [userQuery, setUserQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserSearch | null>(null);
@@ -97,6 +101,28 @@ export function WorkspacePage() {
     queryKey: ["folders", workspaceId],
     queryFn: () => api<Folder[]>(`/api/v1/workspaces/${workspaceId}/folders`),
     enabled: Boolean(workspaceId),
+  });
+  const bulk = useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      api<{ changed: number; results: { status: string; reason?: string }[] }>(
+        "/api/v1/documents/bulk",
+        { method: "POST", ...jsonBody({ ...body, ids: selected }) },
+      ),
+    onSuccess: (result) => {
+      setSelected([]);
+      setBulkTag("");
+      void client.invalidateQueries({ queryKey: ["documents", workspaceId] });
+      void client.invalidateQueries({ queryKey: ["workspace-tags"] });
+      const skipped = result.results.filter((item) => item.status !== "ok");
+      if (skipped.length > 0) {
+        // A batch reports per document; saying only "done" would hide the
+        // ones that were not.
+        window.alert(
+          `${result.changed}건 처리했습니다. ${skipped.length}건은 건너뛰었습니다: ` +
+            [...new Set(skipped.map((item) => item.reason))].join(", "),
+        );
+      }
+    },
   });
   const renameFolder = useMutation({
     mutationFn: () =>
@@ -289,6 +315,68 @@ export function WorkspacePage() {
           </Button>
         </DialogActions>
       </Dialog>
+      {selected.length > 0 && (
+        <Card
+          sx={{
+            p: 1.5,
+            mb: 2,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 1.5,
+            alignItems: "center",
+            position: "sticky",
+            top: 8,
+            zIndex: 2,
+          }}
+        >
+          <Typography fontWeight={650}>{selected.length}건 선택</Typography>
+          <FormControl size="small" sx={{ minWidth: 190 }}>
+            <InputLabel>폴더로 옮기기</InputLabel>
+            <Select
+              value=""
+              label="폴더로 옮기기"
+              onChange={(event) =>
+                bulk.mutate({
+                  action: "move",
+                  folderId: event.target.value || null,
+                })
+              }
+            >
+              <MenuItem value="">워크스페이스 최상위</MenuItem>
+              {folderPaths(folders).map((entry) => (
+                <MenuItem key={entry.id} value={entry.id}>
+                  {entry.path}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            size="small"
+            label="태그 추가"
+            value={bulkTag}
+            onChange={(event) => setBulkTag(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && bulkTag.trim())
+                bulk.mutate({ action: "addTags", tags: [bulkTag.trim()] });
+            }}
+            sx={{ width: 180 }}
+          />
+          <Button
+            color="error"
+            disabled={bulk.isPending}
+            onClick={() => {
+              if (window.confirm(`${selected.length}건을 휴지통으로 옮길까요?`))
+                bulk.mutate({ action: "trash" });
+            }}
+          >
+            휴지통으로
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          <Button color="inherit" onClick={() => setSelected([])}>
+            선택 해제
+          </Button>
+        </Card>
+      )}
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 3 }}>
           <Card sx={{ p: 1.25 }}>
@@ -354,6 +442,17 @@ export function WorkspacePage() {
                 <Grid key={document.id} size={{ xs: 12, sm: 6, xl: 4 }}>
                   <DocumentCard
                     document={document}
+                    selected={selected.includes(document.id)}
+                    onSelect={
+                      workspace?.role === "VIEWER"
+                        ? undefined
+                        : (isSelected) =>
+                            setSelected((current) =>
+                              isSelected
+                                ? [...current, document.id]
+                                : current.filter((id) => id !== document.id),
+                            )
+                    }
                     onFavorite={() =>
                       client.invalidateQueries({
                         queryKey: ["documents", workspaceId],

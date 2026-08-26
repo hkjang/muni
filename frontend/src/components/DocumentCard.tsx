@@ -8,6 +8,7 @@ import {
   Box,
   Card,
   CardActionArea,
+  Checkbox,
   Chip,
   IconButton,
   Stack,
@@ -28,10 +29,15 @@ export function DocumentCard({
   document,
   onFavorite,
   onRestore,
+  selected,
+  onSelect,
 }: {
   document: DocumentItem;
   onFavorite?: () => void;
   onRestore?: () => void;
+  /** Present only where documents can be worked on several at a time. */
+  selected?: boolean;
+  onSelect?: (selected: boolean) => void;
 }) {
   const navigate = useNavigate();
   const toggleFavorite = async (event: React.MouseEvent) => {
@@ -71,6 +77,16 @@ export function DocumentCard({
           >
             <ArticleOutlined />
           </Box>
+          {onSelect && (
+            <Checkbox
+              size="small"
+              checked={Boolean(selected)}
+              inputProps={{ "aria-label": `${document.title} 선택` }}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => onSelect(event.target.checked)}
+              sx={{ mt: -1, ml: -1 }}
+            />
+          )}
           {document.deletedAt ? (
             <IconButton
               aria-label="문서 복원"

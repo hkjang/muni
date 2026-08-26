@@ -1019,6 +1019,27 @@ paths:
             application/zip:
               schema: { type: string, format: binary }
         default: { $ref: '#/components/responses/Error' }
+  /documents/bulk:
+    post:
+      summary: 여러 문서를 한 번에 (휴지통, 복원, 폴더 이동, 태그 추가·제거)
+      description: >-
+        문서마다 개별로 결과를 돌려줍니다. 하나가 막혀도 나머지는 처리되며,
+        건너뛴 문서는 이유와 함께 보고합니다. 한 번에 200건까지입니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, action]
+              properties:
+                ids: { type: array, items: { type: string, format: uuid } }
+                action: { type: string, enum: [trash, restore, move, addTags, removeTags] }
+                folderId: { type: [string, "null"], format: uuid }
+                tags: { type: array, items: { type: string } }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
 components:
   securitySchemes:
     sessionCookie:

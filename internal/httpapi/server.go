@@ -92,6 +92,7 @@ func (s *Server) routes() {
 	s.handle("GET /api/v1/documents/{id}", s.requireAuth(http.HandlerFunc(s.getDocument)))
 	s.handle("PUT /api/v1/documents/{id}", s.requireAuth(http.HandlerFunc(s.updateDocument)))
 	s.handle("DELETE /api/v1/documents/{id}", s.requireAuth(http.HandlerFunc(s.deleteDocument)))
+	s.handle("POST /api/v1/documents/bulk", s.requireAuth(http.HandlerFunc(s.bulkDocuments)))
 	s.handle("POST /api/v1/documents/{id}/duplicate", s.requireAuth(http.HandlerFunc(s.duplicateDocument)))
 	s.handle("POST /api/v1/documents/{id}/move", s.requireAuth(http.HandlerFunc(s.moveDocument)))
 	s.handle("POST /api/v1/documents/{id}/restore", s.requireAuth(http.HandlerFunc(s.restoreDocument)))
