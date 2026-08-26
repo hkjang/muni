@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { humanBytes } from "./AdminOverviewPage";
+import { humanBytes } from "./humanBytes";
 
 describe("humanBytes", () => {
   it("reads a size the way an operator would say it", () => {

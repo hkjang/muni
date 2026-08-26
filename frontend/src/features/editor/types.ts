@@ -5,7 +5,8 @@ export type SideTab =
   | "comments"
   | "history"
   | "suggestions"
-  | "presentations";
+  | "presentations"
+  | "attachments";
 
 export type Suggestion = {
   id: string;

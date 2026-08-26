@@ -2,6 +2,7 @@ import type { Editor } from "@tiptap/react";
 import { Box, Tab, Tabs } from "@mui/material";
 import {
   AddCommentOutlined,
+  AttachFileOutlined,
   AutoAwesome,
   CommentOutlined,
   History,
@@ -14,6 +15,7 @@ import { CommentsPanel } from "./comments/CommentsPanel";
 import { SuggestionsPanel } from "./suggestions/SuggestionsPanel";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { PresentationList } from "./presentations/PresentationList";
+import { AttachmentsPanel } from "./AttachmentsPanel";
 
 export function EditorSidebar({
   tab,
@@ -77,6 +79,12 @@ export function EditorSidebar({
           iconPosition="start"
           label="버전"
         />
+        <Tab
+          value="attachments"
+          icon={<AttachFileOutlined />}
+          iconPosition="start"
+          label="첨부"
+        />
       </Tabs>
       <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", p: 2 }}>
         {tab === "ai" && (
@@ -108,6 +116,9 @@ export function EditorSidebar({
           <PresentationList documentId={document.id} canEdit={canEdit} />
         )}
         {tab === "history" && <HistoryPanel document={document} />}
+        {tab === "attachments" && (
+          <AttachmentsPanel documentId={document.id} canEdit={canEdit} />
+        )}
       </Box>
     </Box>
   );

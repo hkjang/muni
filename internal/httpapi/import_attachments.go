@@ -332,11 +332,24 @@ func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, _ := principalFrom(r.Context())
-	if _, err := s.documentRole(r.Context(), p.User, documentID, false); err != nil {
-		writeError(w, 403, "DOCUMENT_PERMISSION_DENIED", "첨부파일을 볼 권한이 없습니다.")
+	role, err := s.documentRole(r.Context(), p.User, documentID, false)
+	if !documentAllowed(w, role, err, "VIEWER") {
 		return
 	}
-	rows, err := s.db.Query(r.Context(), `SELECT id,name,media_type,size_bytes,sha256,created_at FROM attachments WHERE document_id=$1 ORDER BY created_at`, documentID)
+	// in_use answers the question that makes this list worth having: which of
+	// these is still in the document, and which is only taking up space. An
+	// image dragged in and then deleted from the text leaves its bytes behind
+	// with nothing pointing at them, and until now nothing said so — or let
+	// anyone clear it. The content references an attachment by a URL that
+	// carries its id, so the id appearing in the stored document is the test.
+	rows, err := s.db.Query(r.Context(), `
+		SELECT a.id, a.name, a.media_type, a.size_bytes, a.sha256, a.created_at,
+			coalesce(u.display_name, '') ,
+			d.content_json::text LIKE '%' || a.id::text || '%'
+		FROM attachments a
+		JOIN documents d ON d.id = a.document_id
+		LEFT JOIN users u ON u.id = a.uploader_id
+		WHERE a.document_id = $1 ORDER BY a.created_at`, documentID)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "첨부파일을 불러오지 못했습니다.")
 		return
@@ -345,11 +358,16 @@ func (s *Server) listAttachments(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, 0)
 	for rows.Next() {
 		var id uuid.UUID
-		var name, mediaType, hash string
+		var name, mediaType, hash, uploader string
 		var size int64
 		var created time.Time
-		if rows.Scan(&id, &name, &mediaType, &size, &hash, &created) == nil {
-			items = append(items, map[string]any{"id": id, "name": name, "mediaType": mediaType, "sizeBytes": size, "sha256": hash, "createdAt": created, "url": "/api/v1/attachments/" + id.String()})
+		var inUse bool
+		if rows.Scan(&id, &name, &mediaType, &size, &hash, &created, &uploader, &inUse) == nil {
+			items = append(items, map[string]any{
+				"id": id, "name": name, "mediaType": mediaType, "sizeBytes": size,
+				"sha256": hash, "createdAt": created, "uploadedBy": uploader,
+				"inUse": inUse, "url": "/api/v1/attachments/" + id.String(),
+			})
 		}
 	}
 	writeData(w, 200, items)

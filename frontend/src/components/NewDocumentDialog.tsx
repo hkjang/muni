@@ -11,12 +11,14 @@ import {
   InputLabel,
   MenuItem,
   Select,
+  Stack,
   TextField,
 } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import { api, errorMessage, jsonBody } from "../lib/api";
 import type { DocumentItem, Folder, Template, Workspace } from "../types";
 import { UploadFileOutlined } from "@mui/icons-material";
+import { TemplateManagerDialog } from "../features/templates/TemplateManagerDialog";
 
 export function NewDocumentDialog({
   open,
@@ -34,6 +36,7 @@ export function NewDocumentDialog({
   const [folderId, setFolderId] = useState(initialFolderId ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [templateId, setTemplateId] = useState("");
+  const [managingTemplates, setManagingTemplates] = useState(false);
   const navigate = useNavigate();
   const client = useQueryClient();
   const { data: workspaces = [] } = useQuery({
@@ -132,23 +135,35 @@ export function NewDocumentDialog({
           </Select>
         </FormControl>
         {!file && templates.length > 0 && (
-          <FormControl size="small">
-            <InputLabel>서식 (선택)</InputLabel>
-            <Select
-              value={templateId}
-              label="서식 (선택)"
-              onChange={(event) => setTemplateId(event.target.value)}
-            >
-              <MenuItem value="">빈 문서</MenuItem>
-              {templates.map((template) => (
-                <MenuItem key={template.id} value={template.id}>
-                  {template.name}
-                  {template.workspaceId ? "" : " · 공용"}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Stack direction="row" gap={1} alignItems="flex-end">
+            <FormControl size="small" sx={{ flex: 1 }}>
+              <InputLabel>서식 (선택)</InputLabel>
+              <Select
+                value={templateId}
+                label="서식 (선택)"
+                onChange={(event) => setTemplateId(event.target.value)}
+              >
+                <MenuItem value="">빈 문서</MenuItem>
+                {templates.map((template) => (
+                  <MenuItem key={template.id} value={template.id}>
+                    {template.name}
+                    {template.workspaceId ? "" : " · 공용"}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            {/* Where the list is read is where its clutter is noticed, so this
+                is where clearing it belongs. */}
+            <Button size="small" onClick={() => setManagingTemplates(true)}>
+              관리
+            </Button>
+          </Stack>
         )}
+        <TemplateManagerDialog
+          open={managingTemplates}
+          onClose={() => setManagingTemplates(false)}
+          workspaceId={workspaceId}
+        />
         <FormControl size="small">
           <InputLabel>폴더 (선택)</InputLabel>
           <Select
