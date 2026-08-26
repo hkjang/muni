@@ -1,6 +1,7 @@
 package docx
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -146,6 +147,9 @@ func (imp *importer) paragraph(node *xnode) []block {
 	}
 	if align != "" && paragraph.Type != "codeBlock" {
 		paragraph.SetAttr("textAlign", align)
+	}
+	if paragraph.Type != "codeBlock" {
+		applyParagraphSpacing(paragraph, properties, kind != "")
 	}
 
 	result := block{node: paragraph, numID: numID, level: level, kind: kind, checked: checked}
@@ -537,4 +541,70 @@ func cellShade(properties *xnode) string {
 		}
 	}
 	return "#" + strings.ToLower(fill)
+}
+
+// applyParagraphSpacing carries indentation and line spacing back out of the
+// file.
+//
+// Export wrote all three — w:ind w:left, w:ind w:firstLine, w:spacing w:line —
+// and import read none of them, so muni could not read its own output.
+// Formatting a document, exporting it to Word and opening it again came back
+// flat, and a Word document written the way a Korean office writes one — 줄
+// 간격 160%, 첫 줄 들여쓰기 — lost both on the way in.
+//
+// A list item's indentation is the list's own, expressed in the same
+// attribute; taking it as an author's setting would indent every bullet a
+// second time.
+func applyParagraphSpacing(paragraph *richdoc.Node, properties *xnode, inList bool) {
+	if paragraph == nil || properties == nil {
+		return
+	}
+
+	if indent := properties.child("w", "ind"); indent != nil && !inList {
+		// Rounded to the nearest step rather than truncated: a document
+		// written by Word uses whatever measurement its author dragged the
+		// ruler to, and 430 twips is one step, not none.
+		if left, err := strconv.Atoi(indent.attr("w:left")); err == nil && left > 0 {
+			steps := (left + twipsPerIndentStep/2) / twipsPerIndentStep
+			if steps > maxIndentSteps {
+				steps = maxIndentSteps
+			}
+			if steps > 0 {
+				paragraph.SetAttr("indent", steps)
+			}
+		}
+		// muni's first-line indent is on or off, so any positive value is on.
+		// A negative one is a hanging indent, which is a different thing and
+		// is left alone rather than turned into its opposite.
+		if first, err := strconv.Atoi(indent.attr("w:firstLine")); err == nil && first > 0 {
+			paragraph.SetAttr("firstLine", true)
+		}
+	}
+
+	spacing := properties.child("w", "spacing")
+	if spacing == nil {
+		return
+	}
+	// w:line is a multiple of 240 when the rule is "auto"; at "exact" or
+	// "atLeast" it is a fixed height in twips, which muni has no way to
+	// express and would misread as an enormous multiple.
+	if rule := spacing.attr("w:lineRule"); rule != "" && rule != "auto" {
+		return
+	}
+	line, err := strconv.Atoi(spacing.attr("w:line"))
+	if err != nil || line <= 0 {
+		return
+	}
+	height := float64(line) / 240
+	if height < 0.5 || height > 5 {
+		return
+	}
+	// 1.05 is what Word writes for single spacing in some templates, and
+	// showing "1.05" in the line-height box for a document nobody deliberately
+	// spaced is noise. The editor's own values survive exactly.
+	rounded := math.Round(height*100) / 100
+	if rounded == 1 || rounded == 1.05 {
+		return
+	}
+	paragraph.SetAttr("lineHeight", strconv.FormatFloat(rounded, 'f', -1, 64))
 }
