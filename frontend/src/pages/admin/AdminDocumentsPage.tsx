@@ -22,9 +22,11 @@ import {
   DeleteForeverOutlined,
   SearchOutlined,
   SwapHorizOutlined,
+  VisibilityOutlined,
 } from "@mui/icons-material";
 import { api, errorMessage, formatDate, jsonBody } from "../../lib/api";
 import type { User } from "../../types";
+import { DocumentAccessDialog } from "./DocumentAccessDialog";
 
 type AdminDocument = {
   id: string;
@@ -58,6 +60,7 @@ export function AdminDocumentsPage() {
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState("active");
   const [transfer, setTransfer] = useState<AdminDocument | null>(null);
+  const [accessOf, setAccessOf] = useState<string | null>(null);
   const [purge, setPurge] = useState<AdminDocument | null>(null);
   const [newOwner, setNewOwner] = useState<User | null>(null);
   const [ownerQuery, setOwnerQuery] = useState("");
@@ -73,7 +76,9 @@ export function AdminDocumentsPage() {
   const candidates = useQuery({
     queryKey: ["admin-users", "transfer", ownerQuery],
     queryFn: () =>
-      api<User[]>(`/api/v1/admin/users?q=${encodeURIComponent(ownerQuery)}&limit=20`),
+      api<{ items: User[] }>(
+        `/api/v1/admin/users?q=${encodeURIComponent(ownerQuery)}&limit=20`,
+      ).then((page) => page.items),
     enabled: Boolean(transfer),
   });
 
@@ -168,6 +173,14 @@ export function AdminDocumentsPage() {
               <Button
                 size="small"
                 variant="outlined"
+                startIcon={<VisibilityOutlined />}
+                onClick={() => setAccessOf(item.id)}
+              >
+                권한 보기
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
                 startIcon={<SwapHorizOutlined />}
                 onClick={() => {
                   setTransfer(item);
@@ -196,6 +209,11 @@ export function AdminDocumentsPage() {
           </Typography>
         )}
       </Stack>
+
+      <DocumentAccessDialog
+        documentId={accessOf}
+        onClose={() => setAccessOf(null)}
+      />
 
       <Dialog
         open={Boolean(transfer)}

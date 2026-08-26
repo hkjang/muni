@@ -661,6 +661,22 @@ paths:
         '200': { $ref: '#/components/responses/Success' }
         '400': { $ref: '#/components/responses/Error' }
         '413': { $ref: '#/components/responses/Error' }
+  /admin/documents/{documentId}/access:
+    parameters:
+      - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+    get:
+      summary: Who can open this document right now
+      description: >-
+        The audit log answers who did open a document. This answers who can —
+        the question an audit starts with. Combines ownership, direct grants
+        (expired ones excluded), and workspace membership under the same
+        precedence documentRole enforces, so a person appears once with the
+        role they actually get. Administrators are returned as a count, not
+        enumerated: they reach every document, and listing them per document
+        would make each one look individually over-shared.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '404': { $ref: '#/components/responses/Error' }
   /admin/users/{userId}/belongings:
     parameters:
       - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }

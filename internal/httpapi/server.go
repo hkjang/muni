@@ -174,6 +174,7 @@ func (s *Server) routes() {
 	s.handle("POST /api/v1/admin/workspaces/{id}/restore", s.requireAdmin(http.HandlerFunc(s.adminRestoreWorkspace)))
 	s.handle("GET /api/v1/admin/documents", s.requireAdmin(http.HandlerFunc(s.adminListDocuments)))
 	s.handle("POST /api/v1/admin/documents/{id}/transfer", s.requireAdmin(http.HandlerFunc(s.adminTransferDocument)))
+	s.handle("GET /api/v1/admin/documents/{id}/access", s.requireAdmin(http.HandlerFunc(s.documentAccess)))
 	s.handle("DELETE /api/v1/admin/documents/{id}", s.requireAdmin(http.HandlerFunc(s.adminPurgeDocument)))
 	s.handle("POST /api/v1/admin/users/{id}/password", s.requireAdmin(http.HandlerFunc(s.resetUserPassword)))
 	s.handle("GET /api/v1/admin/users/{id}/sessions", s.requireAdmin(http.HandlerFunc(s.adminUserSessions)))

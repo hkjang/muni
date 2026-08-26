@@ -35,19 +35,23 @@ type serverUnderTest struct {
 	*httptest.Server
 	db    *pgxpool.Pool
 	admin *http.Client
+	// api is the same Server the handlers run on, so a test can call the
+	// enforcement code directly and compare it with what an endpoint reports.
+	api *Server
 }
 
 func newServerUnderTest(t *testing.T) *serverUnderTest {
 	t.Helper()
-	srv, db := liveServer(t)
+	srv, db, api := liveServer(t)
 	return &serverUnderTest{
 		Server: srv,
 		db:     db,
+		api:    api,
 		admin:  signIn(t, srv, "admin@muni.local", "provision-check-1234"),
 	}
 }
 
-func liveServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
+func liveServer(t *testing.T) (*httptest.Server, *pgxpool.Pool, *Server) {
 	t.Helper()
 	dsn := os.Getenv("MUNI_TEST_DSN")
 	if dsn == "" {
@@ -94,7 +98,7 @@ func liveServer(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 	api := New(db, sealer, BuildInfo{Version: "test"}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(func() { srv.Close(); db.Close() })
-	return srv, db
+	return srv, db, api
 }
 
 func signIn(t *testing.T, srv *httptest.Server, identity, password string) *http.Client {
@@ -138,7 +142,7 @@ func postJSON(t *testing.T, client *http.Client, url string, payload any) (int, 
 }
 
 func TestAnAdministratorCanCreateAnAccountThatWorks(t *testing.T) {
-	srv, db := liveServer(t)
+	srv, db, _ := liveServer(t)
 	ctx := context.Background()
 	admin := signIn(t, srv, "admin@muni.local", "provision-check-1234")
 
@@ -213,7 +217,7 @@ func TestAnAdministratorCanCreateAnAccountThatWorks(t *testing.T) {
 }
 
 func TestTheSameEmailIsRefusedRatherThanDuplicated(t *testing.T) {
-	srv, _ := liveServer(t)
+	srv, _, _ := liveServer(t)
 	admin := signIn(t, srv, "admin@muni.local", "provision-check-1234")
 	payload := map[string]any{"email": "dup@example.com", "displayName": "중복"}
 	if status, data := postJSON(t, admin, srv.URL+"/api/v1/admin/users", payload); status != 201 {
@@ -226,7 +230,7 @@ func TestTheSameEmailIsRefusedRatherThanDuplicated(t *testing.T) {
 }
 
 func TestTwoPeopleWithTheSameNameBothGetAnAccount(t *testing.T) {
-	srv, _ := liveServer(t)
+	srv, _, _ := liveServer(t)
 	admin := signIn(t, srv, "admin@muni.local", "provision-check-1234")
 	first := map[string]any{"email": "a@example.com", "username": "kimminsu", "displayName": "김민수"}
 	second := map[string]any{"email": "b@example.com", "username": "kimminsu", "displayName": "김민수"}
@@ -244,7 +248,7 @@ func TestTwoPeopleWithTheSameNameBothGetAnAccount(t *testing.T) {
 }
 
 func TestABadRowDoesNotRejectTheGoodOnes(t *testing.T) {
-	srv, _ := liveServer(t)
+	srv, _, _ := liveServer(t)
 	admin := signIn(t, srv, "admin@muni.local", "provision-check-1234")
 	// Row two collides with the bootstrap administrator; the rest are fine.
 	csv := "이름,email\n" +
@@ -303,7 +307,7 @@ func TestABadRowDoesNotRejectTheGoodOnes(t *testing.T) {
 }
 
 func TestAnAdminResetAlsoDemandsAChange(t *testing.T) {
-	srv, _ := liveServer(t)
+	srv, _, _ := liveServer(t)
 	admin := signIn(t, srv, "admin@muni.local", "provision-check-1234")
 	_, created := postJSON(t, admin, srv.URL+"/api/v1/admin/users", map[string]any{
 		"email": "reset@example.com", "displayName": "잠긴사람", "password": "관리자가정한비밀번호입니다",
