@@ -7,6 +7,7 @@ import {
   SecurityOutlined,
   SettingsOutlined,
   AutoDeleteOutlined,
+  MailOutlined,
   SlideshowOutlined,
   VpnKeyOutlined,
 } from "@mui/icons-material";
@@ -68,6 +69,18 @@ const blank: Settings = {
     auditReads: true,
   },
   export: { enablePdf: true, enableDocx: true },
+  smtp: {
+    enabled: false,
+    host: "",
+    port: 587,
+    username: "",
+    passwordSet: false,
+    security: "starttls",
+    from: "",
+    fromName: "",
+    skipVerify: false,
+    baseUrl: "",
+  },
   retention: {
     trashDays: 0,
     revisionDays: 0,
@@ -126,6 +139,15 @@ export function AdminSettingsPage() {
         ...jsonBody(form.ai),
       }),
     onSuccess: () => setNotice("AI API 연결과 모델 응답을 확인했습니다."),
+  });
+  const testSMTP = useMutation({
+    mutationFn: () =>
+      api<{ sentTo: string }>("/api/v1/admin/settings/test-smtp", {
+        method: "POST",
+        ...jsonBody(form.smtp),
+      }),
+    onSuccess: (data) =>
+      setNotice(`${data.sentTo} 주소로 시험 메일을 보냈습니다. 받은 편지함을 확인해 주세요.`),
   });
   const retention = useQuery({
     queryKey: ["retention-preview"],
@@ -186,6 +208,7 @@ export function AdminSettingsPage() {
         testOIDC.error ||
         testAI.error ||
         testPtium.error ||
+        testSMTP.error ||
         runRetention.error) && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {errorMessage(
@@ -193,6 +216,7 @@ export function AdminSettingsPage() {
               testOIDC.error ||
               testAI.error ||
               testPtium.error ||
+              testSMTP.error ||
               runRetention.error,
           )}
         </Alert>
@@ -230,6 +254,7 @@ export function AdminSettingsPage() {
           iconPosition="start"
           label="발표자료 연동"
         />
+        <Tab icon={<MailOutlined />} iconPosition="start" label="메일 알림" />
         <Tab
           icon={<AutoDeleteOutlined />}
           iconPosition="start"
@@ -740,6 +765,146 @@ export function AdminSettingsPage() {
           </Stack>
         )}
         {tab === 6 && (
+          <Stack gap={2} maxWidth={760}>
+            <Section
+              title="사내 메일 서버"
+              description="muni가 쓰는 메일 서버는 여기에 적은 것 하나뿐입니다. 외부 발송 서비스로 나가는 연결은 없습니다."
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.smtp.enabled}
+                  onChange={(_, checked) =>
+                    setGroup("smtp", { ...form.smtp, enabled: checked })
+                  }
+                />
+              }
+              label="메일 알림 보내기"
+            />
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 7 }}>
+                <TextField
+                  fullWidth
+                  label="메일 서버 주소"
+                  placeholder="smtp.company.co.kr"
+                  value={form.smtp.host}
+                  onChange={(e) =>
+                    setGroup("smtp", { ...form.smtp, host: e.target.value })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 6, sm: 2 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="포트"
+                  value={form.smtp.port}
+                  slotProps={{ htmlInput: { min: 1, max: 65535 } }}
+                  onChange={(e) =>
+                    setGroup("smtp", { ...form.smtp, port: Number(e.target.value) })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 6, sm: 3 }}>
+                <FormControl fullWidth>
+                  <InputLabel>보안</InputLabel>
+                  <Select
+                    label="보안"
+                    value={form.smtp.security}
+                    onChange={(e) =>
+                      setGroup("smtp", { ...form.smtp, security: e.target.value })
+                    }
+                  >
+                    <MenuItem value="starttls">STARTTLS (587)</MenuItem>
+                    <MenuItem value="tls">TLS (465)</MenuItem>
+                    <MenuItem value="none">사용 안 함</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+            </Grid>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="계정 (필요한 경우)"
+                  value={form.smtp.username}
+                  onChange={(e) =>
+                    setGroup("smtp", { ...form.smtp, username: e.target.value })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  type="password"
+                  label={`비밀번호${form.smtp.passwordSet ? " (설정됨)" : ""}`}
+                  placeholder={form.smtp.passwordSet ? "변경할 때만 입력" : ""}
+                  value={form.smtp.password ?? ""}
+                  onChange={(e) =>
+                    setGroup("smtp", { ...form.smtp, password: e.target.value })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="보내는 주소"
+                  placeholder="muni-noreply@company.co.kr"
+                  value={form.smtp.from}
+                  onChange={(e) =>
+                    setGroup("smtp", { ...form.smtp, from: e.target.value })
+                  }
+                  helperText="비우면 계정 주소를 사용합니다."
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  label="보내는 사람 이름"
+                  placeholder="muni 알림"
+                  value={form.smtp.fromName}
+                  onChange={(e) =>
+                    setGroup("smtp", { ...form.smtp, fromName: e.target.value })
+                  }
+                />
+              </Grid>
+            </Grid>
+            <TextField
+              label="메일에 넣을 서비스 주소"
+              placeholder="https://muni.company.co.kr"
+              value={form.smtp.baseUrl}
+              onChange={(e) =>
+                setGroup("smtp", { ...form.smtp, baseUrl: e.target.value })
+              }
+              helperText="알림 메일의 링크가 향하는 곳입니다. 비우면 링크 없이 보냅니다."
+            />
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.smtp.skipVerify}
+                  onChange={(_, checked) =>
+                    setGroup("smtp", { ...form.smtp, skipVerify: checked })
+                  }
+                />
+              }
+              label="서버 인증서를 검증하지 않음 (사설 인증기관을 쓰는 경우)"
+            />
+            <Alert severity="info">
+              보내는 내용은 muni가 이미 기록하는 알림입니다 — 검토 요청, 승인
+              결과, 멘션. <strong>문서 내용은 담기지 않습니다.</strong> 알림
+              메일이 문서를 실어 나르면, 받는 사람이 메일을 어디로 전달하든
+              그 내용도 함께 갑니다.
+            </Alert>
+            <Button
+              variant="outlined"
+              onClick={() => testSMTP.mutate()}
+              disabled={testSMTP.isPending || !form.smtp.host.trim()}
+            >
+              내 주소로 시험 메일 보내기
+            </Button>
+          </Stack>
+        )}
+        {tab === 7 && (
           <Stack gap={2} maxWidth={760}>
             <Section
               title="보존 정책"

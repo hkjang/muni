@@ -78,6 +78,32 @@ type Ptium struct {
 	TimeoutSeconds int    `json:"timeoutSeconds"`
 }
 
+// SMTP is the organisation's own mail server.
+//
+// muni sends through it and nowhere else: there is no hosted sending service
+// and no outbound connection to anywhere an operator did not configure, which
+// is the only arrangement that works on a closed network.
+type SMTP struct {
+	Enabled  bool   `json:"enabled"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password,omitempty"`
+	// PasswordSet reports whether one is stored, so the form can say so
+	// without ever sending it back.
+	PasswordSet bool `json:"passwordSet"`
+	// Security is "none", "starttls" or "tls".
+	Security string `json:"security"`
+	From     string `json:"from"`
+	FromName string `json:"fromName"`
+	// SkipVerify accepts a certificate that does not verify, for an internal
+	// server on a private certificate authority.
+	SkipVerify bool `json:"skipVerify"`
+	// BaseURL is what a link in an email points at. Without it the mail says
+	// what happened but not where.
+	BaseURL string `json:"baseUrl"`
+}
+
 // Retention is how long muni keeps what it no longer needs.
 //
 // Every value is a number of days, and zero means keep it forever — which is
@@ -132,6 +158,7 @@ type All struct {
 	Export    Export    `json:"export"`
 	Ptium     Ptium     `json:"ptium"`
 	Retention Retention `json:"retention"`
+	SMTP      SMTP      `json:"smtp"`
 }
 
 type Store struct {
@@ -197,6 +224,15 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "security.audit_reads", &out.Security.AuditReads)
 	decode(values, "export.enable_pdf", &out.Export.EnablePDF)
 	decode(values, "export.enable_docx", &out.Export.EnableDOCX)
+	decode(values, "smtp.enabled", &out.SMTP.Enabled)
+	decode(values, "smtp.host", &out.SMTP.Host)
+	decode(values, "smtp.port", &out.SMTP.Port)
+	decode(values, "smtp.username", &out.SMTP.Username)
+	decode(values, "smtp.security", &out.SMTP.Security)
+	decode(values, "smtp.from", &out.SMTP.From)
+	decode(values, "smtp.from_name", &out.SMTP.FromName)
+	decode(values, "smtp.skip_verify", &out.SMTP.SkipVerify)
+	decode(values, "smtp.base_url", &out.SMTP.BaseURL)
 	decode(values, "retention.trash_days", &out.Retention.TrashDays)
 	decode(values, "retention.revision_days", &out.Retention.RevisionDays)
 	decode(values, "retention.revision_keep", &out.Retention.RevisionKeep)
@@ -213,6 +249,7 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	out.OIDC.SecretSet = len(secrets["oidc.client_secret"]) > 0
 	out.AI.APIKeySet = len(secrets["ai.api_key"]) > 0
 	out.Ptium.APIKeySet = len(secrets["ptium.api_key"]) > 0
+	out.SMTP.PasswordSet = len(secrets["smtp.password"]) > 0
 	if includeSecrets {
 		if out.OIDC.SecretSet {
 			plain, err := s.sealer.Open(secrets["oidc.client_secret"], "setting:oidc.client_secret")
@@ -234,6 +271,13 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 				return All{}, err
 			}
 			out.Ptium.APIKey = string(plain)
+		}
+		if out.SMTP.PasswordSet {
+			plain, err := s.sealer.Open(secrets["smtp.password"], "setting:smtp.password")
+			if err != nil {
+				return All{}, err
+			}
+			out.SMTP.Password = string(plain)
 		}
 	}
 	return out, nil
@@ -267,6 +311,10 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"retention.trash_days":  all.Retention.TrashDays, "retention.revision_days": all.Retention.RevisionDays,
 		"retention.revision_keep": all.Retention.RevisionKeep, "retention.audit_days": all.Retention.AuditDays,
 		"retention.ai_audit_days": all.Retention.AIAuditDays,
+		"smtp.enabled":            all.SMTP.Enabled, "smtp.host": all.SMTP.Host, "smtp.port": all.SMTP.Port,
+		"smtp.username": all.SMTP.Username, "smtp.security": all.SMTP.Security,
+		"smtp.from": all.SMTP.From, "smtp.from_name": all.SMTP.FromName,
+		"smtp.skip_verify": all.SMTP.SkipVerify, "smtp.base_url": all.SMTP.BaseURL,
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -285,7 +333,7 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 			return err
 		}
 	}
-	for key, value := range map[string]string{"oidc.client_secret": all.OIDC.ClientSecret, "ai.api_key": all.AI.APIKey, "ptium.api_key": all.Ptium.APIKey} {
+	for key, value := range map[string]string{"oidc.client_secret": all.OIDC.ClientSecret, "ai.api_key": all.AI.APIKey, "ptium.api_key": all.Ptium.APIKey, "smtp.password": all.SMTP.Password} {
 		if value == "" { // Empty input preserves an already configured secret.
 			continue
 		}
@@ -304,6 +352,23 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 }
 
 func Validate(all All) error {
+	if all.SMTP.Enabled {
+		if strings.TrimSpace(all.SMTP.Host) == "" {
+			return errors.New("메일 서버 주소가 필요합니다")
+		}
+		if strings.TrimSpace(all.SMTP.From) == "" && strings.TrimSpace(all.SMTP.Username) == "" {
+			return errors.New("보내는 주소가 필요합니다")
+		}
+		if all.SMTP.Port < 0 || all.SMTP.Port > 65535 {
+			return errors.New("메일 서버 포트가 올바르지 않습니다")
+		}
+		if all.SMTP.BaseURL != "" {
+			base, err := url.Parse(all.SMTP.BaseURL)
+			if err != nil || base.Scheme == "" || base.Host == "" {
+				return errors.New("메일에 넣을 서비스 주소가 올바르지 않습니다")
+			}
+		}
+	}
 	// A policy that would leave a document without history is refused rather
 	// than quietly corrected, so an administrator sees what they asked for.
 	if all.Retention.RevisionKeep != 0 && all.Retention.RevisionKeep < MinRevisionKeep {

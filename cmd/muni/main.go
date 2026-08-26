@@ -62,6 +62,9 @@ func main() {
 	// Applies the retention policy for as long as the process runs. It does
 	// nothing at all until an administrator sets one.
 	api.StartRetention(ctx)
+	// Sends the notifications muni already writes, once a mail server is
+	// configured. Does nothing until then.
+	api.StartNotificationMail(ctx)
 	server := &http.Server{
 		Addr:              ":8080",
 		Handler:           api.Handler(),

@@ -110,6 +110,19 @@ export type Settings = {
     auditReads: boolean;
   };
   export: { enablePdf: boolean; enableDocx: boolean };
+  smtp: {
+    enabled: boolean;
+    host: string;
+    port: number;
+    username: string;
+    password?: string;
+    passwordSet: boolean;
+    security: string;
+    from: string;
+    fromName: string;
+    skipVerify: boolean;
+    baseUrl: string;
+  };
   retention: {
     trashDays: number;
     revisionDays: number;

@@ -72,7 +72,7 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "INVALID_SETTINGS", err.Error())
 		return
 	}
-	s.audit(r, &p.User.ID, "UPDATE_SETTINGS", "SETTINGS", nil, map[string]any{"categories": []string{"general", "oidc", "ai", "workflow", "security", "export", "ptium", "retention"}})
+	s.audit(r, &p.User.ID, "UPDATE_SETTINGS", "SETTINGS", nil, map[string]any{"categories": []string{"general", "oidc", "ai", "workflow", "security", "export", "ptium", "retention", "smtp"}})
 	all, _ := s.settings.GetAll(r.Context(), false)
 	writeData(w, http.StatusOK, all)
 }

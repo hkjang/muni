@@ -121,6 +121,7 @@ func (s *Server) routes() {
 	s.mux.Handle("POST /api/v1/admin/settings/test-oidc", s.requireAdmin(http.HandlerFunc(s.testOIDC)))
 	s.mux.Handle("POST /api/v1/admin/settings/test-ai", s.requireAdmin(http.HandlerFunc(s.testAI)))
 	s.mux.Handle("POST /api/v1/admin/settings/test-ptium", s.requireAdmin(http.HandlerFunc(s.testPtium)))
+	s.mux.Handle("POST /api/v1/admin/settings/test-smtp", s.requireAdmin(http.HandlerFunc(s.testSMTP)))
 	s.mux.Handle("GET /api/v1/admin/users", s.requireAdmin(http.HandlerFunc(s.listUsers)))
 	s.mux.Handle("PATCH /api/v1/admin/users/{id}", s.requireAdmin(http.HandlerFunc(s.updateUser)))
 	s.mux.Handle("GET /api/v1/admin/users/{id}/keys", s.requireAdmin(http.HandlerFunc(s.listAnyUserKeys)))
