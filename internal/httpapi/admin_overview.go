@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hkjang/muni/internal/database"
+	"github.com/jackc/pgx/v5"
 )
 
 // overview is what an operator is asked about: how much is in the system, who
@@ -184,14 +186,23 @@ func (s *Server) recentAdminActivity(ctx context.Context) []map[string]any {
 func (s *Server) adminWorkspaces(w http.ResponseWriter, r *http.Request) {
 	limit := parseLimit(r.URL.Query().Get("limit"), 100)
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	// Archived workspaces have to be reachable or there is no way back from
+	// archiving one.
+	archived := "IS NULL"
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope"))) {
+	case "archived":
+		archived = "IS NOT NULL"
+	case "all":
+		archived = "IS NOT NULL OR w.deleted_at IS NULL"
+	}
 	rows, err := s.db.Query(r.Context(), `
 		SELECT w.id, w.name, w.slug, w.kind, w.owner_id, u.display_name,
 			(SELECT count(*) FROM workspace_members m WHERE m.workspace_id = w.id),
 			(SELECT count(*) FROM documents d WHERE d.workspace_id = w.id AND d.deleted_at IS NULL),
 			(SELECT max(d.updated_at) FROM documents d WHERE d.workspace_id = w.id AND d.deleted_at IS NULL),
-			w.created_at
+			w.created_at, w.deleted_at
 		FROM workspaces w JOIN users u ON u.id = w.owner_id
-		WHERE w.deleted_at IS NULL
+		WHERE (w.deleted_at `+archived+`)
 			AND ($1 = '' OR w.name ILIKE '%'||$1||'%' OR w.slug ILIKE '%'||$1||'%')
 		ORDER BY w.created_at DESC LIMIT $2`, query, limit)
 	if err != nil {
@@ -204,16 +215,158 @@ func (s *Server) adminWorkspaces(w http.ResponseWriter, r *http.Request) {
 		var id, ownerID uuid.UUID
 		var name, slug, kind, owner string
 		var members, documents int64
-		var lastEdit *time.Time
+		var lastEdit, deleted *time.Time
 		var created time.Time
-		if rows.Scan(&id, &name, &slug, &kind, &ownerID, &owner, &members, &documents, &lastEdit, &created) == nil {
+		if rows.Scan(&id, &name, &slug, &kind, &ownerID, &owner, &members, &documents, &lastEdit, &created, &deleted) == nil {
 			items = append(items, map[string]any{
 				"id": id, "name": name, "slug": slug, "kind": kind,
 				"ownerId": ownerID, "ownerName": owner,
 				"members": members, "documents": documents,
-				"lastEditedAt": lastEdit, "createdAt": created,
+				"lastEditedAt": lastEdit, "createdAt": created, "deletedAt": deleted,
 			})
 		}
 	}
 	writeData(w, 200, items)
+}
+
+// adminTransferWorkspace moves a workspace to another owner.
+//
+// A team whose owner has left cannot add anyone or change anything about the
+// workspace, and until now the fix was an UPDATE by hand. A personal
+// workspace is refused: it is one person's own space, not a team's.
+func (s *Server) adminTransferWorkspace(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	var input struct {
+		OwnerID uuid.UUID `json:"ownerId"`
+	}
+	if !decodeJSON(w, r, &input) {
+		return
+	}
+	if input.OwnerID == uuid.Nil {
+		writeError(w, 400, "OWNER_REQUIRED", "새 소유자를 선택해 주세요.")
+		return
+	}
+	p, _ := principalFrom(r.Context())
+
+	var kind string
+	if err := s.db.QueryRow(r.Context(), `SELECT kind FROM workspaces WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&kind); err != nil {
+		writeError(w, 404, "WORKSPACE_NOT_FOUND", "워크스페이스를 찾을 수 없습니다.")
+		return
+	}
+	if kind == "PERSONAL" {
+		writeError(w, 409, "PERSONAL_WORKSPACE", "개인 워크스페이스는 다른 사람에게 넘길 수 없습니다.")
+		return
+	}
+	var status string
+	if err := s.db.QueryRow(r.Context(), `SELECT status FROM users WHERE id=$1`, input.OwnerID).Scan(&status); err != nil {
+		writeError(w, 404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+		return
+	}
+	if status != "ACTIVE" {
+		writeError(w, 409, "OWNER_INACTIVE", "활성 상태인 사용자에게만 넘길 수 있습니다.")
+		return
+	}
+
+	err := database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(r.Context(), `UPDATE workspaces SET owner_id=$2, updated_at=now() WHERE id=$1`, id, input.OwnerID); err != nil {
+			return err
+		}
+		// The owner of a workspace has to be a member of it with the role that
+		// says so, or they own something they cannot administer.
+		_, err := tx.Exec(r.Context(),
+			`INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'OWNER')
+			 ON CONFLICT (workspace_id,user_id) DO UPDATE SET role='OWNER'`, id, input.OwnerID)
+		return err
+	})
+	if err != nil {
+		writeError(w, 500, "TRANSFER_FAILED", "소유권을 넘기지 못했습니다.")
+		return
+	}
+	s.audit(r, &p.User.ID, "TRANSFER_WORKSPACE", "WORKSPACE", &id, map[string]any{"ownerId": input.OwnerID})
+	writeData(w, 200, map[string]any{"id": id, "ownerId": input.OwnerID})
+}
+
+// adminArchiveWorkspace takes a workspace out of use.
+//
+// Its documents go to the trash rather than disappearing, so nothing is lost
+// that the retention policy has not been told to remove, and both the
+// workspace and its documents can be brought back.
+func (s *Server) adminArchiveWorkspace(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	p, _ := principalFrom(r.Context())
+
+	var kind string
+	if err := s.db.QueryRow(r.Context(), `SELECT kind FROM workspaces WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&kind); err != nil {
+		writeError(w, 404, "WORKSPACE_NOT_FOUND", "워크스페이스를 찾을 수 없습니다.")
+		return
+	}
+	if kind == "PERSONAL" {
+		writeError(w, 409, "PERSONAL_WORKSPACE", "개인 워크스페이스는 정리할 수 없습니다. 계정을 정지해 주세요.")
+		return
+	}
+
+	var documents int64
+	err := database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(r.Context(),
+			`UPDATE documents SET deleted_at=now(), updated_at=now()
+			 WHERE workspace_id=$1 AND deleted_at IS NULL AND workflow_status <> 'PENDING'`, id)
+		if err != nil {
+			return err
+		}
+		documents = tag.RowsAffected()
+		// A document waiting for approval is somebody else's decision to make.
+		var pending int
+		if err := tx.QueryRow(r.Context(),
+			`SELECT count(*) FROM documents WHERE workspace_id=$1 AND deleted_at IS NULL`, id).Scan(&pending); err != nil {
+			return err
+		}
+		if pending > 0 {
+			return errPendingDocuments
+		}
+		_, err = tx.Exec(r.Context(), `UPDATE workspaces SET deleted_at=now(), updated_at=now() WHERE id=$1`, id)
+		return err
+	})
+	if err == errPendingDocuments {
+		writeError(w, 409, "WORKSPACE_HAS_PENDING", "승인 대기 중인 문서가 있어 정리할 수 없습니다. 검토를 끝낸 뒤 다시 시도해 주세요.")
+		return
+	}
+	if err != nil {
+		writeError(w, 500, "ARCHIVE_FAILED", "워크스페이스를 정리하지 못했습니다.")
+		return
+	}
+	s.audit(r, &p.User.ID, "ARCHIVE_WORKSPACE", "WORKSPACE", &id, map[string]any{"documents": documents})
+	writeData(w, 200, map[string]any{"id": id, "documents": documents})
+}
+
+var errPendingDocuments = &pendingDocumentsError{}
+
+type pendingDocumentsError struct{}
+
+func (e *pendingDocumentsError) Error() string { return "workspace has documents awaiting approval" }
+
+// adminRestoreWorkspace brings a workspace back.
+//
+// Its documents stay in the trash: which of them should come back is a
+// decision, not something to guess at, and the trash is where that decision
+// gets made.
+func (s *Server) adminRestoreWorkspace(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	p, _ := principalFrom(r.Context())
+	result, err := s.db.Exec(r.Context(),
+		`UPDATE workspaces SET deleted_at=NULL, updated_at=now() WHERE id=$1 AND deleted_at IS NOT NULL`, id)
+	if err != nil || result.RowsAffected() == 0 {
+		writeError(w, 404, "WORKSPACE_NOT_FOUND", "정리된 워크스페이스를 찾을 수 없습니다.")
+		return
+	}
+	s.audit(r, &p.User.ID, "RESTORE_WORKSPACE", "WORKSPACE", &id, nil)
+	writeData(w, 200, map[string]any{"id": id})
 }

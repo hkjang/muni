@@ -33,6 +33,10 @@ type principal struct {
 	User     User
 	APIKeyID *uuid.UUID
 	Scopes   []string
+	// SessionHash identifies the session this request came in on, so an action
+	// that ends every other session can leave this one alone. It is the hash
+	// that is stored, never the token itself.
+	SessionHash []byte
 }
 
 type contextKey int

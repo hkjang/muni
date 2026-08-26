@@ -48,6 +48,8 @@ export function AdminUsersPage() {
   const [q, setQ] = useState("");
   const [keyUser, setKeyUser] = useState<AdminUser | null>(null);
   const [sessionUser, setSessionUser] = useState<AdminUser | null>(null);
+  const [passwordUser, setPasswordUser] = useState<AdminUser | null>(null);
+  const [password, setPassword] = useState("");
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["admin-users", q],
@@ -58,6 +60,17 @@ export function AdminUsersPage() {
     mutationFn: ({ id, patch }: { id: string; patch: Partial<AdminUser> }) =>
       api(`/api/v1/admin/users/${id}`, { method: "PATCH", ...jsonBody(patch) }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+  const resetPassword = useMutation({
+    mutationFn: () =>
+      api<{ sessionsEnded: number }>(
+        `/api/v1/admin/users/${passwordUser?.id}/password`,
+        { method: "POST", ...jsonBody({ password }) },
+      ),
+    onSuccess: () => {
+      setPasswordUser(null);
+      setPassword("");
+    },
   });
   const sessions = useQuery({
     queryKey: ["admin-user-sessions", sessionUser?.id],
@@ -160,6 +173,17 @@ export function AdminUsersPage() {
               </FormControl>
               <Button
                 variant="outlined"
+                startIcon={<LockResetOutlined />}
+                onClick={() => {
+                  setPasswordUser(user);
+                  setPassword("");
+                  resetPassword.reset();
+                }}
+              >
+                비밀번호
+              </Button>
+              <Button
+                variant="outlined"
                 startIcon={<DevicesOutlined />}
                 onClick={() => setSessionUser(user)}
               >
@@ -192,6 +216,49 @@ export function AdminUsersPage() {
           </Card>
         ))}
       </Stack>
+      <Dialog
+        open={Boolean(passwordUser)}
+        onClose={() => setPasswordUser(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>{passwordUser?.displayName} · 비밀번호 초기화</DialogTitle>
+        <DialogContent>
+          {resetPassword.error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {errorMessage(resetPassword.error)}
+            </Alert>
+          )}
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            새 비밀번호를 정해 본인에게 직접 전달하세요. 이 계정의 열린 세션은
+            모두 종료됩니다. SSO로 로그인하는 계정에 비밀번호를 지정하면 로컬
+            로그인도 가능해집니다.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            type="password"
+            label="새 비밀번호"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            helperText="12자 이상"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && password.length >= 12)
+                resetPassword.mutate();
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPasswordUser(null)}>취소</Button>
+          <Button
+            variant="contained"
+            disabled={password.length < 12 || resetPassword.isPending}
+            onClick={() => resetPassword.mutate()}
+          >
+            초기화
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={Boolean(sessionUser)}
         onClose={() => setSessionUser(null)}

@@ -115,7 +115,8 @@ func (s *Server) authenticateSession(ctx context.Context, token string) (princip
 	if err != nil {
 		return principal{}, err
 	}
-	_, _ = s.db.Exec(ctx, `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'`, cryptoutil.SHA256(token))
+	p.SessionHash = cryptoutil.SHA256(token)
+	_, _ = s.db.Exec(ctx, `UPDATE sessions SET last_seen_at=now() WHERE token_hash=$1 AND last_seen_at<now()-interval '5 minutes'`, p.SessionHash)
 	return p, nil
 }
 

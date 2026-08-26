@@ -67,7 +67,22 @@ export function PersonalSettingsPage() {
   const [keyName, setKeyName] = useState("내 API 키");
   const [scopes, setScopes] = useState<string[]>(["mcp:read"]);
   const [revealed, setRevealed] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [nextPassword, setNextPassword] = useState("");
   const client = useQueryClient();
+  // A local account used to keep whatever password it was created with, for
+  // as long as it existed.
+  const changePassword = useMutation({
+    mutationFn: () =>
+      api<{ otherSessionsEnded: number }>("/api/v1/me/password", {
+        method: "POST",
+        ...jsonBody({ currentPassword, newPassword: nextPassword }),
+      }),
+    onSuccess: () => {
+      setCurrentPassword("");
+      setNextPassword("");
+    },
+  });
   const keys = useQuery({
     queryKey: ["personal-keys"],
     queryFn: () => api<PersonalKey[]>("/api/v1/me/keys"),
@@ -152,6 +167,53 @@ export function PersonalSettingsPage() {
                   OIDC 프로필 정보는 Keycloak에서 관리됩니다. 로컬 계정 프로필
                   편집은 관리자에게 요청하세요.
                 </Alert>
+              </Stack>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, md: 7 }}>
+            <Card sx={{ p: 3 }}>
+              <Typography variant="h3" mb={2}>
+                비밀번호 변경
+              </Typography>
+              {changePassword.error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {errorMessage(changePassword.error)}
+                </Alert>
+              )}
+              {changePassword.isSuccess && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  비밀번호를 바꿨습니다. 다른 기기의 로그인{" "}
+                  {changePassword.data?.otherSessionsEnded ?? 0}건을
+                  종료했습니다.
+                </Alert>
+              )}
+              <Stack gap={2}>
+                <TextField
+                  type="password"
+                  label="현재 비밀번호"
+                  value={currentPassword}
+                  onChange={(event) => setCurrentPassword(event.target.value)}
+                />
+                <TextField
+                  type="password"
+                  label="새 비밀번호"
+                  value={nextPassword}
+                  onChange={(event) => setNextPassword(event.target.value)}
+                  helperText="12자 이상. 바꾸면 이 기기를 제외한 다른 로그인은 모두 종료됩니다."
+                />
+                <Box>
+                  <Button
+                    variant="contained"
+                    disabled={
+                      !currentPassword ||
+                      nextPassword.length < 12 ||
+                      changePassword.isPending
+                    }
+                    onClick={() => changePassword.mutate()}
+                  >
+                    비밀번호 바꾸기
+                  </Button>
+                </Box>
               </Stack>
             </Card>
           </Grid>
