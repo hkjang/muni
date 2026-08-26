@@ -637,7 +637,7 @@ func (s *Server) searchDocuments(w http.ResponseWriter, r *http.Request) {
 // everywhere it is used, so the AI agent cannot reach documents the person
 // asking would not be shown.
 func (s *Server) searchVisibleDocuments(ctx context.Context, user User, query string, limit int) ([]map[string]any, error) {
-	rows, err := s.db.Query(ctx, `SELECT d.id,d.workspace_id,d.title,d.status,d.updated_at,u.display_name,ts_headline('simple',d.content_text,websearch_to_tsquery('simple',$1),'MaxWords=24,MinWords=8') FROM documents d JOIN users u ON u.id=d.owner_id WHERE d.deleted_at IS NULL
+	rows, err := s.db.Query(ctx, `SELECT d.id,d.workspace_id,d.title,d.status,d.updated_at,u.display_name,snippet_around(d.content_text,$1) FROM documents d JOIN users u ON u.id=d.owner_id WHERE d.deleted_at IS NULL
 	AND (to_tsvector('simple',coalesce(d.title,'')||' '||coalesce(d.content_text,''))@@websearch_to_tsquery('simple',$1)
 		OR d.title ILIKE '%'||$1||'%' OR d.content_text ILIKE '%'||$1||'%' OR u.display_name ILIKE '%'||$1||'%'
 		OR EXISTS(SELECT 1 FROM comments c WHERE c.document_id=d.id AND c.deleted_at IS NULL AND c.body ILIKE '%'||$1||'%')
