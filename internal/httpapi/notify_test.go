@@ -74,3 +74,25 @@ func TestNotificationBodyCarriesNoDocumentContent(t *testing.T) {
 		t.Fatalf("the mail is longer than the notification it carries: %q", body)
 	}
 }
+
+func TestHumanBytesReadsLikeAnOperatorWouldSayIt(t *testing.T) {
+	cases := map[int64]string{
+		0:       "0 B",
+		900:     "900 B",
+		1536:    "1.5 KB",
+		5 << 20: "5.0 MB",
+		3 << 30: "3.0 GB",
+		2 << 40: "2.0 TB",
+	}
+	for input, want := range cases {
+		if got := humanBytes(input); got != want {
+			t.Fatalf("humanBytes(%d) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestHumanBytesHandlesNonsense(t *testing.T) {
+	if got := humanBytes(-1); got != "0 B" {
+		t.Fatalf("a negative size is not a size: %q", got)
+	}
+}

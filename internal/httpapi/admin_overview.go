@@ -2,12 +2,14 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/database"
+	"github.com/hkjang/muni/internal/settings"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -154,6 +156,8 @@ func (s *Server) systemChecks(ctx context.Context) []check {
 		}
 	}
 	checks = append(checks, check{Key: "pdf", Label: "PDF 내보내기", State: pdfState, Detail: pdfDetail, Setting: "/admin/settings"})
+
+	checks = append(checks, s.storageCheck(ctx, all.Retention))
 
 	return checks
 }
@@ -369,4 +373,50 @@ func (s *Server) adminRestoreWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, &p.User.ID, "RESTORE_WORKSPACE", "WORKSPACE", &id, nil)
 	writeData(w, 200, map[string]any{"id": id})
+}
+
+// attachmentWarningBytes is where attachments start to matter to an operator.
+//
+// They live in the database, which keeps the installation to one thing to back
+// up and means the backup carries them. A few gigabytes is where pg_dump stops
+// being quick and somebody should have decided whether that is fine.
+const attachmentWarningBytes = 5 << 30
+
+// storageCheck reports how much the database is carrying, and says something
+// useful when it is a lot.
+func (s *Server) storageCheck(ctx context.Context, retention settings.Retention) check {
+	var attachments, total int64
+	_ = s.db.QueryRow(ctx, `SELECT coalesce(sum(size_bytes),0) FROM attachments`).Scan(&attachments)
+	_ = s.db.QueryRow(ctx, `SELECT pg_database_size(current_database())`).Scan(&total)
+
+	detail := "데이터베이스 " + humanBytes(total) + " · 첨부 " + humanBytes(attachments)
+	if attachments < attachmentWarningBytes {
+		return check{Key: "storage", Label: "저장 용량", State: "ok", Detail: detail}
+	}
+	// The advice differs depending on whether anything is being cleaned up at
+	// all, because "turn on a retention policy" is only useful advice once.
+	if retention.Normalize().TrashDays == 0 {
+		detail += " · 보존 정책이 꺼져 있어 계속 늘어납니다"
+	} else {
+		detail += " · 백업 시간과 크기를 확인해 보세요"
+	}
+	return check{Key: "storage", Label: "저장 용량", State: "warn", Detail: detail, Setting: "/admin/settings"}
+}
+
+// humanBytes reads a size the way an operator would say it out loud.
+func humanBytes(value int64) string {
+	if value <= 0 {
+		return "0 B"
+	}
+	units := []string{"B", "KB", "MB", "GB", "TB"}
+	size := float64(value)
+	unit := 0
+	for size >= 1024 && unit < len(units)-1 {
+		size /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%d %s", int64(size), units[unit])
+	}
+	return fmt.Sprintf("%.1f %s", size, units[unit])
 }

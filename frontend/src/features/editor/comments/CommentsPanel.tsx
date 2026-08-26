@@ -8,7 +8,6 @@ import {
   Divider,
   Paper,
   Stack,
-  TextField,
   Typography,
 } from "@mui/material";
 import { Check, ReplyOutlined, UndoOutlined } from "@mui/icons-material";
@@ -16,6 +15,7 @@ import { api, formatDate, jsonBody } from "../../../lib/api";
 import type { CommentItem, DocumentItem } from "../../../types";
 import { blockIdAt, locateAnchor, readAnchor } from "./anchor";
 import { buildThreads, isResolved, sortThreads } from "./threads";
+import { MentionInput } from "./MentionInput";
 
 export function CommentsPanel({
   document,
@@ -102,12 +102,10 @@ export function CommentsPanel({
       {canComment && (
         <>
           <Typography variant="h3">선택 영역에 댓글</Typography>
-          <TextField
-            multiline
-            minRows={2}
+          <MentionInput
             value={body}
-            onChange={(event) => setBody(event.target.value)}
-            placeholder="본문에서 문장을 선택한 뒤 남기면 그 위치에 붙습니다."
+            onChange={setBody}
+            placeholder="본문에서 문장을 선택한 뒤 남기면 그 위치에 붙습니다. @로 사람을 부를 수 있습니다."
           />
           <Button
             variant="contained"
@@ -203,17 +201,12 @@ export function CommentsPanel({
 
             {replyTo === thread.root.id && (
               <Stack gap={1} mt={1}>
-                <TextField
+                <MentionInput
                   autoFocus
-                  multiline
-                  minRows={2}
-                  size="small"
                   value={reply}
-                  onChange={(event) => setReply(event.target.value)}
+                  onChange={setReply}
                   placeholder="답글"
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") setReplyTo(null);
-                  }}
+                  onEscape={() => setReplyTo(null)}
                 />
                 <Stack direction="row" gap={1}>
                   <Button
