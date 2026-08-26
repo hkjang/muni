@@ -107,6 +107,7 @@ export function TableTools({
           <Tooltip title="셀 병합">
             <span>
               <IconButton
+                aria-label="셀 병합"
                 size="small"
                 disabled={!editor.can().mergeCells()}
                 onClick={() => editor.chain().focus().mergeCells().run()}
@@ -118,6 +119,7 @@ export function TableTools({
           <Tooltip title="셀 분할">
             <span>
               <IconButton
+                aria-label="셀 분할"
                 size="small"
                 disabled={!editor.can().splitCell()}
                 onClick={() => editor.chain().focus().splitCell().run()}

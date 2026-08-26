@@ -206,6 +206,7 @@ export function AgentPanel({
           <Tooltip title="지금까지의 대화를 지우고 새로 시작합니다">
             <span>
               <IconButton
+                aria-label="지금까지의 대화를 지우고 새로 시작합니다"
                 size="small"
                 disabled={stream.running}
                 onClick={() => {

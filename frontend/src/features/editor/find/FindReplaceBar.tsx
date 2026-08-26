@@ -179,14 +179,16 @@ export function FindReplaceBar({
           </Typography>
           <Tooltip title="이전 (Shift+Enter)">
             <span>
-              <IconButton size="small" disabled={total === 0} onClick={() => move(-1)}>
+              <IconButton
+  aria-label="이전 (Shift+Enter)" size="small" disabled={total === 0} onClick={() => move(-1)}>
                 <KeyboardArrowUp fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip title="다음 (Enter)">
             <span>
-              <IconButton size="small" disabled={total === 0} onClick={() => move(1)}>
+              <IconButton
+  aria-label="다음 (Enter)" size="small" disabled={total === 0} onClick={() => move(1)}>
                 <KeyboardArrowDown fontSize="small" />
               </IconButton>
             </span>

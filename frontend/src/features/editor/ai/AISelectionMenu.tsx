@@ -196,6 +196,7 @@ export function AISelectionMenu({
             />
             <IconButton
               size="small"
+              aria-label="지시 보내기"
               disabled={!custom.trim()}
               onClick={() => void start(custom.trim(), "직접 지시")}
             >

@@ -167,14 +167,23 @@ export function ApprovalLineDialog({
                         setFinalAt(finalAt === index + 1 ? 0 : index + 1)
                       }
                     />
-                    <IconButton size="small" onClick={() => move(index, -1)}>
+                    <IconButton
+                      size="small"
+                      aria-label="결재선에서 위로 옮기기"
+                      onClick={() => move(index, -1)}
+                    >
                       <ArrowUpwardOutlined fontSize="small" />
                     </IconButton>
-                    <IconButton size="small" onClick={() => move(index, 1)}>
+                    <IconButton
+                      size="small"
+                      aria-label="결재선에서 아래로 옮기기"
+                      onClick={() => move(index, 1)}
+                    >
                       <ArrowDownwardOutlined fontSize="small" />
                     </IconButton>
                     <IconButton
                       size="small"
+                      aria-label="결재선에서 빼기"
                       onClick={() => {
                         setLine(line.filter((_, at) => at !== index));
                         setFinalAt(0);

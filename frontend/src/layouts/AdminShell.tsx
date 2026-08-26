@@ -136,6 +136,7 @@ export function AdminShell() {
           <IconButton
             onClick={() => setOpen(true)}
             sx={{ display: { md: "none" } }}
+            aria-label="관리 메뉴 열기"
           >
             <MenuIcon />
           </IconButton>

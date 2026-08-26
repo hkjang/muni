@@ -136,6 +136,7 @@ export function EditorToolbar({
       <Tooltip title="실행 취소">
         <span>
           <IconButton
+            aria-label="실행 취소"
             disabled={!editor.can().undo()}
             onClick={() => editor.chain().focus().undo().run()}
           >
@@ -146,6 +147,7 @@ export function EditorToolbar({
       <Tooltip title="다시 실행">
         <span>
           <IconButton
+            aria-label="다시 실행"
             disabled={!editor.can().redo()}
             onClick={() => editor.chain().focus().redo().run()}
           >

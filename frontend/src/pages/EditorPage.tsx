@@ -587,11 +587,15 @@ export function EditorPage() {
           <IconButton
             onClick={() => setSideOpen((value) => !value)}
             sx={{ display: { lg: "none" } }}
+            aria-label="사이드 패널 열기"
           >
             <AutoAwesome />
           </IconButton>
           <NotificationBell />
-          <IconButton onClick={(event) => setMenuAnchor(event.currentTarget)}>
+          <IconButton
+            aria-label="내 계정 메뉴"
+            onClick={(event) => setMenuAnchor(event.currentTarget)}
+          >
             <Avatar
               src={user?.avatarUrl}
               sx={{
