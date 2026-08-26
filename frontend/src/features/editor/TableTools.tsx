@@ -1,6 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { Divider, IconButton, Paper, Stack, Tooltip } from "@mui/material";
+import { Box, Divider, IconButton, Paper, Stack, Tooltip } from "@mui/material";
 import {
   DeleteOutline,
   TableRowsOutlined,
@@ -9,6 +9,7 @@ import {
   CallMerge,
   CallSplit,
 } from "@mui/icons-material";
+import { cellShades, normalizeShade } from "./extensions/cellBackground";
 
 /**
  * TableTools appears while the caret is inside a table.
@@ -125,6 +126,51 @@ export function TableTools({
               </IconButton>
             </span>
           </Tooltip>
+          <Divider flexItem orientation="vertical" sx={{ mx: 0.4, my: 0.5 }} />
+          {cellShades.map((shade) => {
+            const current = normalizeShade(
+              editor.getAttributes("tableCell").backgroundColor ??
+                editor.getAttributes("tableHeader").backgroundColor,
+            );
+            const selected = current === shade.value;
+            return (
+              <Tooltip key={shade.label} title={`셀 배경 ${shade.label}`}>
+                <Box
+                  component="button"
+                  type="button"
+                  aria-label={`셀 배경 ${shade.label}`}
+                  onClick={() =>
+                    editor
+                      .chain()
+                      .focus()
+                      .updateAttributes("tableCell", {
+                        backgroundColor: shade.value || null,
+                      })
+                      .updateAttributes("tableHeader", {
+                        backgroundColor: shade.value || null,
+                      })
+                      .run()
+                  }
+                  sx={{
+                    width: 20,
+                    height: 20,
+                    p: 0,
+                    mx: 0.15,
+                    borderRadius: "50%",
+                    cursor: "pointer",
+                    bgcolor: shade.value || "#fff",
+                    border: "1px solid",
+                    borderColor: selected ? "primary.main" : "divider",
+                    boxShadow: selected ? "0 0 0 2px rgba(81,81,198,.25)" : "none",
+                    // The "없음" swatch reads as a crossed-out circle.
+                    backgroundImage: shade.value
+                      ? "none"
+                      : "linear-gradient(45deg,transparent 45%,#c9ccd8 45%,#c9ccd8 55%,transparent 55%)",
+                  }}
+                />
+              </Tooltip>
+            );
+          })}
           <Divider flexItem orientation="vertical" sx={{ mx: 0.4, my: 0.5 }} />
           <Tooltip title="표 삭제">
             <IconButton

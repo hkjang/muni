@@ -27,7 +27,9 @@ import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
 import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { LineHeight } from "../features/editor/extensions/lineHeight";
+import { CellBackground } from "../features/editor/extensions/cellBackground";
 import { PageBreak } from "../features/editor/extensions/pageBreak";
+import { PasteBehaviour } from "../features/editor/extensions/pasteBehaviour";
 import { TableOfContentsNode } from "../features/editor/extensions/tableOfContents";
 import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
@@ -151,8 +153,10 @@ export function EditorPage() {
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TextStyleKit,
       BlockId,
+      CellBackground,
       LineHeight,
       PageBreak,
+      PasteBehaviour,
       ParagraphIndent,
       TableOfContentsNode,
       SearchHighlight,

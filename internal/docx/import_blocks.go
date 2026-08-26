@@ -391,6 +391,11 @@ func (imp *importer) table(node *xnode) *richdoc.Node {
 			cell := &richdoc.Node{Type: cellType}
 			cell.SetAttr("colspan", span)
 			cell.SetAttr("rowspan", 1)
+			// muni can hold a cell shade now, so an imported one is kept
+			// rather than only used as a hint about which row is the header.
+			if shade := cellShade(properties); shade != "" && cellType != "tableHeader" {
+				cell.SetAttr("backgroundColor", shade)
+			}
 			if columnWidths := widthsFor(widths, column, span); len(columnWidths) > 0 {
 				cell.SetAttr("colwidth", columnWidths)
 			}
@@ -510,4 +515,26 @@ func splitPageBreak(inline []*richdoc.Node) ([]*richdoc.Node, bool) {
 		out = append(out, node)
 	}
 	return out, found
+}
+
+// cellShade reads a cell's fill colour, if it has one worth keeping. White and
+// automatic are the absence of a shade, not a shade.
+func cellShade(properties *xnode) string {
+	if properties == nil {
+		return ""
+	}
+	shading := properties.child("w", "shd")
+	if shading == nil {
+		return ""
+	}
+	fill := strings.ToUpper(strings.TrimSpace(shading.attr("w:fill")))
+	if fill == "" || fill == "AUTO" || fill == "FFFFFF" || len(fill) != 6 {
+		return ""
+	}
+	for _, r := range fill {
+		if !((r >= '0' && r <= '9') || (r >= 'A' && r <= 'F')) {
+			return ""
+		}
+	}
+	return "#" + strings.ToLower(fill)
 }

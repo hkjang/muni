@@ -99,3 +99,63 @@ func TestPageBreakSurvivesTheRoundTrip(t *testing.T) {
 		t.Fatalf("the page break did not come back: %v", types)
 	}
 }
+
+func TestCellShadeIsWrittenOnce(t *testing.T) {
+	// CT_TcPr allows one w:shd; a shaded header cell used to emit two, which
+	// Word rejects outright.
+	cell := &richdoc.Node{Type: "tableHeader", Content: []*richdoc.Node{
+		richdoc.Paragraph(richdoc.Text("항목")),
+	}}
+	cell.SetAttr("backgroundColor", "#e8f0fe")
+	row := &richdoc.Node{Type: "tableRow", Content: []*richdoc.Node{cell}}
+	table := &richdoc.Node{Type: "table", Content: []*richdoc.Node{row}}
+
+	b := &builder{}
+	b.block(table, blockContext{})
+	body := b.body.String()
+	if strings.Count(body, "<w:shd") != 1 {
+		t.Fatalf("expected exactly one shading element: %s", body)
+	}
+	if !strings.Contains(body, `w:fill="E8F0FE"`) {
+		t.Fatalf("the author's shade should win over the header default: %s", body)
+	}
+}
+
+func TestCellShadeSurvivesTheRoundTrip(t *testing.T) {
+	cell := &richdoc.Node{Type: "tableCell", Content: []*richdoc.Node{
+		richdoc.Paragraph(richdoc.Text("합계")),
+	}}
+	cell.SetAttr("backgroundColor", "#fef7e0")
+	doc := &richdoc.Node{Type: "doc", Content: []*richdoc.Node{
+		{Type: "table", Content: []*richdoc.Node{
+			{Type: "tableRow", Content: []*richdoc.Node{cell}},
+		}},
+	}}
+	data, err := Build(doc, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	imported, _, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := ""
+	var walk func(*richdoc.Node)
+	walk = func(node *richdoc.Node) {
+		if node == nil {
+			return
+		}
+		if node.Type == "tableCell" {
+			if shade := node.AttrString("backgroundColor"); shade != "" {
+				found = shade
+			}
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(imported)
+	if found != "#fef7e0" {
+		t.Fatalf("the shade did not come back: %q", found)
+	}
+}

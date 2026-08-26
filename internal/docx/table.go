@@ -233,13 +233,19 @@ func (b *builder) tableCell(cell placedCell, widths []int, ctx blockContext) {
 	case "continue":
 		properties.WriteString(`<w:vMerge/>`)
 	}
+	// CT_TcPr allows one w:shd. A cell the author shaded has to win over the
+	// header default rather than add a second element, which Word rejects.
+	shade := ""
 	if cell.isHeader {
-		properties.WriteString(`<w:shd w:val="clear" w:color="auto" w:fill="F3F4FA"/>`)
+		shade = "F3F4FA"
 	}
 	if cell.node != nil {
 		if background := hexColor(cell.node.AttrString("backgroundColor")); background != "" {
-			properties.WriteString(`<w:shd w:val="clear" w:color="auto"` + attr("w:fill", background) + `/>`)
+			shade = background
 		}
+	}
+	if shade != "" {
+		properties.WriteString(`<w:shd w:val="clear" w:color="auto"` + attr("w:fill", shade) + `/>`)
 	}
 	properties.WriteString(`<w:vAlign w:val="center"/>`)
 

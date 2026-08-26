@@ -246,6 +246,21 @@ func lineHeightValue(node *richdoc.Node) string {
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
+// cellShade accepts only a plain hex colour, so nothing an author or an
+// imported file supplied can reach the stylesheet as something else.
+func cellShade(node *richdoc.Node) string {
+	value := strings.ToLower(strings.TrimSpace(node.AttrString("backgroundColor")))
+	if len(value) != 7 || value[0] != '#' {
+		return ""
+	}
+	for _, r := range value[1:] {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return ""
+		}
+	}
+	return value
+}
+
 func cellAttributes(node *richdoc.Node) string {
 	var out strings.Builder
 	if colspan := node.AttrInt("colspan", 1); colspan > 1 {
@@ -254,6 +269,8 @@ func cellAttributes(node *richdoc.Node) string {
 	if rowspan := node.AttrInt("rowspan", 1); rowspan > 1 {
 		out.WriteString(` rowspan="` + strconv.Itoa(rowspan) + `"`)
 	}
+	// One style attribute has to carry both, so the rules are collected first.
+	rules := make([]string, 0, 2)
 	if widths, ok := node.Attr("colwidth").([]any); ok && len(widths) > 0 {
 		total := 0
 		for _, value := range widths {
@@ -262,8 +279,14 @@ func cellAttributes(node *richdoc.Node) string {
 			}
 		}
 		if total > 0 {
-			out.WriteString(` style="width:` + strconv.Itoa(total) + `px"`)
+			rules = append(rules, "width:"+strconv.Itoa(total)+"px")
 		}
+	}
+	if shade := cellShade(node); shade != "" {
+		rules = append(rules, "background-color:"+shade)
+	}
+	if len(rules) > 0 {
+		out.WriteString(` style="` + strings.Join(rules, ";") + `"`)
 	}
 	return out.String()
 }
