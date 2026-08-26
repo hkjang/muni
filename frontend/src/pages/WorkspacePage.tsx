@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Add,
   CreateNewFolderOutlined,
+  MoreVert,
   FolderOpenOutlined,
   FolderOutlined,
   PeopleOutline,
@@ -20,6 +21,8 @@ import {
   Divider,
   FormControl,
   Grid,
+  IconButton,
+  Menu,
   InputLabel,
   List,
   ListItemButton,
@@ -36,6 +39,7 @@ import {
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, errorMessage, jsonBody } from "../lib/api";
 import type { DocumentItem, Folder, Workspace } from "../types";
+import { folderPaths } from "../features/editor/folderTree";
 import { DocumentCard } from "../components/DocumentCard";
 import { EmptyState } from "../components/EmptyState";
 import { NewDocumentDialog } from "../components/NewDocumentDialog";
@@ -62,6 +66,14 @@ export function WorkspacePage() {
   const [dialog, setDialog] = useState(false);
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
+  // Folders could be created and listed and nothing else, so one named by
+  // mistake stayed that way.
+  const [folderMenu, setFolderMenu] = useState<{
+    anchor: HTMLElement;
+    folder: Folder;
+  } | null>(null);
+  const [renaming, setRenaming] = useState<Folder | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [membersOpen, setMembersOpen] = useState(false);
   const [userQuery, setUserQuery] = useState("");
   const [selectedUser, setSelectedUser] = useState<UserSearch | null>(null);
@@ -84,6 +96,27 @@ export function WorkspacePage() {
     queryKey: ["folders", workspaceId],
     queryFn: () => api<Folder[]>(`/api/v1/workspaces/${workspaceId}/folders`),
     enabled: Boolean(workspaceId),
+  });
+  const renameFolder = useMutation({
+    mutationFn: () =>
+      api(`/api/v1/folders/${renaming?.id}`, {
+        method: "PATCH",
+        ...jsonBody({ name: renameValue }),
+      }),
+    onSuccess: () => {
+      setRenaming(null);
+      void client.invalidateQueries({ queryKey: ["folders", workspaceId] });
+    },
+  });
+  const removeFolder = useMutation({
+    mutationFn: (id: string) =>
+      api<{ documentsMoved: number }>(`/api/v1/folders/${id}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["folders", workspaceId] });
+      void client.invalidateQueries({ queryKey: ["documents", workspaceId] });
+    },
   });
   const createFolder = useMutation({
     mutationFn: () =>
@@ -184,6 +217,67 @@ export function WorkspacePage() {
           </Stack>
         )}
       </Stack>
+      <Menu
+        anchorEl={folderMenu?.anchor ?? null}
+        open={Boolean(folderMenu)}
+        onClose={() => setFolderMenu(null)}
+      >
+        <MenuItem
+          onClick={() => {
+            setRenaming(folderMenu!.folder);
+            setRenameValue(folderMenu!.folder.name);
+            setFolderMenu(null);
+          }}
+        >
+          이름 바꾸기
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            const folder = folderMenu!.folder;
+            setFolderMenu(null);
+            if (
+              window.confirm(
+                `${folder.name} 폴더를 지웁니다. 안에 있던 문서와 하위 폴더는 지워지지 않고 상위로 올라갑니다.`,
+              )
+            )
+              removeFolder.mutate(folder.id);
+          }}
+        >
+          폴더 삭제
+        </MenuItem>
+      </Menu>
+      <Dialog
+        open={Boolean(renaming)}
+        onClose={() => setRenaming(null)}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>폴더 이름 바꾸기</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            fullWidth
+            value={renameValue}
+            inputProps={{ maxLength: 120 }}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && renameValue.trim())
+                renameFolder.mutate();
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRenaming(null)}>취소</Button>
+          <Button
+            variant="contained"
+            disabled={!renameValue.trim() || renameFolder.isPending}
+            onClick={() => renameFolder.mutate()}
+          >
+            저장
+          </Button>
+        </DialogActions>
+      </Dialog>
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 3 }}>
           <Card sx={{ p: 1.25 }}>
@@ -200,22 +294,37 @@ export function WorkspacePage() {
                 </ListItemIcon>
                 <ListItemText primary="모든 문서" />
               </ListItemButton>
-              {folders.map((folder) => (
-                <ListItemButton
-                  key={folder.id}
-                  selected={folderId === folder.id}
-                  onClick={() => selectFolder(folder.id)}
-                  sx={{ pl: folder.parentId ? 4 : 2 }}
-                >
-                  <ListItemIcon>
-                    <FolderOutlined />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={folder.name}
-                    primaryTypographyProps={{ noWrap: true }}
-                  />
-                </ListItemButton>
-              ))}
+              {folderPaths(folders).map((entry) => {
+                const folder = folders.find((item) => item.id === entry.id)!;
+                return (
+                  <ListItemButton
+                    key={folder.id}
+                    selected={folderId === folder.id}
+                    onClick={() => selectFolder(folder.id)}
+                    sx={{ pl: 2 + entry.depth * 2 }}
+                  >
+                    <ListItemIcon>
+                      <FolderOutlined />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={folder.name}
+                      primaryTypographyProps={{ noWrap: true }}
+                    />
+                    {workspace?.role !== "VIEWER" && (
+                      <IconButton
+                        size="small"
+                        aria-label={`${folder.name} 폴더 메뉴`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setFolderMenu({ anchor: event.currentTarget, folder });
+                        }}
+                      >
+                        <MoreVert fontSize="small" />
+                      </IconButton>
+                    )}
+                  </ListItemButton>
+                );
+              })}
             </List>
           </Card>
         </Grid>

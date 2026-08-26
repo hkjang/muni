@@ -21,6 +21,7 @@ import { ImageMenu } from "../features/editor/ImageMenu";
 import { NotificationBell } from "../features/notifications/NotificationBell";
 import { DocumentTags } from "../features/editor/DocumentTags";
 import { ApprovalLineDialog } from "../features/editor/ApprovalLineDialog";
+import { MoveDocumentDialog } from "../features/editor/MoveDocumentDialog";
 import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
@@ -48,6 +49,7 @@ import {
   DashboardCustomizeOutlined,
   DownloadOutlined,
   DeleteOutline,
+  DriveFileMoveOutlined,
   PeopleOutline,
 } from "@mui/icons-material";
 import {
@@ -116,6 +118,7 @@ export function EditorPage() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [templateName, setTemplateName] = useState<string | null>(null);
   const [approvalOpen, setApprovalOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const [zoom, setZoom] = useState(() => readZoom());
   const revisionRef = useRef(0);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -780,6 +783,11 @@ export function EditorPage() {
           </Button>
         </DialogActions>
       </Dialog>
+      <MoveDocumentDialog
+        open={moveOpen}
+        onClose={() => setMoveOpen(false)}
+        document={document}
+      />
       <ApprovalLineDialog
         open={approvalOpen}
         onClose={() => setApprovalOpen(false)}
@@ -824,6 +832,17 @@ export function EditorPage() {
           </MenuItem>,
           <Divider key="deck-divider" />,
         ]}
+        <MenuItem
+          onClick={() => {
+            setExportAnchor(null);
+            setMoveOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <DriveFileMoveOutlined />
+          </ListItemIcon>
+          다른 폴더로 옮기기
+        </MenuItem>,
         <MenuItem
           onClick={() => {
             setExportAnchor(null);
