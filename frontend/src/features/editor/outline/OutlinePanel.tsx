@@ -1,8 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { Box, IconButton, Stack, Tooltip, Typography } from "@mui/material";
-import { ChevronLeft, ListAltOutlined } from "@mui/icons-material";
+import {
+  Box,
+  IconButton,
+  Menu,
+  MenuItem,
+  Stack,
+  Tooltip,
+  Typography,
+} from "@mui/material";
+import {
+  ChevronLeft,
+  FormatListNumberedOutlined,
+  ListAltOutlined,
+} from "@mui/icons-material";
 import { buildOutline, currentOutlineIndex, type RawHeading } from "./outline";
+import {
+  headingNumbers,
+  numberingSchemes,
+  type NumberingScheme,
+} from "./numbering";
 
 /**
  * OutlinePanel lists the document's headings beside the page.
@@ -14,11 +31,16 @@ import { buildOutline, currentOutlineIndex, type RawHeading } from "./outline";
 export function OutlinePanel({
   editor,
   onClose,
+  numbering,
+  onNumberingChange,
 }: {
   editor: Editor;
   onClose: () => void;
+  numbering: NumberingScheme;
+  onNumberingChange?: (scheme: NumberingScheme) => void;
 }) {
   const [version, setVersion] = useState(0);
+  const [schemeAnchor, setSchemeAnchor] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     // Headings change with the document and the current section changes with
@@ -48,6 +70,12 @@ export function OutlinePanel({
   }, [editor, version]);
 
   const active = currentOutlineIndex(outline, editor.state.selection.from);
+  // The panel shows the same numbers the page does, so the outline reads like
+  // the document rather than like a separate list.
+  const labels = useMemo(
+    () => headingNumbers(outline.map((item) => item.depth), numbering),
+    [numbering, outline],
+  );
 
   const goTo = useCallback(
     (pos: number) => {
@@ -87,6 +115,20 @@ export function OutlinePanel({
         <Typography variant="caption" sx={{ fontWeight: 700, flex: 1 }}>
           문서 개요
         </Typography>
+        {onNumberingChange && (
+          <Tooltip title="제목 번호 매기기">
+            <IconButton
+              size="small"
+              aria-label="제목 번호 매기기"
+              onClick={(event) => setSchemeAnchor(event.currentTarget)}
+            >
+              <FormatListNumberedOutlined
+                fontSize="small"
+                color={numbering === "none" ? "disabled" : "primary"}
+              />
+            </IconButton>
+          </Tooltip>
+        )}
         <Tooltip title="개요 닫기">
           <IconButton size="small" onClick={onClose} aria-label="개요 닫기">
             <ChevronLeft fontSize="small" />
@@ -138,11 +180,30 @@ export function OutlinePanel({
                 "&:hover": { bgcolor: "action.hover" },
               }}
             >
+              {labels[index] ? `${labels[index]} ` : ""}
               {item.text}
             </Box>
           ))
         )}
       </Box>
+      <Menu
+        anchorEl={schemeAnchor}
+        open={Boolean(schemeAnchor)}
+        onClose={() => setSchemeAnchor(null)}
+      >
+        {numberingSchemes.map((scheme) => (
+          <MenuItem
+            key={scheme.value}
+            selected={scheme.value === numbering}
+            onClick={() => {
+              onNumberingChange?.(scheme.value);
+              setSchemeAnchor(null);
+            }}
+          >
+            {scheme.label}
+          </MenuItem>
+        ))}
+      </Menu>
     </Box>
   );
 }

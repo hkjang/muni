@@ -60,6 +60,8 @@ export type DocumentItem = {
   revision: number;
   /** Counts up when the shared editing state is replaced, such as by a restore. */
   crdtGeneration: number;
+  /** "none", "decimal" or "korean"; the numbers themselves are never stored. */
+  headingNumbering: string;
   favorite: boolean;
   permission: "OWNER" | "EDITOR" | "COMMENTER" | "VIEWER";
   createdAt: string;

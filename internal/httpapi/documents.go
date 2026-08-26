@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/database"
+	"github.com/hkjang/muni/internal/richdoc"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -27,6 +28,10 @@ type documentItem struct {
 	WorkflowStatus string          `json:"workflowStatus"`
 	Content        json.RawMessage `json:"content"`
 	Revision       int             `json:"revision"`
+	// HeadingNumbering is "none", "decimal" or "korean". The numbers
+	// themselves are never stored: a stored number would be wrong the moment
+	// a section moved.
+	HeadingNumbering string `json:"headingNumbering"`
 	// CRDTGeneration changes when the shared editing state is replaced
 	// wholesale — a restore, say. The editor keys its offline copy on it so a
 	// stale local state cannot be pushed back over the restored content.
@@ -39,12 +44,12 @@ type documentItem struct {
 }
 
 func documentSelect() string {
-	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,
+	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,d.heading_numbering,
 	EXISTS(SELECT 1 FROM favorites f WHERE f.document_id=d.id AND f.user_id=$2),d.created_at,d.updated_at,d.deleted_at FROM documents d JOIN users u ON u.id=d.owner_id`
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
+	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
 }
 
 func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +246,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		ExpectedRevision int             `json:"expectedRevision"`
 		Status           *string         `json:"status"`
 		Visibility       *string         `json:"visibility"`
+		HeadingNumbering *string         `json:"headingNumbering"`
 		Reason           string          `json:"reason"`
 	}
 	if !decodeJSON(w, r, &input) {
@@ -271,14 +277,22 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "PUBLIC_LINK_DISABLED", "관리자 정책에서 링크 공유가 비활성화되어 있습니다.")
 		return
 	}
+	if input.HeadingNumbering != nil {
+		scheme := richdoc.ValidNumbering(*input.HeadingNumbering)
+		if scheme != strings.TrimSpace(*input.HeadingNumbering) {
+			writeError(w, 400, "INVALID_NUMBERING", "제목 번호 방식이 올바르지 않습니다.")
+			return
+		}
+		input.HeadingNumbering = &scheme
+	}
 	if input.Reason == "" {
 		input.Reason = "autosave"
 	}
 	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
-		var currentTitle, currentStatus, currentVisibility, currentWorkflow string
+		var currentTitle, currentStatus, currentVisibility, currentWorkflow, currentNumbering string
 		var currentContent json.RawMessage
 		var revision int
-		if err := tx.QueryRow(r.Context(), `SELECT title,status,visibility,workflow_status,content_json,revision_no FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&currentTitle, &currentStatus, &currentVisibility, &currentWorkflow, &currentContent, &revision); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT title,status,visibility,workflow_status,content_json,revision_no,heading_numbering FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&currentTitle, &currentStatus, &currentVisibility, &currentWorkflow, &currentContent, &revision, &currentNumbering); err != nil {
 			return err
 		}
 		if currentWorkflow == "PENDING" {
@@ -296,6 +310,9 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		if input.Visibility != nil {
 			currentVisibility = *input.Visibility
 		}
+		if input.HeadingNumbering != nil {
+			currentNumbering = *input.HeadingNumbering
+		}
 		contentChanged := len(input.Content) > 0 && string(input.Content) != string(currentContent)
 		if len(input.Content) > 0 {
 			currentContent = input.Content
@@ -305,7 +322,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 			newRevision++
 		}
 		text := extractDocumentText(currentContent)
-		if _, err := tx.Exec(r.Context(), `UPDATE documents SET title=$2,status=$3,visibility=$4,content_json=$5,content_text=$6,revision_no=$7,updated_at=now() WHERE id=$1`, id, currentTitle, currentStatus, currentVisibility, currentContent, text, newRevision); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE documents SET title=$2,status=$3,visibility=$4,content_json=$5,content_text=$6,revision_no=$7,heading_numbering=$8,updated_at=now() WHERE id=$1`, id, currentTitle, currentStatus, currentVisibility, currentContent, text, newRevision, currentNumbering); err != nil {
 			return err
 		}
 		if contentChanged {

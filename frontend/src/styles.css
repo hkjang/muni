@@ -275,3 +275,10 @@ a {
     content: none;
   }
 }
+
+/* Section numbers are drawn in front of headings rather than written into
+   them, so they never end up in the text a reader copies. */
+.tiptap .muni-heading-number {
+  color: inherit;
+  user-select: none;
+}

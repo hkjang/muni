@@ -44,12 +44,15 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "DOCX_EXPORT_DISABLED", "관리자 정책에서 DOCX 내보내기가 비활성화되어 있습니다.")
 		return
 	}
-	var title string
+	var title, numbering string
 	var content json.RawMessage
-	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json FROM documents WHERE id=$1`, id).Scan(&title, &content); err != nil {
+	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json,heading_numbering FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering); err != nil {
 		writeError(w, 404, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
 		return
 	}
+	// Numbering is applied once, here, so every format sees the same headings
+	// and the contents list picks the numbers up with them.
+	content = numberedContent(content, numbering)
 	filename := safeFilename(title)
 	var body []byte
 	var contentType string
@@ -287,3 +290,23 @@ ul[data-type="taskList"]{list-style:none;padding-left:4pt}
 ul[data-type="taskList"] li{display:flex;gap:6px;align-items:flex-start}
 mark{padding:0 2px;border-radius:2px}
 a{color:#1155cc}`
+
+// numberedContent writes the heading numbers into a copy of the document.
+//
+// The numbers are never stored: one written into the document would be wrong
+// the moment a section moved. A document that cannot be parsed is returned as
+// it is — an export that loses the numbering is better than one that fails.
+func numberedContent(content json.RawMessage, scheme string) json.RawMessage {
+	if richdoc.ValidNumbering(scheme) == richdoc.NumberingNone {
+		return content
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return content
+	}
+	encoded, err := richdoc.WithHeadingNumbers(document, scheme).JSON()
+	if err != nil {
+		return content
+	}
+	return encoded
+}

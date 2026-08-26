@@ -31,6 +31,8 @@ import { CellBackground } from "../features/editor/extensions/cellBackground";
 import { PageBreak } from "../features/editor/extensions/pageBreak";
 import { PasteBehaviour } from "../features/editor/extensions/pasteBehaviour";
 import { TableOfContentsNode } from "../features/editor/extensions/tableOfContents";
+import { HeadingNumbers } from "../features/editor/extensions/headingNumbers";
+import { validScheme, type NumberingScheme } from "../features/editor/outline/numbering";
 import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
@@ -125,6 +127,9 @@ export function EditorPage() {
   useEffect(() => {
     if (document) revisionRef.current = document.revision;
   }, [document]);
+  // The scheme belongs to the document, so everyone reading it sees the same
+  // section numbers.
+  const numbering: NumberingScheme = validScheme(document?.headingNumbering);
   const collaboration = useCollaboration(
     documentId,
     user,
@@ -158,6 +163,7 @@ export function EditorPage() {
       PageBreak,
       PasteBehaviour,
       ParagraphIndent,
+      HeadingNumbers,
       TableOfContentsNode,
       SearchHighlight,
     ],
@@ -215,6 +221,10 @@ export function EditorPage() {
   useEffect(() => {
     if (editor) editor.setEditable(Boolean(canEdit && mode === "editing"));
   }, [editor, canEdit, mode]);
+  // The scheme arrives with the document, and changes when anyone edits it.
+  useEffect(() => {
+    editor?.commands.setHeadingNumbering(numbering);
+  }, [editor, numbering]);
   useEffect(() => {
     if (
       !editor ||
@@ -594,7 +604,16 @@ export function EditorPage() {
       </Box>
       <Box sx={{ display: "flex", minHeight: 0, flex: 1 }}>
         {outlineOpen && !compact && (
-          <OutlinePanel editor={editor} onClose={() => setOutlineOpen(false)} />
+          <OutlinePanel
+            editor={editor}
+            onClose={() => setOutlineOpen(false)}
+            numbering={numbering}
+            onNumberingChange={
+              canEdit
+                ? (scheme) => void updateMetadata({ headingNumbering: scheme })
+                : undefined
+            }
+          />
         )}
         <Box
           className="muni-page-scroll"
@@ -677,7 +696,16 @@ export function EditorPage() {
         onClose={() => setOutlineOpen(false)}
         PaperProps={{ sx: { mt: "64px", height: "calc(100% - 64px)" } }}
       >
-        <OutlinePanel editor={editor} onClose={() => setOutlineOpen(false)} />
+        <OutlinePanel
+          editor={editor}
+          onClose={() => setOutlineOpen(false)}
+          numbering={numbering}
+          onNumberingChange={
+            canEdit
+              ? (scheme) => void updateMetadata({ headingNumbering: scheme })
+              : undefined
+          }
+        />
       </Drawer>
       <EditorStatusBar
         editor={editor}
