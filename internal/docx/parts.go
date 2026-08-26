@@ -28,7 +28,7 @@ const (
 	monoEastAsia = "D2Coding"
 )
 
-func contentTypes(mediaExtensions []string) string {
+func contentTypes(mediaExtensions []string, furniture []furniturePart) string {
 	var defaults strings.Builder
 	seen := map[string]bool{"rels": true, "xml": true}
 	defaults.WriteString(`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`)
@@ -50,6 +50,7 @@ func contentTypes(mediaExtensions []string) string {
 		`<Override PartName="/word/theme/theme1.xml" ContentType="application/vnd.openxmlformats-officedocument.theme+xml"/>` +
 		`<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>` +
 		`<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>` +
+		furnitureOverrides(furniture) +
 		`</Types>`
 }
 
@@ -312,4 +313,15 @@ type numInstance struct {
 	id       int
 	abstract int
 	start    int
+}
+
+// furnitureOverrides declares the header and footer parts. A part that is in
+// the package but not declared here is one Word reports as corrupt.
+func furnitureOverrides(furniture []furniturePart) string {
+	var out strings.Builder
+	for _, part := range furniture {
+		out.WriteString(`<Override` + attr("PartName", "/word/"+part.name) +
+			attr("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml."+part.local+"+xml") + `/>`)
+	}
+	return out.String()
 }

@@ -26,6 +26,11 @@ type Options struct {
 	Author    string
 	Generator string
 	Created   time.Time
+	// Header and Footer are the one line each that appears on every page —
+	// where a Korean office document carries 대외비, the department and the
+	// document number.
+	Header string
+	Footer string
 	// ResolveImage turns an image node's src into embeddable bytes. Returning
 	// false drops the image rather than failing the whole export.
 	ResolveImage func(src string) (Image, bool)
@@ -52,6 +57,7 @@ type builder struct {
 	sizes       map[string][2]int // src -> intrinsic pixel size
 	extensions  []string
 	nums        []numInstance
+	furniture   []furniturePart
 	nextRelID   int
 	nextDocPrID int
 	nextNumID   int
@@ -135,17 +141,59 @@ func Build(doc *richdoc.Node, opts Options) ([]byte, error) {
 	if b.body.Len() == 0 {
 		b.body.WriteString(`<w:p/>`)
 	}
-	b.body.WriteString(sectionProperties())
+	b.body.WriteString(b.sectionProperties())
 
 	return b.pack()
 }
 
-func sectionProperties() string {
-	return `<w:sectPr><w:pgSz` + intAttr("w:w", pageWidthTwips) + intAttr("w:h", pageHeightTwips) + `/>` +
+// pageFurniture registers the header and footer parts and returns the
+// references the section has to carry. A part with no reference is ignored by
+// Word, and a reference with no part makes the file unopenable, so the two are
+// created together or not at all.
+func (b *builder) pageFurniture() string {
+	var refs strings.Builder
+	add := func(text, local, kind, name string) {
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+		id := b.relationship("http://schemas.openxmlformats.org/officeDocument/2006/relationships/"+kind, name, "")
+		b.furniture = append(b.furniture, furniturePart{name: name, local: local, text: text})
+		refs.WriteString(`<w:` + local + `Reference w:type="default" r:id="` + id + `"/>`)
+	}
+	add(b.opts.Header, "header", "header", "header1.xml")
+	add(b.opts.Footer, "footer", "footer", "footer1.xml")
+	return refs.String()
+}
+
+func (b *builder) sectionProperties() string {
+	// The references come before w:pgSz: CT_SectPr fixes the order, and Word
+	// refuses a file that puts them after.
+	return `<w:sectPr>` + b.pageFurniture() +
+		`<w:pgSz` + intAttr("w:w", pageWidthTwips) + intAttr("w:h", pageHeightTwips) + `/>` +
 		`<w:pgMar` + intAttr("w:top", pageMarginTwips) + intAttr("w:right", pageMarginTwips) +
 		intAttr("w:bottom", pageMarginTwips) + intAttr("w:left", pageMarginTwips) +
 		` w:header="708" w:footer="708" w:gutter="0"/>` +
 		`<w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>`
+}
+
+// furniturePart is one header or footer file waiting to be written.
+type furniturePart struct {
+	name  string
+	local string
+	text  string
+}
+
+func (b *builder) furnitureXML(part furniturePart) string {
+	root := "w:hdr"
+	if part.local == "footer" {
+		root = "w:ftr"
+	}
+	// No pStyle: muni's styles.xml has no Header or Footer style, and pointing
+	// at one that is not there is the kind of thing Word tolerates until it
+	// does not. The small grey line is set inline instead.
+	return xmlHeader + `<` + root + documentNamespaces + `>` +
+		`<w:p><w:pPr><w:jc w:val="right"/></w:pPr>` +
+		b.textRun(part.text, runStyle{}) + `</w:p></` + root + `>`
 }
 
 func (b *builder) relationship(kind, target, mode string) string {
@@ -170,7 +218,7 @@ func (b *builder) pack() ([]byte, error) {
 		name string
 		data []byte
 	}{
-		{"[Content_Types].xml", []byte(contentTypes(b.extensions))},
+		{"[Content_Types].xml", []byte(contentTypes(b.extensions, b.furniture))},
 		{"_rels/.rels", []byte(packageRels())},
 		{"docProps/core.xml", []byte(coreProperties(b.opts.Title, b.opts.Author, b.opts.Created.Format(time.RFC3339)))},
 		{"docProps/app.xml", []byte(appProperties(b.opts.Generator))},
@@ -184,6 +232,11 @@ func (b *builder) pack() ([]byte, error) {
 	}
 	for _, part := range parts {
 		if err := write(part.name, part.data); err != nil {
+			return nil, err
+		}
+	}
+	for _, part := range b.furniture {
+		if err := write("word/"+part.name, []byte(b.furnitureXML(part))); err != nil {
 			return nil, err
 		}
 	}

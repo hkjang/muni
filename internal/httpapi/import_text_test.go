@@ -405,7 +405,7 @@ func TestCrossFormatRoundTrip(t *testing.T) {
 		reload func() (json.RawMessage, error)
 	}{
 		{"docx", func() (json.RawMessage, error) {
-			content, _, err := docxImport(word)
+			content, _, _, err := docxImport(word)
 			return content, err
 		}},
 		{"markdown", func() (json.RawMessage, error) {

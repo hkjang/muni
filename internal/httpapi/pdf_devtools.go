@@ -47,7 +47,7 @@ type devtoolsMessage struct {
 }
 
 // printToPDFWithDevtools renders the page and returns the PDF.
-func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath string, footer pdfFooter) ([]byte, error) {
+func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath string, furniture pdfFurniture) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(parent, devtoolsTimeout)
 	defer cancel()
 
@@ -114,8 +114,8 @@ func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath st
 	result, err := session.call("Page.printToPDF", map[string]any{
 		"printBackground":     true,
 		"displayHeaderFooter": true,
-		"headerTemplate":      "<span></span>",
-		"footerTemplate":      footer.template(),
+		"headerTemplate":      furniture.headerTemplate(),
+		"footerTemplate":      furniture.footerTemplate(),
 		// A4 in inches, with room at the bottom for the footer.
 		"paperWidth":   8.27,
 		"paperHeight":  11.69,
@@ -140,23 +140,51 @@ func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath st
 	return decoded, nil
 }
 
-// pdfFooter is what goes at the bottom of every printed page.
-type pdfFooter struct {
+// pdfFurniture is what prints on every page around the document itself.
+type pdfFurniture struct {
 	Title string
+	// Header is the document's own header line — where a Korean office
+	// document carries 대외비 and the department. The header band used to be
+	// switched on and left empty, so the space was reserved and nothing was
+	// printed in it.
+	Header string
+	// Footer replaces the title on the left of the bottom band when the
+	// author set one. The page numbers stay on the right either way.
+	Footer string
 }
 
-// template builds the footer Chromium renders on each page.
+// bandStyle is shared by both templates. Everything is inlined because
+// Chromium renders each band in a document of its own that shares no
+// stylesheet with the page.
+const bandStyle = `width:100%;font-size:8pt;color:#666;` +
+	`font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;` +
+	`padding:0 12mm;display:flex;justify-content:space-between;align-items:center;`
+
+const ellipsis = `overflow:hidden;white-space:nowrap;text-overflow:ellipsis;`
+
+// headerTemplate is the band at the top. With nothing to put there it is an
+// empty span rather than an empty band, so the page keeps its full height.
+func (f pdfFurniture) headerTemplate() string {
+	text := strings.TrimSpace(f.Header)
+	if text == "" {
+		return `<span></span>`
+	}
+	return `<div style="` + bandStyle + `justify-content:flex-end;">` +
+		`<span style="` + ellipsis + `max-width:100%;">` +
+		html.EscapeString(truncate(text, 120)) + `</span></div>`
+}
+
+// footerTemplate builds the band Chromium renders at the bottom of each page.
 //
 // The placeholder classes are Chromium's own: it replaces their contents with
-// the numbers as it lays each page out. Everything is inlined because the
-// template is rendered in a document of its own that shares no stylesheet with
-// the page.
-func (f pdfFooter) template() string {
-	title := html.EscapeString(truncate(strings.TrimSpace(f.Title), 80))
-	return `<div style="width:100%;font-size:8pt;color:#666;` +
-		`font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;` +
-		`padding:0 12mm;display:flex;justify-content:space-between;align-items:center;">` +
-		`<span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:70%;">` + title + `</span>` +
+// the numbers as it lays each page out.
+func (f pdfFurniture) footerTemplate() string {
+	left := strings.TrimSpace(f.Footer)
+	if left == "" {
+		left = strings.TrimSpace(f.Title)
+	}
+	return `<div style="` + bandStyle + `">` +
+		`<span style="` + ellipsis + `max-width:70%;">` + html.EscapeString(truncate(left, 80)) + `</span>` +
 		`<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>` +
 		`</div>`
 }

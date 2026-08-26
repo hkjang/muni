@@ -25,6 +25,7 @@ import { MoveDocumentDialog } from "../features/editor/MoveDocumentDialog";
 import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
+import { PageFurnitureDialog } from "../features/editor/PageFurnitureDialog";
 import { ShortcutsDialog } from "../features/editor/ShortcutsDialog";
 import { TableTools } from "../features/editor/TableTools";
 import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
@@ -50,6 +51,7 @@ import {
   DownloadOutlined,
   DeleteOutline,
   ContentCopyOutlined,
+  VerticalSplitOutlined,
   DriveFileMoveOutlined,
   PeopleOutline,
 } from "@mui/icons-material";
@@ -107,6 +109,7 @@ export function EditorPage() {
   >("saved");
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
+  const [furnitureOpen, setFurnitureOpen] = useState(false);
   const [deckOpen, setDeckOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   // The reading aids Google Docs keeps around the page: an outline beside it,
@@ -826,6 +829,15 @@ export function EditorPage() {
           documentTitle={document.title}
         />
       )}
+      <PageFurnitureDialog
+        open={furnitureOpen}
+        onClose={() => setFurnitureOpen(false)}
+        header={document.pageHeader ?? ""}
+        footer={document.pageFooter ?? ""}
+        title={document.title}
+        canEdit={canEdit}
+        onSave={(values) => updateMetadata(values)}
+      />
       <Menu
         anchorEl={exportAnchor}
         open={Boolean(exportAnchor)}
@@ -848,6 +860,18 @@ export function EditorPage() {
           </MenuItem>,
           <Divider key="deck-divider" />,
         ]}
+        <MenuItem
+          onClick={() => {
+            setExportAnchor(null);
+            setFurnitureOpen(true);
+          }}
+        >
+          <ListItemIcon>
+            <VerticalSplitOutlined />
+          </ListItemIcon>
+          머리글 · 바닥글
+        </MenuItem>
+        <Divider />
         <MenuItem
           onClick={() => {
             setExportAnchor(null);

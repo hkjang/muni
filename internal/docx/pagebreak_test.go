@@ -81,7 +81,7 @@ func TestPageBreakSurvivesTheRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imported, _, err := Parse(data)
+	imported, _, _, err := Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestCellShadeSurvivesTheRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imported, _, err := Parse(data)
+	imported, _, _, err := Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}

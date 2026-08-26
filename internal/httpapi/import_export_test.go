@@ -49,7 +49,7 @@ func TestDOCXExportImportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	imported, assets, err := docxImport(file)
+	imported, assets, _, err := docxImport(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +227,7 @@ func TestPDFExportGivesUpWhenSlotsAreBusy(t *testing.T) {
 	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := makePDF(ctx, "제목", "<p>본문</p>")
+	_, err := makePDF(ctx, "제목", "", "", "<p>본문</p>")
 	if err == nil {
 		t.Fatal("expected the export to be rejected while all slots are busy")
 	}
@@ -316,7 +316,7 @@ func TestExportersIgnoreBlockIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DOCX export broke on a block id: %v", err)
 	}
-	imported, _, err := docxImport(file)
+	imported, _, _, err := docxImport(file)
 	if err != nil {
 		t.Fatal(err)
 	}

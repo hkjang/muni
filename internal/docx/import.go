@@ -41,10 +41,10 @@ type importer struct {
 // Parse converts a .docx package into a document tree plus the images it
 // embedded. Image nodes point at Asset.Placeholder so the caller can store the
 // bytes wherever it keeps attachments and rewrite the source.
-func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, error) {
+func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	archive, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
-		return nil, nil, fmt.Errorf("DOCX 압축을 열지 못했습니다: %w", err)
+		return nil, nil, Meta{}, fmt.Errorf("DOCX 압축을 열지 못했습니다: %w", err)
 	}
 	files := map[string]*zip.File{}
 	for _, file := range archive.File {
@@ -61,7 +61,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, error) {
 		}
 	}
 	if documentPart == nil {
-		return nil, nil, errors.New("word/document.xml을 찾을 수 없습니다")
+		return nil, nil, Meta{}, errors.New("word/document.xml을 찾을 수 없습니다")
 	}
 
 	imp := &importer{
@@ -78,21 +78,21 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, error) {
 
 	root, err := readXML(documentPart)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, Meta{}, err
 	}
 	bodyNode := root.child("w", "body")
 	if bodyNode == nil {
 		bodyNode = root.descendant("w", "body")
 	}
 	if bodyNode == nil {
-		return nil, nil, errors.New("DOCX 본문을 읽지 못했습니다")
+		return nil, nil, Meta{}, errors.New("DOCX 본문을 읽지 못했습니다")
 	}
 	blocks := imp.blocks(bodyNode.Children)
 	document := richdoc.Doc(groupBlocks(blocks)...)
 	if len(document.Content) == 0 {
 		document.Content = []*richdoc.Node{richdoc.Paragraph()}
 	}
-	return document, imp.assets, nil
+	return document, imp.assets, imp.pageFurniture(files, bodyNode), nil
 }
 
 func readXML(file *zip.File) (*xnode, error) {
@@ -340,4 +340,87 @@ func normalizeStyleName(value string) string {
 		}
 	}
 	return ""
+}
+
+// Meta is what a .docx says around the document rather than inside it.
+//
+// A Korean office document carries its classification in the page header —
+// 대외비, 부서명, 문서번호 — and until now importing one dropped those parts
+// entirely and silently. Losing "대외비" is not a formatting loss.
+type Meta struct {
+	Header string
+	Footer string
+}
+
+// pageFurniture pulls the default header and footer text out of the package.
+//
+// Word can hold three of each (first page, even pages, odd pages). muni has
+// one, so the default is taken and the others are left: showing the first-page
+// header on every page would be a different document.
+func (imp *importer) pageFurniture(files map[string]*zip.File, body *xnode) Meta {
+	section := body.child("w", "sectPr")
+	if section == nil {
+		section = body.descendant("w", "sectPr")
+	}
+	if section == nil {
+		return Meta{}
+	}
+	pick := func(local string) string {
+		var fallback string
+		for _, child := range section.Children {
+			if child.Local != local {
+				continue
+			}
+			id := child.attr("r:id")
+			if id == "" {
+				id = child.attr("id")
+			}
+			rel, ok := imp.rels[id]
+			if !ok || rel.external {
+				continue
+			}
+			name := "word/" + strings.TrimPrefix(rel.target, "/")
+			file := files[name]
+			if file == nil {
+				file = files[strings.TrimPrefix(rel.target, "/")]
+			}
+			if file == nil {
+				continue
+			}
+			root, err := readXML(file)
+			if err != nil || root == nil {
+				continue
+			}
+			text := collapseSpaces(root.allText())
+			if text == "" {
+				continue
+			}
+			if child.attr("w:type") == "default" {
+				return text
+			}
+			if fallback == "" {
+				fallback = text
+			}
+		}
+		return fallback
+	}
+	return Meta{
+		Header: truncateRunes(pick("headerReference"), 200),
+		Footer: truncateRunes(pick("footerReference"), 200),
+	}
+}
+
+// collapseSpaces turns the runs and tabs a header is built from into one line.
+// A header laid out as "기획조정실 <tab> 대외비" reads as two columns on the
+// page and as one sentence anywhere else.
+func collapseSpaces(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func truncateRunes(value string, max int) string {
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return string(runes[:max])
 }

@@ -50,7 +50,7 @@ func TestDevtoolsPDFHasPageNumbers(t *testing.T) {
 	}
 
 	pdf, err := printToPDFWithDevtools(context.Background(), binary, tempDir, htmlPath,
-		pdfFooter{Title: title})
+		pdfFurniture{Title: title})
 	if err != nil {
 		t.Fatalf("devtools render failed: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDevtoolsPDFHasPageNumbers(t *testing.T) {
 func TestFooterTemplateCarriesChromiumsPlaceholders(t *testing.T) {
 	// Chromium fills these two classes in as it lays out each page; without
 	// them the footer renders but says nothing.
-	template := pdfFooter{Title: "보고서"}.template()
+	template := pdfFurniture{Title: "보고서"}.footerTemplate()
 	for _, needed := range []string{"pageNumber", "totalPages"} {
 		if !strings.Contains(template, needed) {
 			t.Fatalf("the footer must carry %s: %s", needed, template)
@@ -98,7 +98,7 @@ func TestFooterTemplateCarriesChromiumsPlaceholders(t *testing.T) {
 
 func TestFooterEscapesTheTitle(t *testing.T) {
 	// The title reaches a rendered document, so it is markup until escaped.
-	template := pdfFooter{Title: `<script>alert(1)</script>`}.template()
+	template := pdfFurniture{Title: `<script>alert(1)</script>`}.footerTemplate()
 	if strings.Contains(template, "<script>") {
 		t.Fatalf("the title was not escaped: %s", template)
 	}

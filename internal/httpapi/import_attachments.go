@@ -79,6 +79,8 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	var assets []richdoc.Asset
 	documentID := uuid.New()
 	embeddedTitle := ""
+	// A .docx carries its classification on the page rather than in the text.
+	var furniture docx.Meta
 	switch extension {
 	case ".txt":
 		content, err = plainTextDocument(string(body))
@@ -87,7 +89,7 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	case ".html", ".htm":
 		content, assets, err = htmlDocument(body)
 	case ".docx":
-		content, assets, err = docxImport(body)
+		content, assets, furniture, err = docxImport(body)
 	case ".pdf":
 		// PDF interpretation is CPU bound; bound it so one upload cannot hold
 		// a worker for the whole request timeout.
@@ -137,7 +139,9 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		visibility = "WORKSPACE"
 	}
 	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1)`, documentID, workspaceID, folderID, p.User.ID, title, visibility, content, text); err != nil {
+		if _, err := tx.Exec(r.Context(), `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no,page_header,page_footer) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10)`,
+			documentID, workspaceID, folderID, p.User.ID, title, visibility, content, text,
+			truncateRunes(furniture.Header, 200), truncateRunes(furniture.Footer, 200)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, documentID, content, text, p.User.ID, "import:"+strings.TrimPrefix(extension, ".")); err != nil {
@@ -162,16 +166,16 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 
 // docxImport converts a Word file, keeping headings, lists, tables, inline
 // formatting and embedded images.
-func docxImport(body []byte) (json.RawMessage, []richdoc.Asset, error) {
-	document, assets, err := docx.Parse(body)
+func docxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error) {
+	document, assets, meta, err := docx.Parse(body)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, docx.Meta{}, err
 	}
 	content, err := document.JSON()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, docx.Meta{}, err
 	}
-	return content, assets, nil
+	return content, assets, meta, nil
 }
 
 // pdfImport reconstructs paragraphs, headings, lists, tables and images from

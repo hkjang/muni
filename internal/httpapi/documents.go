@@ -32,6 +32,13 @@ type documentItem struct {
 	// themselves are never stored: a stored number would be wrong the moment
 	// a section moved.
 	HeadingNumbering string `json:"headingNumbering"`
+	// PageHeader and PageFooter are the one line each that prints on every
+	// page. A Korean office document carries its classification there —
+	// 대외비, the department, the document number — which is why importing a
+	// .docx that had one and dropping it silently was a loss of meaning and
+	// not of formatting.
+	PageHeader string `json:"pageHeader"`
+	PageFooter string `json:"pageFooter"`
 	// CRDTGeneration changes when the shared editing state is replaced
 	// wholesale — a restore, say. The editor keys its offline copy on it so a
 	// stale local state cannot be pushed back over the restored content.
@@ -45,13 +52,13 @@ type documentItem struct {
 }
 
 func documentSelect() string {
-	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,d.heading_numbering,
+	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,d.heading_numbering,d.page_header,d.page_footer,
 	ARRAY(SELECT t.name::text FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=d.id ORDER BY t.name),
 	EXISTS(SELECT 1 FROM favorites f WHERE f.document_id=d.id AND f.user_id=$2),d.created_at,d.updated_at,d.deleted_at FROM documents d JOIN users u ON u.id=d.owner_id`
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
+	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
 }
 
 func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {
@@ -271,6 +278,8 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		Status           *string         `json:"status"`
 		Visibility       *string         `json:"visibility"`
 		HeadingNumbering *string         `json:"headingNumbering"`
+		PageHeader       *string         `json:"pageHeader"`
+		PageFooter       *string         `json:"pageFooter"`
 		Reason           string          `json:"reason"`
 	}
 	if !decodeJSON(w, r, &input) {
@@ -309,14 +318,28 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		}
 		input.HeadingNumbering = &scheme
 	}
+	// One line each. A header is page furniture, not a second body: anything
+	// long enough to need wrapping belongs in the document.
+	for _, field := range []**string{&input.PageHeader, &input.PageFooter} {
+		if *field == nil {
+			continue
+		}
+		trimmed := collapseToLine(**field)
+		if len([]rune(trimmed)) > 200 {
+			writeError(w, 400, "INVALID_PAGE_FURNITURE", "머리글과 바닥글은 200자 이하의 한 줄이어야 합니다.")
+			return
+		}
+		*field = &trimmed
+	}
 	if input.Reason == "" {
 		input.Reason = "autosave"
 	}
 	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
 		var currentTitle, currentStatus, currentVisibility, currentWorkflow, currentNumbering string
+		var currentHeader, currentFooter string
 		var currentContent json.RawMessage
 		var revision int
-		if err := tx.QueryRow(r.Context(), `SELECT title,status,visibility,workflow_status,content_json,revision_no,heading_numbering FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&currentTitle, &currentStatus, &currentVisibility, &currentWorkflow, &currentContent, &revision, &currentNumbering); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT title,status,visibility,workflow_status,content_json,revision_no,heading_numbering,page_header,page_footer FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&currentTitle, &currentStatus, &currentVisibility, &currentWorkflow, &currentContent, &revision, &currentNumbering, &currentHeader, &currentFooter); err != nil {
 			return err
 		}
 		if currentWorkflow == "PENDING" {
@@ -337,6 +360,12 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		if input.HeadingNumbering != nil {
 			currentNumbering = *input.HeadingNumbering
 		}
+		if input.PageHeader != nil {
+			currentHeader = *input.PageHeader
+		}
+		if input.PageFooter != nil {
+			currentFooter = *input.PageFooter
+		}
 		contentChanged := len(input.Content) > 0 && string(input.Content) != string(currentContent)
 		if len(input.Content) > 0 {
 			currentContent = input.Content
@@ -346,7 +375,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 			newRevision++
 		}
 		text := extractDocumentText(currentContent)
-		if _, err := tx.Exec(r.Context(), `UPDATE documents SET title=$2,status=$3,visibility=$4,content_json=$5,content_text=$6,revision_no=$7,heading_numbering=$8,updated_at=now() WHERE id=$1`, id, currentTitle, currentStatus, currentVisibility, currentContent, text, newRevision, currentNumbering); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE documents SET title=$2,status=$3,visibility=$4,content_json=$5,content_text=$6,revision_no=$7,heading_numbering=$8,page_header=$9,page_footer=$10,updated_at=now() WHERE id=$1`, id, currentTitle, currentStatus, currentVisibility, currentContent, text, newRevision, currentNumbering, currentHeader, currentFooter); err != nil {
 			return err
 		}
 		if contentChanged {
@@ -735,3 +764,10 @@ WHERE d.deleted_at IS NULL
 ORDER BY ts_rank(to_tsvector('simple', coalesce(d.title,'')||' '||coalesce(d.content_text,'')),
 	websearch_to_tsquery('simple',$1)) DESC, d.updated_at DESC
 LIMIT $4`
+
+// collapseToLine turns whatever was pasted into the one line a page header is.
+// A newline in a header does not make a second header; it makes a file that
+// renders differently in every reader.
+func collapseToLine(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}

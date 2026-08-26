@@ -45,9 +45,9 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "DOCX_EXPORT_DISABLED", "관리자 정책에서 DOCX 내보내기가 비활성화되어 있습니다.")
 		return
 	}
-	var title, numbering string
+	var title, numbering, pageHeader, pageFooter string
 	var content json.RawMessage
-	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json,heading_numbering FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering); err != nil {
+	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json,heading_numbering,page_header,page_footer FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering, &pageHeader, &pageFooter); err != nil {
 		writeError(w, 404, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
 		return
 	}
@@ -69,10 +69,10 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		body = []byte(fullHTML(title, s.renderHTMLWithAttachments(r.Context(), id, content)))
 		contentType = "text/html; charset=utf-8"
 	case "docx":
-		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName)
+		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter)
 		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	case "pdf":
-		body, err = makePDF(r.Context(), title, s.renderHTMLWithAttachments(r.Context(), id, content))
+		body, err = makePDF(r.Context(), title, pageHeader, pageFooter, s.renderHTMLWithAttachments(r.Context(), id, content))
 		contentType = "application/pdf"
 	}
 	if err != nil {
@@ -89,7 +89,7 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 
 // makeDOCX renders a Word file that keeps the document's headings, lists,
 // tables, inline formatting and images.
-func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, author string) ([]byte, error) {
+func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, author, pageHeader, pageFooter string) ([]byte, error) {
 	document, err := richdoc.Parse(content)
 	if err != nil {
 		return nil, fmt.Errorf("문서 구조를 읽지 못했습니다: %w", err)
@@ -101,6 +101,8 @@ func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title strin
 		Author:    author,
 		Generator: "muni " + s.info.Version,
 		Created:   time.Now().UTC(),
+		Header:    pageHeader,
+		Footer:    pageFooter,
 		ResolveImage: func(src string) (docx.Image, bool) {
 			if picture, ok := images[src]; ok {
 				return picture, true
@@ -162,7 +164,7 @@ func pdfConcurrency() int {
 	return 2
 }
 
-func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error) {
+func makePDF(parent context.Context, title, pageHeader, pageFooter, renderedHTML string) ([]byte, error) {
 	// Wait for a rendering slot, but never longer than the caller allows.
 	waitCtx, cancelWait := context.WithTimeout(parent, 60*time.Second)
 	defer cancelWait()
@@ -192,7 +194,7 @@ func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error)
 	// The protocol path is what puts page numbers at the bottom; the command
 	// line cannot. It has more ways to fail than running a program does, so a
 	// failure falls back rather than losing the export.
-	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFooter{Title: title}); devErr == nil {
+	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFurniture{Title: title, Header: pageHeader, Footer: pageFooter}); devErr == nil {
 		return body, nil
 	} else {
 		pdfLogger.Warn("devtools pdf failed, falling back to the command line", "error", devErr)

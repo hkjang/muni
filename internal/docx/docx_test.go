@@ -130,7 +130,7 @@ func TestOrderedListsGetSeparateNumbering(t *testing.T) {
 
 func TestRoundTripPreservesStructure(t *testing.T) {
 	data := build(t, sample(), Options{Title: "테스트 문서"})
-	imported, assets, err := Parse(data)
+	imported, assets, _, err := Parse(data)
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestRoundTripPreservesStructure(t *testing.T) {
 
 func TestRoundTripPreservesMarks(t *testing.T) {
 	data := build(t, sample(), Options{Title: "T"})
-	imported, _, err := Parse(data)
+	imported, _, _, err := Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestRoundTripPreservesImages(t *testing.T) {
 	if !strings.Contains(partOf(t, data, "word/document.xml"), "<w:drawing>") {
 		t.Fatal("image not embedded")
 	}
-	imported, assets, err := Parse(data)
+	imported, assets, _, err := Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}

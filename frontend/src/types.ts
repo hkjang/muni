@@ -69,6 +69,10 @@ export type DocumentItem = {
   crdtGeneration: number;
   /** "none", "decimal" or "korean"; the numbers themselves are never stored. */
   headingNumbering: string;
+  /** The one line printed at the top of every page — 대외비, 부서명, 문서번호. */
+  pageHeader: string;
+  /** The one line printed at the bottom left; page numbers go on the right. */
+  pageFooter: string;
   /** Labels that group documents across folders. */
   tags: string[];
   favorite: boolean;

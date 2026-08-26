@@ -18,7 +18,7 @@ func roundTrip(t *testing.T, source string) *richdoc.Node {
 	if err != nil {
 		t.Fatal(err)
 	}
-	back, _, err := Parse(built)
+	back, _, _, err := Parse(built)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ func FuzzParse(f *testing.F) {
 		if len(body) > 1<<20 {
 			t.Skip()
 		}
-		document, _, err := Parse(body)
+		document, _, _, err := Parse(body)
 		if err != nil {
 			return
 		}
