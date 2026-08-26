@@ -126,3 +126,16 @@ func (h *Hub) Send(documentID uuid.UUID, conn *websocket.Conn, messageType int, 
 	defer mu.Unlock()
 	return conn.WriteMessage(messageType, payload)
 }
+
+// Size reports how many documents are open and how many connections are on
+// them, for the metrics an operator scrapes. It takes the read lock only, so
+// scraping never delays an edit.
+func (h *Hub) Size() (rooms int, connections int) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	for _, room := range h.rooms {
+		rooms++
+		connections += len(room)
+	}
+	return rooms, connections
+}

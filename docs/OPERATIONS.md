@@ -102,6 +102,54 @@ docker compose up -d
 | 특정 문서만 열리지 않음 | `서비스 관리 → 문서 관리`에서 소유자와 휴지통 여부 |
 | 디스크가 찬다 | 보존 정책, 그리고 `SELECT pg_size_pretty(pg_total_relation_size('attachments'));` |
 | 누가 무엇을 했는지 | `서비스 관리 → 감사 로그`, CSV로 내려받기 |
+| 느려졌다는 말이 나옴 | Prometheus를 쓰신다면 `muni_http_request_duration_seconds`의 p95 — 아래 「지표 수집」 |
+
+## 지표 수집
+
+Prometheus를 쓰신다면 `GET /metrics`를 긁으면 됩니다. 쓰지 않으신다면 이 절은 건너뛰셔도 됩니다 — 아무것도 설정하지 않아도 muni는 동작합니다.
+
+이 엔드포인트는 **관리자 인증을 요구합니다.** 지표에는 사용자 수와 문서 수가 들어 있어 열어둘 이유가 없습니다. `서비스 관리 → API 키`에서 `api:read` 권한의 키를 하나 만들어 쓰십시오.
+
+```yaml
+scrape_configs:
+  - job_name: muni
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["muni:8080"]
+    authorization:
+      credentials: "muni_xxxxxxxxxxxx_..."   # 관리자 계정의 API 키
+```
+
+무엇을 볼 수 있는지:
+
+| 지표 | 뜻 |
+| --- | --- |
+| `muni_http_requests_total{method,status}` | 처리한 요청 수. `status`는 `2xx`·`4xx`·`5xx`처럼 묶여 있습니다 |
+| `muni_http_request_duration_seconds` | 응답 시간 히스토그램. `histogram_quantile`로 p95를 뽑으십시오 |
+| `muni_documents` / `muni_documents_trashed` | 문서 수 |
+| `muni_users` / `muni_users_active` | 계정 수와 정지되지 않은 계정 수 |
+| `muni_sessions_open` | 만료되지 않은 세션 |
+| `muni_collab_documents_open` / `muni_collab_connections` | 지금 편집 중인 문서와 연결 수 |
+| `muni_approvals_pending` | 결재 대기 |
+| `muni_attachment_bytes` | 첨부가 차지하는 용량 |
+| `muni_notifications_unsent` | 발송되지 않고 남은 알림 — 계속 늘면 SMTP 설정을 보십시오 |
+| `muni_ai_calls_last_24h` / `muni_ai_failures_last_24h` | 하루치 AI 호출과 그중 실패 |
+| `muni_pdf_renders_in_progress` / `muni_pdf_renders_limit` | 앞의 값이 뒤에 붙어 있으면 PDF 내보내기가 줄을 서고 있다는 뜻입니다 |
+| `muni_goroutines`, `muni_memory_bytes` | 프로세스 상태 |
+
+라벨은 메서드와 상태 계열까지만 붙입니다. 문서 ID나 사용자별로 나누지 않는 것은 의도한 것입니다 — 그렇게 하면 문서가 늘어나는 만큼 시계열이 늘어나 Prometheus 쪽이 먼저 무너집니다.
+
+수를 세는 지표들은 **30초 동안 캐시됩니다.** 여러 대가 동시에 긁어도 DB에 `count(*)`가 몰리지 않습니다. 그래서 스크레이프 간격을 30초보다 촘촘하게 잡아도 값은 더 자주 바뀌지 않습니다.
+
+경보를 하나만 건다면 이것을 권합니다:
+
+```yaml
+- alert: MuniMailStuck
+  expr: muni_notifications_unsent > 50
+  for: 15m
+  annotations:
+    summary: "알림이 발송되지 않고 쌓이고 있습니다 (SMTP 설정 확인)"
+```
 
 ## 알아두면 좋은 것
 

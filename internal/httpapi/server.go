@@ -42,10 +42,11 @@ type Server struct {
 	patterns []string
 	aiCompat *aiCompatibility
 	logins   *loginAttempts
+	metrics  *metrics
 }
 
 func New(db *pgxpool.Pool, sealer *cryptoutil.Sealer, info BuildInfo, logger *slog.Logger) *Server {
-	s := &Server{db: db, sealer: sealer, settings: settings.NewStore(db, sealer), info: info, logger: logger, hub: realtime.NewHub(), mux: http.NewServeMux(), aiCompat: newAICompatibility(), logins: newLoginAttempts()}
+	s := &Server{db: db, sealer: sealer, settings: settings.NewStore(db, sealer), info: info, logger: logger, hub: realtime.NewHub(), mux: http.NewServeMux(), aiCompat: newAICompatibility(), logins: newLoginAttempts(), metrics: newMetrics()}
 	s.routes()
 	return s
 }
@@ -159,6 +160,7 @@ func (s *Server) routes() {
 	s.handle("GET /api/v1/admin/users/{id}/keys", s.requireAdmin(http.HandlerFunc(s.listAnyUserKeys)))
 	s.handle("POST /api/v1/admin/users/{id}/keys/rotate", s.requireAdmin(http.HandlerFunc(s.rotateAnyUserKey)))
 	s.handle("DELETE /api/v1/admin/users/{id}/keys/{keyId}", s.requireAdmin(http.HandlerFunc(s.revokeAnyUserKey)))
+	s.handle("GET /metrics", s.requireAdmin(http.HandlerFunc(s.serveMetrics)))
 	s.handle("GET /api/v1/admin/overview", s.requireAdmin(http.HandlerFunc(s.adminOverview)))
 	s.handle("GET /api/v1/admin/retention/preview", s.requireAdmin(http.HandlerFunc(s.previewRetention)))
 	s.handle("POST /api/v1/admin/retention/run", s.requireAdmin(http.HandlerFunc(s.runRetention)))
@@ -195,9 +197,19 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 func (s *Server) requestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		next.ServeHTTP(w, r)
+		// The status is not readable from a ResponseWriter after the fact, so
+		// it is remembered on the way past.
+		recorder := &statusRecorder{ResponseWriter: w}
+		next.ServeHTTP(recorder, r)
+		elapsed := time.Since(started)
 		if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
-			s.logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds())
+			s.logger.Info("http request", "method", r.Method, "path", r.URL.Path,
+				"status", recorder.status, "duration_ms", elapsed.Milliseconds())
+		}
+		// The scrape itself is left out: counting it makes a graph of how
+		// often it is scraped, which nobody wanted to know.
+		if r.URL.Path != "/metrics" {
+			s.metrics.observe(r.Method, recorder.status, elapsed)
 		}
 	})
 }
