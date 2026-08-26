@@ -78,14 +78,60 @@ type Ptium struct {
 	TimeoutSeconds int    `json:"timeoutSeconds"`
 }
 
+// Retention is how long muni keeps what it no longer needs.
+//
+// Every value is a number of days, and zero means keep it forever — which is
+// what muni did before this existed, so an upgrade changes nothing until an
+// administrator asks for it. Nothing here is a substitute for a backup: what
+// is removed is removed.
+type Retention struct {
+	// TrashDays purges documents that have been in the trash this long.
+	TrashDays int `json:"trashDays"`
+	// RevisionDays drops old versions of a document, and RevisionKeep is how
+	// many of the newest are kept whatever their age. A version an author
+	// named is never dropped.
+	RevisionDays int `json:"revisionDays"`
+	RevisionKeep int `json:"revisionKeep"`
+	// AuditDays and AIAuditDays trim the two logs.
+	AuditDays   int `json:"auditDays"`
+	AIAuditDays int `json:"aiAuditDays"`
+}
+
+// MinRevisionKeep is the floor on how many versions survive a cleanup. A
+// policy that could leave a document with no history at all is not a retention
+// policy, it is data loss with a schedule.
+const MinRevisionKeep = 5
+
+// Normalize brings a stored or submitted policy into range.
+func (r Retention) Normalize() Retention {
+	clamp := func(value int) int {
+		if value < 0 || value > 3650 {
+			return 0
+		}
+		return value
+	}
+	r.TrashDays = clamp(r.TrashDays)
+	r.RevisionDays = clamp(r.RevisionDays)
+	r.AuditDays = clamp(r.AuditDays)
+	r.AIAuditDays = clamp(r.AIAuditDays)
+	if r.RevisionKeep < MinRevisionKeep {
+		r.RevisionKeep = MinRevisionKeep
+	}
+	if r.RevisionKeep > 1000 {
+		r.RevisionKeep = 1000
+	}
+	return r
+}
+
 type All struct {
-	General  General  `json:"general"`
-	OIDC     OIDC     `json:"oidc"`
-	AI       AI       `json:"ai"`
-	Workflow Workflow `json:"workflow"`
-	Security Security `json:"security"`
-	Export   Export   `json:"export"`
-	Ptium    Ptium    `json:"ptium"`
+	General   General   `json:"general"`
+	OIDC      OIDC      `json:"oidc"`
+	AI        AI        `json:"ai"`
+	Workflow  Workflow  `json:"workflow"`
+	Security  Security  `json:"security"`
+	Export    Export    `json:"export"`
+	Ptium     Ptium     `json:"ptium"`
+	Retention Retention `json:"retention"`
 }
 
 type Store struct {
@@ -151,6 +197,12 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "security.audit_reads", &out.Security.AuditReads)
 	decode(values, "export.enable_pdf", &out.Export.EnablePDF)
 	decode(values, "export.enable_docx", &out.Export.EnableDOCX)
+	decode(values, "retention.trash_days", &out.Retention.TrashDays)
+	decode(values, "retention.revision_days", &out.Retention.RevisionDays)
+	decode(values, "retention.revision_keep", &out.Retention.RevisionKeep)
+	decode(values, "retention.audit_days", &out.Retention.AuditDays)
+	decode(values, "retention.ai_audit_days", &out.Retention.AIAuditDays)
+	out.Retention = out.Retention.Normalize()
 	decode(values, "ptium.enabled", &out.Ptium.Enabled)
 	decode(values, "ptium.base_url", &out.Ptium.BaseURL)
 	decode(values, "ptium.web_url", &out.Ptium.WebURL)
@@ -212,6 +264,9 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"ptium.enabled": all.Ptium.Enabled, "ptium.base_url": all.Ptium.BaseURL, "ptium.web_url": all.Ptium.WebURL,
 		"ptium.default_theme": all.Ptium.DefaultTheme, "ptium.default_locale": all.Ptium.DefaultLocale,
 		"ptium.timeout_seconds": all.Ptium.TimeoutSeconds,
+		"retention.trash_days":  all.Retention.TrashDays, "retention.revision_days": all.Retention.RevisionDays,
+		"retention.revision_keep": all.Retention.RevisionKeep, "retention.audit_days": all.Retention.AuditDays,
+		"retention.ai_audit_days": all.Retention.AIAuditDays,
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -249,6 +304,16 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 }
 
 func Validate(all All) error {
+	// A policy that would leave a document without history is refused rather
+	// than quietly corrected, so an administrator sees what they asked for.
+	if all.Retention.RevisionKeep != 0 && all.Retention.RevisionKeep < MinRevisionKeep {
+		return errors.New("버전은 최소 5개까지는 남겨야 합니다")
+	}
+	for _, days := range []int{all.Retention.TrashDays, all.Retention.RevisionDays, all.Retention.AuditDays, all.Retention.AIAuditDays} {
+		if days < 0 || days > 3650 {
+			return errors.New("보존 기간은 0~3650일이어야 합니다")
+		}
+	}
 	all.General.ServiceName = strings.TrimSpace(all.General.ServiceName)
 	if all.General.ServiceName == "" || len([]rune(all.General.ServiceName)) > 60 {
 		return errors.New("서비스 이름은 1~60자여야 합니다")

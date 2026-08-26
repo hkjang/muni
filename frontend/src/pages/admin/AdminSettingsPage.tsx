@@ -6,6 +6,7 @@ import {
   SaveOutlined,
   SecurityOutlined,
   SettingsOutlined,
+  AutoDeleteOutlined,
   SlideshowOutlined,
   VpnKeyOutlined,
 } from "@mui/icons-material";
@@ -67,6 +68,13 @@ const blank: Settings = {
     auditReads: true,
   },
   export: { enablePdf: true, enableDocx: true },
+  retention: {
+    trashDays: 0,
+    revisionDays: 0,
+    revisionKeep: 5,
+    auditDays: 0,
+    aiAuditDays: 0,
+  },
   ptium: {
     enabled: false,
     baseUrl: "",
@@ -119,6 +127,22 @@ export function AdminSettingsPage() {
       }),
     onSuccess: () => setNotice("AI API 연결과 모델 응답을 확인했습니다."),
   });
+  const retention = useQuery({
+    queryKey: ["retention-preview"],
+    queryFn: () =>
+      api<{ pending: RetentionCounts }>("/api/v1/admin/retention/preview"),
+  });
+  const runRetention = useMutation({
+    mutationFn: () =>
+      api<RetentionCounts>("/api/v1/admin/retention/run", { method: "POST" }),
+    onSuccess: (data) => {
+      setNotice(
+        `정리했습니다. 문서 ${data.documents}건, 버전 ${data.revisions}건, 감사 로그 ${data.audit}건, AI 기록 ${data.aiAudit}건, 만료 세션 ${data.sessions}건.`,
+      );
+      void retention.refetch();
+      void client.invalidateQueries({ queryKey: ["admin-overview"] });
+    },
+  });
   const testPtium = useMutation({
     mutationFn: () =>
       api<{ baseUrl: string }>("/api/v1/admin/settings/test-ptium", {
@@ -158,10 +182,18 @@ export function AdminSettingsPage() {
           전체 저장
         </Button>
       </Stack>
-      {(save.error || testOIDC.error || testAI.error || testPtium.error) && (
+      {(save.error ||
+        testOIDC.error ||
+        testAI.error ||
+        testPtium.error ||
+        runRetention.error) && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {errorMessage(
-            save.error || testOIDC.error || testAI.error || testPtium.error,
+            save.error ||
+              testOIDC.error ||
+              testAI.error ||
+              testPtium.error ||
+              runRetention.error,
           )}
         </Alert>
       )}
@@ -197,6 +229,11 @@ export function AdminSettingsPage() {
           icon={<SlideshowOutlined />}
           iconPosition="start"
           label="발표자료 연동"
+        />
+        <Tab
+          icon={<AutoDeleteOutlined />}
+          iconPosition="start"
+          label="보존 정책"
         />
       </Tabs>
       <Card sx={{ p: { xs: 2, sm: 3 }, mt: 2 }}>
@@ -702,6 +739,136 @@ export function AdminSettingsPage() {
             </Typography>
           </Stack>
         )}
+        {tab === 6 && (
+          <Stack gap={2} maxWidth={760}>
+            <Section
+              title="보존 정책"
+              description="0일은 '계속 보관'입니다. 값을 넣기 전까지는 아무것도 지워지지 않습니다. 매일 한 번 적용되며, 지워진 것은 되돌릴 수 없습니다."
+            />
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="휴지통 보관 기간 (일)"
+                  value={form.retention.trashDays}
+                  slotProps={{ htmlInput: { min: 0, max: 3650 } }}
+                  onChange={(e) =>
+                    setGroup("retention", {
+                      ...form.retention,
+                      trashDays: Number(e.target.value),
+                    })
+                  }
+                  helperText="지나면 문서와 그 버전·댓글·첨부가 함께 사라집니다."
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="감사 로그 보관 기간 (일)"
+                  value={form.retention.auditDays}
+                  slotProps={{ htmlInput: { min: 0, max: 3650 } }}
+                  onChange={(e) =>
+                    setGroup("retention", {
+                      ...form.retention,
+                      auditDays: Number(e.target.value),
+                    })
+                  }
+                  helperText="법령이나 사내 규정이 정한 기간을 확인하세요."
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="버전 보관 기간 (일)"
+                  value={form.retention.revisionDays}
+                  slotProps={{ htmlInput: { min: 0, max: 3650 } }}
+                  onChange={(e) =>
+                    setGroup("retention", {
+                      ...form.retention,
+                      revisionDays: Number(e.target.value),
+                    })
+                  }
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="항상 남길 버전 수"
+                  value={form.retention.revisionKeep}
+                  slotProps={{ htmlInput: { min: 5, max: 1000 } }}
+                  onChange={(e) =>
+                    setGroup("retention", {
+                      ...form.retention,
+                      revisionKeep: Number(e.target.value),
+                    })
+                  }
+                  helperText="최소 5개"
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  fullWidth
+                  type="number"
+                  label="AI 호출 기록 (일)"
+                  value={form.retention.aiAuditDays}
+                  slotProps={{ htmlInput: { min: 0, max: 3650 } }}
+                  onChange={(e) =>
+                    setGroup("retention", {
+                      ...form.retention,
+                      aiAuditDays: Number(e.target.value),
+                    })
+                  }
+                />
+              </Grid>
+            </Grid>
+            <Alert severity="info">
+              기간이 지나도 <strong>이름을 붙인 버전</strong>, 문서의 현재
+              버전, 그리고 가장 최근 {form.retention.revisionKeep}개 버전은
+              남습니다. 시계로 비울 수 있는 기록은 기록이 아니니까요.
+            </Alert>
+            {retention.data && (
+              <Alert severity={pendingTotal(retention.data.pending) > 0 ? "warning" : "success"}>
+                지금 정책으로 정리하면 문서 {retention.data.pending.documents}건,
+                버전 {retention.data.pending.revisions}건, 감사 로그{" "}
+                {retention.data.pending.audit}건, AI 기록{" "}
+                {retention.data.pending.aiAudit}건, 만료 세션{" "}
+                {retention.data.pending.sessions}건이 지워집니다.
+              </Alert>
+            )}
+            <Typography variant="body2" color="text.secondary">
+              미리보기는 <strong>저장된</strong> 정책 기준입니다. 위 값을 바꿨다면
+              먼저 전체 저장을 눌러 주세요.
+            </Typography>
+            <Stack direction="row" gap={1}>
+              <Button
+                variant="outlined"
+                onClick={() => void retention.refetch()}
+                disabled={retention.isFetching}
+              >
+                다시 계산
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "저장된 보존 정책을 지금 적용합니다. 지워진 항목은 되돌릴 수 없습니다.",
+                    )
+                  )
+                    runRetention.mutate();
+                }}
+                disabled={runRetention.isPending}
+              >
+                지금 정리 실행
+              </Button>
+            </Stack>
+          </Stack>
+        )}
       </Card>
     </Box>
   );
@@ -721,4 +888,18 @@ function Section({
       </Typography>
     </Box>
   );
+}
+
+type RetentionCounts = {
+  documents: number;
+  revisions: number;
+  audit: number;
+  aiAudit: number;
+  sessions: number;
+};
+
+/** pendingTotal is what the policy would remove, ignoring expired sessions
+ * — those are dead weight either way and their count is never a warning. */
+function pendingTotal(counts: RetentionCounts): number {
+  return counts.documents + counts.revisions + counts.audit + counts.aiAudit;
 }

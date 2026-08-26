@@ -110,6 +110,13 @@ export type Settings = {
     auditReads: boolean;
   };
   export: { enablePdf: boolean; enableDocx: boolean };
+  retention: {
+    trashDays: number;
+    revisionDays: number;
+    revisionKeep: number;
+    auditDays: number;
+    aiAuditDays: number;
+  };
   ptium: {
     enabled: boolean;
     baseUrl: string;

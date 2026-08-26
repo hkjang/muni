@@ -59,6 +59,9 @@ func main() {
 
 	info := httpapi.BuildInfo{Version: version, Commit: commit, BuildTime: buildTime}
 	api := httpapi.New(db, sealer, info, logger)
+	// Applies the retention policy for as long as the process runs. It does
+	// nothing at all until an administrator sets one.
+	api.StartRetention(ctx)
 	server := &http.Server{
 		Addr:              ":8080",
 		Handler:           api.Handler(),
