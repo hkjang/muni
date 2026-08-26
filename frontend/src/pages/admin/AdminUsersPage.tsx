@@ -1,5 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyOutlined, LockResetOutlined, Search } from "@mui/icons-material";
+import {
+  DevicesOutlined,
+  KeyOutlined,
+  LockResetOutlined,
+  Search,
+} from "@mui/icons-material";
 import {
   Alert,
   Box,
@@ -24,6 +29,13 @@ import { useState } from "react";
 import { api, errorMessage, formatDate, jsonBody } from "../../lib/api";
 import type { User } from "../../types";
 type AdminUser = User & { lastLoginAt?: string };
+type AdminSession = {
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  ip?: unknown;
+  userAgent?: string;
+};
 type PersonalKey = {
   id: string;
   name: string;
@@ -35,6 +47,7 @@ type PersonalKey = {
 export function AdminUsersPage() {
   const [q, setQ] = useState("");
   const [keyUser, setKeyUser] = useState<AdminUser | null>(null);
+  const [sessionUser, setSessionUser] = useState<AdminUser | null>(null);
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ["admin-users", q],
@@ -45,6 +58,21 @@ export function AdminUsersPage() {
     mutationFn: ({ id, patch }: { id: string; patch: Partial<AdminUser> }) =>
       api(`/api/v1/admin/users/${id}`, { method: "PATCH", ...jsonBody(patch) }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["admin-users"] }),
+  });
+  const sessions = useQuery({
+    queryKey: ["admin-user-sessions", sessionUser?.id],
+    queryFn: () =>
+      api<AdminSession[]>(`/api/v1/admin/users/${sessionUser?.id}/sessions`),
+    enabled: Boolean(sessionUser),
+  });
+  const revokeSessions = useMutation({
+    mutationFn: () =>
+      api<{ revoked: number }>(
+        `/api/v1/admin/users/${sessionUser?.id}/sessions`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["admin-user-sessions"] }),
   });
   const userKeys = useQuery({
     queryKey: ["admin-user-keys", keyUser?.id],
@@ -132,6 +160,13 @@ export function AdminUsersPage() {
               </FormControl>
               <Button
                 variant="outlined"
+                startIcon={<DevicesOutlined />}
+                onClick={() => setSessionUser(user)}
+              >
+                로그인 세션
+              </Button>
+              <Button
+                variant="outlined"
                 startIcon={<KeyOutlined />}
                 onClick={() => setKeyUser(user)}
               >
@@ -157,6 +192,63 @@ export function AdminUsersPage() {
           </Card>
         ))}
       </Stack>
+      <Dialog
+        open={Boolean(sessionUser)}
+        onClose={() => setSessionUser(null)}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>{sessionUser?.displayName} · 로그인 세션</DialogTitle>
+        <DialogContent>
+          {revokeSessions.error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {errorMessage(revokeSessions.error)}
+            </Alert>
+          )}
+          {revokeSessions.isSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              세션 {revokeSessions.data?.revoked ?? 0}개를 종료했습니다.
+            </Alert>
+          )}
+          <Typography variant="body2" color="text.secondary" mb={2}>
+            계정을 정지하면 다음 요청부터 바로 막힙니다. 이 기능은 계정은
+            그대로 두고 기기에서만 로그아웃시킬 때 사용합니다.
+          </Typography>
+          <Stack gap={1.25}>
+            {(sessions.data ?? []).map((session, index) => (
+              <Card key={index} variant="outlined" sx={{ p: 1.5 }}>
+                <Typography variant="body2" fontWeight={650}>
+                  {String(session.ip ?? "주소 미상")}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" display="block">
+                  {session.userAgent ?? "클라이언트 미상"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  마지막 사용 {formatDate(session.lastSeenAt)} · 만료{" "}
+                  {formatDate(session.expiresAt)}
+                </Typography>
+              </Card>
+            ))}
+            {sessions.data && sessions.data.length === 0 && (
+              <Typography color="text.secondary" py={2} textAlign="center">
+                열린 세션이 없습니다.
+              </Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            color="error"
+            disabled={
+              revokeSessions.isPending || (sessions.data ?? []).length === 0
+            }
+            onClick={() => revokeSessions.mutate()}
+          >
+            모든 세션 종료
+          </Button>
+          <Button onClick={() => setSessionUser(null)}>닫기</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={Boolean(keyUser)}
         onClose={() => setKeyUser(null)}

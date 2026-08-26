@@ -93,6 +93,13 @@ const adminDestinations: QuickCommand[] = [
     keywords: "admin service settings 설정",
   },
   {
+    id: "go:admin-documents",
+    label: "문서 관리",
+    group: "이동",
+    to: "/admin/documents",
+    keywords: "admin documents 문서 소유권 완전삭제",
+  },
+  {
     id: "go:admin-workspaces",
     label: "워크스페이스 관리",
     group: "이동",

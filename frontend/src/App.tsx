@@ -10,6 +10,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { ApprovalsPage } from "./pages/ApprovalsPage";
 import { PersonalSettingsPage } from "./pages/PersonalSettingsPage";
 import { EditorPage } from "./pages/EditorPage";
+import { AdminDocumentsPage } from "./pages/admin/AdminDocumentsPage";
 import { AdminOverviewPage } from "./pages/admin/AdminOverviewPage";
 import { AdminSettingsPage } from "./pages/admin/AdminSettingsPage";
 import { AdminWorkspacesPage } from "./pages/admin/AdminWorkspacesPage";
@@ -73,6 +74,7 @@ export default function App() {
         <Route index element={<AdminOverviewPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />
         <Route path="workspaces" element={<AdminWorkspacesPage />} />
+        <Route path="documents" element={<AdminDocumentsPage />} />
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="key-policies" element={<AdminKeyPoliciesPage />} />
         <Route path="ai-usage" element={<AdminAIUsagePage />} />
