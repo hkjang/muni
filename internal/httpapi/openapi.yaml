@@ -598,6 +598,54 @@ paths:
       summary: Search and list service users
       responses:
         '200': { $ref: '#/components/responses/Success' }
+    post:
+      summary: Create a local account
+      description: >-
+        Creates the user, their personal workspace, the membership, and the
+        wrapped data key in one transaction. Omit `password` and muni generates
+        one, returned as `temporaryPassword` in this response and nowhere else.
+        Either way the account must replace the password before it can use any
+        other endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+                username: { type: string, description: Derived from the email when omitted; a collision gets a numeric suffix }
+                displayName: { type: string, maxLength: 100 }
+                role: { type: string, enum: [ADMIN, USER], default: USER }
+                locale: { type: string, default: ko-KR }
+                password: { type: string, minLength: 12, description: Omit to have muni generate one }
+                sendEmail: { type: boolean, default: false, description: Mail the credentials; needs SMTP configured }
+      responses:
+        '201': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+  /admin/users/import:
+    post:
+      summary: Create accounts in bulk from a CSV
+      description: >-
+        Multipart upload of a `file` field. The first line names the columns;
+        only `email` (or `이메일`) is required. Every row is reported
+        individually with its generated password or the reason it failed — one
+        bad row does not reject the rest.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
   /admin/users/{userId}:
     parameters:
       - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }

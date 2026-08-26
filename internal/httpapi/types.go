@@ -27,6 +27,10 @@ type User struct {
 	AvatarURL   *string   `json:"avatarUrl,omitempty"`
 	Locale      string    `json:"locale"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// MustChangePassword is set on an account whose password somebody else
+	// chose — muni generated it, or an administrator typed it. Until the
+	// person replaces it, the only thing the session can do is replace it.
+	MustChangePassword bool `json:"mustChangePassword,omitempty"`
 }
 
 type principal struct {

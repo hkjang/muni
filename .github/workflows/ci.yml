@@ -11,6 +11,23 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # muni is mostly SQL, and the tests that matter most are the ones asking
+    # whether a transaction across four tables leaves an account that works.
+    # Those skip themselves without MUNI_TEST_DSN, which meant they never ran
+    # anywhere but a laptop.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: muni
+          POSTGRES_DB: muni
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v7
       - name: Check the committed frontend placeholder
@@ -35,6 +52,8 @@ jobs:
         working-directory: frontend
       - name: Go tests
         run: go test ./...
+        env:
+          MUNI_TEST_DSN: postgres://postgres:muni@127.0.0.1:5432/muni?sslmode=disable
       - name: Build Linux binary
         run: CGO_ENABLED=0 go build -trimpath -o /tmp/muni ./cmd/muni
 

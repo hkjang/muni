@@ -156,6 +156,8 @@ func (s *Server) routes() {
 	s.handle("POST /api/v1/admin/settings/test-ptium", s.requireAdmin(http.HandlerFunc(s.testPtium)))
 	s.handle("POST /api/v1/admin/settings/test-smtp", s.requireAdmin(http.HandlerFunc(s.testSMTP)))
 	s.handle("GET /api/v1/admin/users", s.requireAdmin(http.HandlerFunc(s.listUsers)))
+	s.handle("POST /api/v1/admin/users", s.requireAdmin(http.HandlerFunc(s.createUser)))
+	s.handle("POST /api/v1/admin/users/import", s.requireAdmin(http.HandlerFunc(s.importUsers)))
 	s.handle("PATCH /api/v1/admin/users/{id}", s.requireAdmin(http.HandlerFunc(s.updateUser)))
 	s.handle("GET /api/v1/admin/users/{id}/keys", s.requireAdmin(http.HandlerFunc(s.listAnyUserKeys)))
 	s.handle("POST /api/v1/admin/users/{id}/keys/rotate", s.requireAdmin(http.HandlerFunc(s.rotateAnyUserKey)))

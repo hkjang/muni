@@ -5,7 +5,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -41,8 +40,29 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "INVALID_ORIGIN", "요청 출처를 확인할 수 없습니다.")
 			return
 		}
+		// A password somebody else chose is not a password yet. Until it is
+		// replaced the session can read who it is, change the password, and
+		// sign out — nothing else. Enforcing it here rather than in the
+		// browser means an API client cannot skip past it either, which is
+		// the case that matters: the account was handed out over email.
+		if p.User.MustChangePassword && !allowedBeforePasswordChange(r) {
+			writeError(w, http.StatusForbidden, "PASSWORD_CHANGE_REQUIRED",
+				"임시 비밀번호를 먼저 바꿔 주세요.")
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey, p)))
 	})
+}
+
+// allowedBeforePasswordChange lists what an account still holding a temporary
+// password may do. Signing out is on the list because trapping someone in a
+// session they cannot leave is its own kind of broken.
+func allowedBeforePasswordChange(r *http.Request) bool {
+	switch r.URL.Path {
+	case "/api/v1/auth/me", "/api/v1/me/password", "/api/v1/auth/logout":
+		return true
+	}
+	return false
 }
 
 func scopeAllowsRequest(scopes []string, r *http.Request) bool {
@@ -109,9 +129,9 @@ func (s *Server) authenticate(r *http.Request) (principal, error) {
 
 func (s *Server) authenticateSession(ctx context.Context, token string) (principal, error) {
 	var p principal
-	err := s.db.QueryRow(ctx, `SELECT u.id,u.username,u.email,u.display_name,u.role,u.status,u.avatar_url,u.locale,u.created_at
+	err := s.db.QueryRow(ctx, `SELECT u.id,u.username,u.email,u.display_name,u.role,u.status,u.avatar_url,u.locale,u.created_at,u.password_reset_required
 		FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now()`, cryptoutil.SHA256(token)).Scan(
-		&p.User.ID, &p.User.Username, &p.User.Email, &p.User.DisplayName, &p.User.Role, &p.User.Status, &p.User.AvatarURL, &p.User.Locale, &p.User.CreatedAt)
+		&p.User.ID, &p.User.Username, &p.User.Email, &p.User.DisplayName, &p.User.Role, &p.User.Status, &p.User.AvatarURL, &p.User.Locale, &p.User.CreatedAt, &p.User.MustChangePassword)
 	if err != nil {
 		return principal{}, err
 	}
@@ -355,43 +375,25 @@ func (s *Server) findOrProvisionOIDCUser(ctx context.Context, subject, email, us
 	if locale == "" {
 		locale = "ko-KR"
 	}
-	userID := uuid.New()
-	workspaceID := uuid.New()
-	dataKey, err := cryptoutil.RandomBytes(32)
-	if err != nil {
-		return User{}, err
-	}
-	wrapped, err := s.sealer.Seal(dataKey, "user-key:"+userID.String()+":1")
-	if err != nil {
-		return User{}, err
-	}
+	var created User
 	err = database.WithTx(ctx, s.db, func(tx pgx.Tx) error {
-		candidate := username
-		for attempt := 0; attempt < 20; attempt++ {
-			_, err := tx.Exec(ctx, `INSERT INTO users(id,username,email,display_name,role,status,oidc_subject,avatar_url,locale) VALUES($1,$2,$3,$4,$5,'ACTIVE',$6,NULLIF($7,''),$8)`,
-				userID, candidate, strings.ToLower(email), name, role, subject, picture, locale)
-			if err == nil {
-				username = candidate
-				break
-			}
-			if !strings.Contains(err.Error(), "users_username_key") {
-				return err
-			}
-			candidate = fmt.Sprintf("%s-%d", username, attempt+2)
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO workspaces(id,name,slug,kind,owner_id) VALUES($1,$2,$3,'PERSONAL',$4)`, workspaceID, name+"의 문서", "personal-"+userID.String(), userID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO workspace_members(workspace_id,user_id,role) VALUES($1,$2,'OWNER')`, workspaceID, userID); err != nil {
-			return err
-		}
-		_, err := tx.Exec(ctx, `INSERT INTO user_keys(user_id,name,fingerprint,wrapped_key,status,version) VALUES($1,'기본 개인 키',$2,$3,'ACTIVE',1)`, userID, cryptoutil.Fingerprint(dataKey), wrapped)
-		return err
+		var provisionErr error
+		created, provisionErr = provisionUser(ctx, tx, s.sealer, provisionSpec{
+			Username:    username,
+			Email:       email,
+			DisplayName: name,
+			Role:        role,
+			Locale:      locale,
+			OIDCSubject: &subject,
+			AvatarURL:   picture,
+		})
+		return provisionErr
 	})
 	if err != nil {
 		return User{}, err
 	}
-	return User{ID: userID, Username: username, Email: strings.ToLower(email), DisplayName: name, Role: role, Status: "ACTIVE", Locale: locale, CreatedAt: time.Now()}, nil
+	created.CreatedAt = time.Now()
+	return created, nil
 }
 
 func normalizeUsername(value string) string {

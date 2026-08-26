@@ -76,7 +76,9 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "HASH_FAILED", "비밀번호를 저장하지 못했습니다.")
 		return
 	}
-	if _, err := s.db.Exec(r.Context(), `UPDATE users SET password_hash=$2, updated_at=now() WHERE id=$1`, p.User.ID, hash); err != nil {
+	// Clearing the flag here is what lets the account out of the corner it
+	// was put in: from now on the password is one this person chose.
+	if _, err := s.db.Exec(r.Context(), `UPDATE users SET password_hash=$2, password_reset_required=false, updated_at=now() WHERE id=$1`, p.User.ID, hash); err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "비밀번호를 저장하지 못했습니다.")
 		return
 	}
@@ -115,7 +117,9 @@ func (s *Server) resetUserPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "HASH_FAILED", "비밀번호를 저장하지 못했습니다.")
 		return
 	}
-	result, err := s.db.Exec(r.Context(), `UPDATE users SET password_hash=$2, updated_at=now() WHERE id=$1`, id, hash)
+	// The administrator now knows this password, so it is temporary by
+	// definition — the account replaces it before it can do anything else.
+	result, err := s.db.Exec(r.Context(), `UPDATE users SET password_hash=$2, password_reset_required=true, updated_at=now() WHERE id=$1`, id, hash)
 	if err != nil || result.RowsAffected() == 0 {
 		writeError(w, 404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
 		return

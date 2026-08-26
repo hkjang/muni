@@ -42,7 +42,7 @@ func (s *Server) searchUsers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	limit := parseLimit(r.URL.Query().Get("limit"), 50)
-	rows, err := s.db.Query(r.Context(), `SELECT id,username,email,display_name,role,status,avatar_url,locale,created_at,last_login_at FROM users WHERE $1='' OR username ILIKE '%'||$1||'%' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%' ORDER BY created_at DESC LIMIT $2`, q, limit)
+	rows, err := s.db.Query(r.Context(), `SELECT id,username,email,display_name,role,status,avatar_url,locale,created_at,last_login_at,password_reset_required FROM users WHERE $1='' OR username ILIKE '%'||$1||'%' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%' ORDER BY created_at DESC LIMIT $2`, q, limit)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "사용자 목록을 불러오지 못했습니다.")
 		return
@@ -52,8 +52,8 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var u User
 		var lastLogin *time.Time
-		if rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.AvatarURL, &u.Locale, &u.CreatedAt, &lastLogin) == nil {
-			items = append(items, map[string]any{"id": u.ID, "username": u.Username, "email": u.Email, "displayName": u.DisplayName, "role": u.Role, "status": u.Status, "avatarUrl": u.AvatarURL, "locale": u.Locale, "createdAt": u.CreatedAt, "lastLoginAt": lastLogin})
+		if rows.Scan(&u.ID, &u.Username, &u.Email, &u.DisplayName, &u.Role, &u.Status, &u.AvatarURL, &u.Locale, &u.CreatedAt, &lastLogin, &u.MustChangePassword) == nil {
+			items = append(items, map[string]any{"id": u.ID, "username": u.Username, "email": u.Email, "displayName": u.DisplayName, "role": u.Role, "status": u.Status, "avatarUrl": u.AvatarURL, "locale": u.Locale, "createdAt": u.CreatedAt, "lastLoginAt": lastLogin, "mustChangePassword": u.MustChangePassword})
 		}
 	}
 	writeData(w, 200, items)
