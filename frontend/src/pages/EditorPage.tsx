@@ -28,6 +28,7 @@ import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { BlockId } from "../features/editor/extensions/blockId";
 import { LineHeight } from "../features/editor/extensions/lineHeight";
 import { PageBreak } from "../features/editor/extensions/pageBreak";
+import { TableOfContentsNode } from "../features/editor/extensions/tableOfContents";
 import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
@@ -153,6 +154,7 @@ export function EditorPage() {
       LineHeight,
       PageBreak,
       ParagraphIndent,
+      TableOfContentsNode,
       SearchHighlight,
     ],
     [collaboration.provider, collaboration.ydoc, user?.displayName, user?.id],

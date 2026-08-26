@@ -30,6 +30,7 @@ export const insertCommands: InsertCommand[] = [
   { id: "image", label: "이미지", keywords: "image picture photo 이미지 그림 사진", group: "삽입" },
   { id: "horizontalRule", label: "가로 구분선", keywords: "divider rule hr 구분선", group: "삽입" },
   { id: "pageBreak", label: "페이지 나누기", keywords: "page break 페이지 나누기 인쇄", group: "삽입" },
+  { id: "tableOfContents", label: "목차", keywords: "toc table of contents 목차 차례", group: "삽입" },
   { id: "date", label: "오늘 날짜", keywords: "date today 날짜 오늘", group: "삽입" },
 ];
 

@@ -18,6 +18,9 @@ func renderHTML(raw json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
+	// The contents list is generated at export time so it can never disagree
+	// with the headings above it.
+	document = richdoc.WithTableOfContents(document)
 	var out strings.Builder
 	renderHTMLBlocks(&out, document.Content)
 	return out.String()
@@ -402,6 +405,9 @@ func renderMarkdown(title string, raw json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
+	// The contents list is generated at export time so it can never disagree
+	// with the headings above it.
+	document = richdoc.WithTableOfContents(document)
 	var out strings.Builder
 	if strings.TrimSpace(title) != "" {
 		out.WriteString("# " + escapeMarkdown(title) + "\n\n")
@@ -618,6 +624,9 @@ func renderPlainText(title string, raw json.RawMessage) string {
 	if err != nil {
 		return ""
 	}
+	// The contents list is generated at export time so it can never disagree
+	// with the headings above it.
+	document = richdoc.WithTableOfContents(document)
 	var out strings.Builder
 	if strings.TrimSpace(title) != "" {
 		out.WriteString(title + "\n\n")

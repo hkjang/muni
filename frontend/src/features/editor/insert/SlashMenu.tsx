@@ -123,6 +123,9 @@ export function SlashMenu({
         case "pageBreak":
           chain.setPageBreak().run();
           break;
+        case "tableOfContents":
+          chain.insertTableOfContents().run();
+          break;
         case "date":
           chain.insertContent(todayLabel(new Date())).run();
           break;

@@ -90,6 +90,7 @@ func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title strin
 	if err != nil {
 		return nil, fmt.Errorf("문서 구조를 읽지 못했습니다: %w", err)
 	}
+	document = richdoc.WithTableOfContents(document)
 	images := s.attachmentImages(ctx, documentID)
 	return docx.Build(document, docx.Options{
 		Title:     title,
