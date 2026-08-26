@@ -91,7 +91,11 @@ export function NotificationBell() {
         slotProps={{
           paper: {
             className: "admin-menu-scroll",
-            sx: { width: 380, maxHeight: 460, mt: 1 },
+            sx: {
+              width: "min(380px, calc(100vw - 24px))",
+              maxHeight: 460,
+              mt: 1,
+            },
           },
         }}
       >

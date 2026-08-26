@@ -223,7 +223,7 @@ export function SlashMenu({
           elevation={8}
           sx={{
             mt: 0.5,
-            width: 268,
+            width: "min(268px, calc(100vw - 24px))",
             maxHeight: 320,
             overflowY: "auto",
             borderRadius: 2,

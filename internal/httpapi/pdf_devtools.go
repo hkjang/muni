@@ -1,0 +1,266 @@
+package httpapi
+
+import (
+	"bufio"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
+)
+
+// PDF rendering through Chromium's DevTools protocol.
+//
+// The command line can print a page and nothing else: its only choice about
+// headers and footers is Chromium's own, which puts the source URL and the
+// date on every page — and the source here is a temporary file path. A report
+// that is printed and filed needs page numbers, and this is the only way
+// Chromium offers to put them there. CSS cannot: page counters live in @page
+// margin boxes, which Chromium does not implement.
+//
+// The command line stays as the fallback. A protocol conversation has more
+// ways to fail than running a program does, and an export that stops working
+// is worse than one without page numbers.
+
+// devtoolsTimeout bounds the whole conversation, including the browser start.
+const devtoolsTimeout = 90 * time.Second
+
+type devtoolsMessage struct {
+	ID     int             `json:"id,omitempty"`
+	Method string          `json:"method,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	Result json.RawMessage `json:"result,omitempty"`
+	Error  *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+// printToPDFWithDevtools renders the page and returns the PDF.
+func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath string, footer pdfFooter) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(parent, devtoolsTimeout)
+	defer cancel()
+
+	profile := filepath.Join(tempDir, "profile")
+	command := exec.CommandContext(ctx, binary,
+		"--headless=new", "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+		// Port zero lets the operating system choose; Chromium writes the one
+		// it got into the profile directory.
+		"--remote-debugging-port=0",
+		"--user-data-dir="+profile,
+		"about:blank")
+	command.Env = append(os.Environ(),
+		"HOME="+tempDir,
+		"XDG_CONFIG_HOME="+filepath.Join(tempDir, "config"),
+		"XDG_CACHE_HOME="+filepath.Join(tempDir, "cache"),
+	)
+	// Chromium announces where to connect on stderr. The port file it also
+	// writes lands wherever the browser's own sandboxing decides to put the
+	// profile, which is not always where it was asked to; the announcement is
+	// not subject to that.
+	stderr, err := command.StderrPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := command.Start(); err != nil {
+		return nil, fmt.Errorf("Chromium을 시작하지 못했습니다: %w", err)
+	}
+	defer func() {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		_ = command.Wait()
+	}()
+
+	browserURL, err := waitForDevtools(ctx, stderr)
+	if err != nil {
+		return nil, err
+	}
+	endpoint, err := devtoolsPage(ctx, browserURL)
+	if err != nil {
+		return nil, err
+	}
+	connection, _, err := websocket.DefaultDialer.DialContext(ctx, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Chromium에 연결하지 못했습니다: %w", err)
+	}
+	defer connection.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = connection.SetReadDeadline(deadline)
+		_ = connection.SetWriteDeadline(deadline)
+	}
+
+	session := &devtoolsSession{connection: connection}
+	if _, err := session.call("Page.enable", nil); err != nil {
+		return nil, err
+	}
+	if _, err := session.call("Page.navigate", map[string]any{"url": "file://" + htmlPath}); err != nil {
+		return nil, err
+	}
+	if err := session.waitForLoad(); err != nil {
+		return nil, err
+	}
+
+	result, err := session.call("Page.printToPDF", map[string]any{
+		"printBackground":     true,
+		"displayHeaderFooter": true,
+		"headerTemplate":      "<span></span>",
+		"footerTemplate":      footer.template(),
+		// A4 in inches, with room at the bottom for the footer.
+		"paperWidth":   8.27,
+		"paperHeight":  11.69,
+		"marginTop":    0.79,
+		"marginBottom": 0.79,
+		"marginLeft":   0.79,
+		"marginRight":  0.79,
+	})
+	if err != nil {
+		return nil, err
+	}
+	var payload struct {
+		Data string `json:"data"`
+	}
+	if err := json.Unmarshal(result, &payload); err != nil || payload.Data == "" {
+		return nil, errors.New("Chromium이 PDF를 돌려주지 않았습니다")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload.Data)
+	if err != nil {
+		return nil, fmt.Errorf("PDF를 읽지 못했습니다: %w", err)
+	}
+	return decoded, nil
+}
+
+// pdfFooter is what goes at the bottom of every printed page.
+type pdfFooter struct {
+	Title string
+}
+
+// template builds the footer Chromium renders on each page.
+//
+// The placeholder classes are Chromium's own: it replaces their contents with
+// the numbers as it lays each page out. Everything is inlined because the
+// template is rendered in a document of its own that shares no stylesheet with
+// the page.
+func (f pdfFooter) template() string {
+	title := html.EscapeString(truncate(strings.TrimSpace(f.Title), 80))
+	return `<div style="width:100%;font-size:8pt;color:#666;` +
+		`font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;` +
+		`padding:0 12mm;display:flex;justify-content:space-between;align-items:center;">` +
+		`<span style="overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:70%;">` + title + `</span>` +
+		`<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>` +
+		`</div>`
+}
+
+// waitForDevtools reads the endpoint Chromium prints when it is ready.
+func waitForDevtools(ctx context.Context, stderr io.Reader) (string, error) {
+	type found struct {
+		url string
+		err error
+	}
+	results := make(chan found, 1)
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if index := strings.Index(line, "ws://"); index >= 0 {
+				results <- found{url: strings.TrimSpace(line[index:])}
+				return
+			}
+		}
+		// Reading to the end without an endpoint means the browser exited.
+		results <- found{err: errors.New("Chromium이 디버그 주소를 알려주지 않았습니다")}
+	}()
+
+	select {
+	case result := <-results:
+		return result.url, result.err
+	case <-ctx.Done():
+		return "", errors.New("Chromium이 제때 준비되지 않았습니다")
+	}
+}
+
+// devtoolsPage opens a page to print in and returns its socket.
+//
+// The browser endpoint cannot print; printing belongs to a page target, and
+// asking the browser's HTTP interface for one is the shortest way to get a
+// socket that can.
+func devtoolsPage(ctx context.Context, browserURL string) (string, error) {
+	parsed, err := url.Parse(browserURL)
+	if err != nil || parsed.Host == "" {
+		return "", fmt.Errorf("디버그 주소를 이해하지 못했습니다: %q", browserURL)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		"http://"+parsed.Host+"/json/new?about:blank", nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("Chromium 디버그 포트에 연결하지 못했습니다: %w", err)
+	}
+	defer response.Body.Close()
+	var target struct {
+		WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&target); err != nil || target.WebSocketDebuggerURL == "" {
+		return "", errors.New("Chromium이 인쇄할 페이지를 열지 못했습니다")
+	}
+	return target.WebSocketDebuggerURL, nil
+}
+
+// devtoolsSession is one conversation with one page.
+type devtoolsSession struct {
+	connection *websocket.Conn
+	nextID     int
+}
+
+func (s *devtoolsSession) call(method string, params map[string]any) (json.RawMessage, error) {
+	s.nextID++
+	id := s.nextID
+	encoded, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
+	if err != nil {
+		return nil, err
+	}
+	if err := s.connection.WriteMessage(websocket.TextMessage, encoded); err != nil {
+		return nil, fmt.Errorf("%s 요청을 보내지 못했습니다: %w", method, err)
+	}
+	// Events arrive on the same socket, so replies are matched by id rather
+	// than assumed to be next.
+	for {
+		var message devtoolsMessage
+		if err := s.connection.ReadJSON(&message); err != nil {
+			return nil, fmt.Errorf("%s 응답을 읽지 못했습니다: %w", method, err)
+		}
+		if message.ID != id {
+			continue
+		}
+		if message.Error != nil {
+			return nil, fmt.Errorf("%s: %s", method, message.Error.Message)
+		}
+		return message.Result, nil
+	}
+}
+
+// waitForLoad waits until the page says it has finished loading, so a document
+// is not printed before its fonts and images are there.
+func (s *devtoolsSession) waitForLoad() error {
+	for {
+		var message devtoolsMessage
+		if err := s.connection.ReadJSON(&message); err != nil {
+			return fmt.Errorf("페이지가 준비되기를 기다리지 못했습니다: %w", err)
+		}
+		if message.Method == "Page.loadEventFired" {
+			return nil
+		}
+	}
+}

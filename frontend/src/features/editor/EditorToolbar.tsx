@@ -1,8 +1,12 @@
 import type React from "react";
+import { useState } from "react";
 import { useEditorState, type Editor } from "@tiptap/react";
 import {
+  Box,
   Divider,
   IconButton,
+  ListItemIcon,
+  Menu,
   MenuItem,
   Select,
   Stack,
@@ -33,6 +37,7 @@ import {
   HorizontalRule,
   ImageOutlined,
   InsertPageBreakOutlined,
+  MoreHoriz,
   InsertLink,
   Redo,
   StrikethroughS,
@@ -83,6 +88,10 @@ export function EditorToolbar({
         "",
     }),
   });
+  // On a phone the toolbar is a long horizontal scroll, and the controls at
+  // the end of it are the ones nobody ever reaches. The less-used half moves
+  // into a menu there and stays inline on a screen with room for it.
+  const [overflow, setOverflow] = useState<HTMLElement | null>(null);
   const link = () => {
     // An existing link is edited in the menu that sits under it; this button
     // is for turning the selection into one.
@@ -329,6 +338,9 @@ export function EditorToolbar({
           <Code />
         </ToggleButton>
       </ToggleButtonGroup>
+      <Box
+        sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.5 }}
+      >
       <Tooltip title="들여쓰기 (Tab)">
         <IconButton onClick={() => indent(editor, 1)}>
           <FormatIndentIncrease />
@@ -416,6 +428,68 @@ export function EditorToolbar({
           <FormatClear />
         </IconButton>
       </Tooltip>
+      </Box>
+      <Tooltip title="더 보기">
+        <IconButton
+          aria-label="더 보기"
+          sx={{ display: { xs: "inline-flex", md: "none" } }}
+          onClick={(event) => setOverflow(event.currentTarget)}
+        >
+          <MoreHoriz />
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={overflow}
+        open={Boolean(overflow)}
+        onClose={() => setOverflow(null)}
+      >
+        {[
+          { label: "들여쓰기", icon: <FormatIndentIncrease />, run: () => indent(editor, 1) },
+          { label: "내어쓰기", icon: <FormatIndentDecrease />, run: () => indent(editor, -1) },
+          {
+            label: "첫 줄 들여쓰기",
+            icon: <FormatTextdirectionLToR />,
+            run: () => editor.chain().focus().toggleFirstLineIndent().run(),
+          },
+          { label: "링크", icon: <InsertLink />, run: link },
+          {
+            label: "표 삽입",
+            icon: <TableChartOutlined />,
+            run: () =>
+              editor
+                .chain()
+                .focus()
+                .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+                .run(),
+          },
+          {
+            label: "페이지 나누기",
+            icon: <InsertPageBreakOutlined />,
+            run: () => editor.chain().focus().setPageBreak().run(),
+          },
+          {
+            label: "가로 구분선",
+            icon: <HorizontalRule />,
+            run: () => editor.chain().focus().setHorizontalRule().run(),
+          },
+          {
+            label: "서식 지우기",
+            icon: <FormatClear />,
+            run: () => editor.chain().focus().unsetAllMarks().clearNodes().run(),
+          },
+        ].map((item) => (
+          <MenuItem
+            key={item.label}
+            onClick={() => {
+              item.run();
+              setOverflow(null);
+            }}
+          >
+            <ListItemIcon>{item.icon}</ListItemIcon>
+            {item.label}
+          </MenuItem>
+        ))}
+      </Menu>
     </Toolbar>
   );
 }

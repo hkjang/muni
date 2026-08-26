@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -188,6 +189,15 @@ func makePDF(parent context.Context, title, renderedHTML string) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
+	// The protocol path is what puts page numbers at the bottom; the command
+	// line cannot. It has more ways to fail than running a program does, so a
+	// failure falls back rather than losing the export.
+	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFooter{Title: title}); devErr == nil {
+		return body, nil
+	} else {
+		pdfLogger.Warn("devtools pdf failed, falling back to the command line", "error", devErr)
+	}
+
 	command := chromiumCommand(ctx, binary, tempDir, htmlPath, pdfPath)
 	if output, runErr := command.CombinedOutput(); runErr != nil {
 		if _, statErr := os.Stat(pdfPath); statErr != nil {
@@ -310,3 +320,8 @@ func numberedContent(content json.RawMessage, scheme string) json.RawMessage {
 	}
 	return encoded
 }
+
+// pdfLogger records why the protocol path was not used, which is the only
+// sign an operator would otherwise get that their PDFs lost their page
+// numbers.
+var pdfLogger = slog.Default().With("component", "pdf")

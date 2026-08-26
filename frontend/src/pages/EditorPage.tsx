@@ -48,7 +48,6 @@ import {
   DashboardCustomizeOutlined,
   DownloadOutlined,
   DeleteOutline,
-  Menu as MenuIcon,
   PeopleOutline,
 } from "@mui/icons-material";
 import {
@@ -107,7 +106,6 @@ export function EditorPage() {
   const [exportAnchor, setExportAnchor] = useState<HTMLElement | null>(null);
   const [deckOpen, setDeckOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
-  const [mobileTools, setMobileTools] = useState(false);
   // The reading aids Google Docs keeps around the page: an outline beside it,
   // find and replace over it, a zoom, and the shortcut list.
   const [outlineOpen, setOutlineOpen] = useState(!compact);
@@ -591,18 +589,15 @@ export function EditorPage() {
               {user?.displayName.slice(0, 1)}
             </Avatar>
           </IconButton>
-          <IconButton
-            onClick={() => setMobileTools((value) => !value)}
-            sx={{ display: { xs: "flex", sm: "none" } }}
-          >
-            <MenuIcon />
-          </IconButton>
         </Toolbar>
       </AppBar>
       <Box
         className="muni-no-print"
         sx={{
-          display: { xs: mobileTools ? "block" : "none", sm: "block" },
+          // The toolbar used to be hidden behind a menu button on a phone,
+          // which put every formatting control two taps away. It is always
+          // there now; the controls that do not fit have their own menu.
+          display: "block",
           borderBottom: "1px solid",
           borderColor: "divider",
           bgcolor: "#fff",

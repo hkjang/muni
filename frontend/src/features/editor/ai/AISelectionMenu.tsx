@@ -142,7 +142,9 @@ export function AISelectionMenu({
         sx={{
           p: 1,
           borderRadius: 2,
-          maxWidth: 520,
+          // A phone is narrower than the fixed widths these panels used to
+          // assume, and a menu wider than the screen cannot be reached.
+          maxWidth: "min(520px, calc(100vw - 24px))",
           border: "1px solid",
           borderColor: "divider",
         }}
@@ -175,7 +177,7 @@ export function AISelectionMenu({
             direction="row"
             gap={1}
             alignItems="center"
-            sx={{ minWidth: 380 }}
+            sx={{ minWidth: "min(380px, calc(100vw - 60px))" }}
           >
             <TextField
               autoFocus
@@ -203,7 +205,7 @@ export function AISelectionMenu({
         )}
 
         {(range || stream.running) && (
-          <Stack gap={1} sx={{ minWidth: 380 }}>
+          <Stack gap={1} sx={{ minWidth: "min(380px, calc(100vw - 60px))" }}>
             <Stack direction="row" alignItems="center" gap={1}>
               <Typography variant="caption" color="text.secondary" flex={1}>
                 AI 제안 · {label}
