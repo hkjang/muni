@@ -7,6 +7,7 @@ import { BrowserRouter } from "react-router-dom";
 import { theme } from "./lib/theme";
 import { AuthProvider } from "./contexts/AuthContext";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./styles.css";
 
 const queryClient = new QueryClient({
@@ -20,13 +21,17 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <AuthProvider>
-            <App />
-          </AuthProvider>
-        </BrowserRouter>
-      </QueryClientProvider>
+      {/* Inside the theme so the failure screen is still styled, and outside
+          everything else so it catches whatever the rest of the tree throws. */}
+      <ErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <AuthProvider>
+              <App />
+            </AuthProvider>
+          </BrowserRouter>
+        </QueryClientProvider>
+      </ErrorBoundary>
     </ThemeProvider>
   </StrictMode>,
 );
