@@ -12,11 +12,13 @@ const (
 	emuPerPixel  = 9525
 
 	// A4 portrait with 20mm margins, matching the HTML/PDF export stylesheet.
-	pageWidthTwips   = 11906
-	pageHeightTwips  = 16838
-	pageMarginTwips  = 1134
+	pageWidthTwips  = 11906
+	pageHeightTwips = 16838
+	pageMarginTwips = 1134
+	// contentWidthTwip is the portrait text column. A landscape document has a
+	// wider one, which is the point of turning the page, so anything sized to
+	// the column asks for it rather than reading this.
 	contentWidthTwip = pageWidthTwips - 2*pageMarginTwips
-	contentWidthEMU  = contentWidthTwip * emuPerTwip
 
 	listIndentTwips  = 720
 	listHangingTwips = 360

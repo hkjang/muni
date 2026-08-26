@@ -834,6 +834,7 @@ export function EditorPage() {
         onClose={() => setFurnitureOpen(false)}
         header={document.pageHeader ?? ""}
         footer={document.pageFooter ?? ""}
+        orientation={document.pageOrientation ?? "PORTRAIT"}
         title={document.title}
         canEdit={canEdit}
         onSave={(values) => updateMetadata(values)}
@@ -869,7 +870,7 @@ export function EditorPage() {
           <ListItemIcon>
             <VerticalSplitOutlined />
           </ListItemIcon>
-          머리글 · 바닥글
+          페이지 설정
         </MenuItem>
         <Divider />
         <MenuItem

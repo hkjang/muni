@@ -45,15 +45,16 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "DOCX_EXPORT_DISABLED", "관리자 정책에서 DOCX 내보내기가 비활성화되어 있습니다.")
 		return
 	}
-	var title, numbering, pageHeader, pageFooter string
+	var title, numbering, pageHeader, pageFooter, orientation string
 	var content json.RawMessage
-	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json,heading_numbering,page_header,page_footer FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering, &pageHeader, &pageFooter); err != nil {
+	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json,heading_numbering,page_header,page_footer,page_orientation FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering, &pageHeader, &pageFooter, &orientation); err != nil {
 		writeError(w, 404, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
 		return
 	}
 	// Numbering is applied once, here, so every format sees the same headings
 	// and the contents list picks the numbers up with them.
 	content = numberedContent(content, numbering)
+	landscape := orientation == "LANDSCAPE"
 	filename := safeFilename(title)
 	var body []byte
 	var contentType string
@@ -66,13 +67,13 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		body = []byte(renderMarkdown(title, content))
 		contentType = "text/markdown; charset=utf-8"
 	case "html":
-		body = []byte(fullHTML(title, s.renderHTMLWithAttachments(r.Context(), id, content)))
+		body = []byte(fullHTML(title, landscape, s.renderHTMLWithAttachments(r.Context(), id, content)))
 		contentType = "text/html; charset=utf-8"
 	case "docx":
-		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter)
+		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter, landscape)
 		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	case "pdf":
-		body, err = makePDF(r.Context(), title, pageHeader, pageFooter, s.renderHTMLWithAttachments(r.Context(), id, content))
+		body, err = makePDF(r.Context(), title, pageHeader, pageFooter, landscape, s.renderHTMLWithAttachments(r.Context(), id, content))
 		contentType = "application/pdf"
 	}
 	if err != nil {
@@ -89,7 +90,7 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 
 // makeDOCX renders a Word file that keeps the document's headings, lists,
 // tables, inline formatting and images.
-func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, author, pageHeader, pageFooter string) ([]byte, error) {
+func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, author, pageHeader, pageFooter string, landscape bool) ([]byte, error) {
 	document, err := richdoc.Parse(content)
 	if err != nil {
 		return nil, fmt.Errorf("문서 구조를 읽지 못했습니다: %w", err)
@@ -103,6 +104,7 @@ func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title strin
 		Created:   time.Now().UTC(),
 		Header:    pageHeader,
 		Footer:    pageFooter,
+		Landscape: landscape,
 		ResolveImage: func(src string) (docx.Image, bool) {
 			if picture, ok := images[src]; ok {
 				return picture, true
@@ -164,7 +166,7 @@ func pdfConcurrency() int {
 	return 2
 }
 
-func makePDF(parent context.Context, title, pageHeader, pageFooter, renderedHTML string) ([]byte, error) {
+func makePDF(parent context.Context, title, pageHeader, pageFooter string, landscape bool, renderedHTML string) ([]byte, error) {
 	// Wait for a rendering slot, but never longer than the caller allows.
 	waitCtx, cancelWait := context.WithTimeout(parent, 60*time.Second)
 	defer cancelWait()
@@ -182,7 +184,7 @@ func makePDF(parent context.Context, title, pageHeader, pageFooter, renderedHTML
 	defer os.RemoveAll(tempDir)
 	htmlPath := filepath.Join(tempDir, "document.html")
 	pdfPath := filepath.Join(tempDir, "document.pdf")
-	if err = os.WriteFile(htmlPath, []byte(fullHTML(title, renderedHTML)), 0600); err != nil {
+	if err = os.WriteFile(htmlPath, []byte(fullHTML(title, landscape, renderedHTML)), 0600); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
@@ -194,7 +196,7 @@ func makePDF(parent context.Context, title, pageHeader, pageFooter, renderedHTML
 	// The protocol path is what puts page numbers at the bottom; the command
 	// line cannot. It has more ways to fail than running a program does, so a
 	// failure falls back rather than losing the export.
-	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFurniture{Title: title, Header: pageHeader, Footer: pageFooter}); devErr == nil {
+	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFurniture{Title: title, Header: pageHeader, Footer: pageFooter, Landscape: landscape}); devErr == nil {
 		return body, nil
 	} else {
 		pdfLogger.Warn("devtools pdf failed, falling back to the command line", "error", devErr)
@@ -274,11 +276,20 @@ func intFrom(value any, fallback int) int {
 	}
 }
 
-func fullHTML(title, body string) string {
-	return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>` + html.EscapeString(title) + `</title><style>` + exportStylesheet + `</style></head><body><h1 class="doc-title">` + html.EscapeString(title) + `</h1>` + body + `</body></html>`
+func fullHTML(title string, landscape bool, body string) string {
+	// A turned page needs both the sheet and the text column to change; the
+	// stylesheet caps the column at the portrait width, which would leave a
+	// landscape print with the same narrow text and wide empty margins.
+	page := `@page{size:A4 portrait;margin:20mm}`
+	column := ""
+	if landscape {
+		page = `@page{size:A4 landscape;margin:20mm}`
+		column = `body{max-width:257mm}`
+	}
+	return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>` + html.EscapeString(title) + `</title><style>` + page + exportStylesheet + column + `</style></head><body><h1 class="doc-title">` + html.EscapeString(title) + `</h1>` + body + `</body></html>`
 }
 
-const exportStylesheet = `@page{margin:20mm}
+const exportStylesheet = `
 *{box-sizing:border-box}
 body{font-family:"Noto Sans CJK KR","Noto Sans KR","Malgun Gothic",sans-serif;font-size:11pt;line-height:1.65;color:#202124;max-width:190mm;margin:auto}
 h1{font-size:24pt;margin:0 0 12pt}h2{font-size:19pt;margin:18pt 0 8pt}h3{font-size:16pt;margin:16pt 0 6pt}

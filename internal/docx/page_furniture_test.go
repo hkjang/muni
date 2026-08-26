@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -126,3 +128,82 @@ func packageHas(t *testing.T, built []byte, name string) bool {
 }
 
 func contains(haystack, needle string) bool { return strings.Contains(haystack, needle) }
+
+// A Korean office document is full of wide tables, and printing one sideways
+// is routine in Word. muni had A4 portrait written into the code, so it was
+// not possible at all.
+func TestALandscapeDocumentTurnsThePageAndTheTextColumn(t *testing.T) {
+	built, err := Build(plainDoc(t), Options{Title: "가로 문서", Landscape: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	xml := documentXMLOf(t, built)
+	// Word reads w:orient, not the fact that the numbers were swapped.
+	if !contains(xml, `w:orient="landscape"`) {
+		t.Error("w:orient가 없습니다")
+	}
+	if !contains(xml, `w:w="16838"`) || !contains(xml, `w:h="11906"`) {
+		t.Errorf("용지 크기가 돌지 않았습니다: %.200s", xml)
+	}
+	_, _, meta, err := Parse(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !meta.Landscape {
+		t.Error("가로 방향이 되읽히지 않았습니다")
+	}
+}
+
+func TestAPortraitDocumentSaysNothingAboutOrientation(t *testing.T) {
+	built, err := Build(plainDoc(t), Options{Title: "세로 문서"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if contains(documentXMLOf(t, built), "w:orient") {
+		t.Error("세로 문서에 w:orient가 붙었습니다")
+	}
+	if _, _, meta, err := Parse(built); err != nil || meta.Landscape {
+		t.Errorf("세로로 읽혀야 합니다: %v %v", err, meta.Landscape)
+	}
+}
+
+func TestATableFillsTheWiderPage(t *testing.T) {
+	// The point of turning the page is the extra width. A table sized against
+	// the portrait column would leave it unused.
+	source := `{"type":"doc","content":[{"type":"table","content":[
+		{"type":"tableRow","content":[
+			{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"가"}]}]},
+			{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"나"}]}]}]}]}]}`
+	node, err := richdoc.Parse(json.RawMessage(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	portrait, err := Build(node, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	landscape, err := Build(node, Options{Landscape: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if widthOfGrid(t, documentXMLOf(t, landscape)) <= widthOfGrid(t, documentXMLOf(t, portrait)) {
+		t.Error("가로 문서의 표가 넓어지지 않았습니다")
+	}
+}
+
+// widthOfGrid adds up the column widths the table declares.
+func widthOfGrid(t *testing.T, xml string) int {
+	t.Helper()
+	total := 0
+	for _, match := range regexp.MustCompile(`<w:gridCol w:w="(\d+)"`).FindAllStringSubmatch(xml, -1) {
+		value, err := strconv.Atoi(match[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += value
+	}
+	if total == 0 {
+		t.Fatalf("표의 열 너비를 찾지 못했습니다: %.300s", xml)
+	}
+	return total
+}

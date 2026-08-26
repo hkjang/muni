@@ -111,14 +111,15 @@ func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath st
 		return nil, err
 	}
 
+	paperWidth, paperHeight := furniture.paper()
 	result, err := session.call("Page.printToPDF", map[string]any{
 		"printBackground":     true,
 		"displayHeaderFooter": true,
 		"headerTemplate":      furniture.headerTemplate(),
 		"footerTemplate":      furniture.footerTemplate(),
 		// A4 in inches, with room at the bottom for the footer.
-		"paperWidth":   8.27,
-		"paperHeight":  11.69,
+		"paperWidth":   paperWidth,
+		"paperHeight":  paperHeight,
 		"marginTop":    0.79,
 		"marginBottom": 0.79,
 		"marginLeft":   0.79,
@@ -151,6 +152,18 @@ type pdfFurniture struct {
 	// Footer replaces the title on the left of the bottom band when the
 	// author set one. The page numbers stay on the right either way.
 	Footer string
+	// Landscape turns the paper. A wide table printed on a portrait page is
+	// either cut off or shrunk past reading.
+	Landscape bool
+}
+
+// paper returns the sheet in inches, turned if the document asks for it.
+func (f pdfFurniture) paper() (width, height float64) {
+	const a4Width, a4Height = 8.27, 11.69
+	if f.Landscape {
+		return a4Height, a4Width
+	}
+	return a4Width, a4Height
 }
 
 // bandStyle is shared by both templates. Everything is inlined because

@@ -139,9 +139,9 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		visibility = "WORKSPACE"
 	}
 	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no,page_header,page_footer) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10)`,
+		if _, err := tx.Exec(r.Context(), `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no,page_header,page_footer,page_orientation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$11)`,
 			documentID, workspaceID, folderID, p.User.ID, title, visibility, content, text,
-			truncateRunes(furniture.Header, 200), truncateRunes(furniture.Footer, 200)); err != nil {
+			truncateRunes(furniture.Header, 200), truncateRunes(furniture.Footer, 200), orientationOf(furniture.Landscape)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(r.Context(), `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, documentID, content, text, p.User.ID, "import:"+strings.TrimPrefix(extension, ".")); err != nil {
@@ -465,4 +465,12 @@ func withBlockIDs(content json.RawMessage) (json.RawMessage, error) {
 		return content, nil
 	}
 	return document.JSON()
+}
+
+// orientationOf names the page the way the column stores it.
+func orientationOf(landscape bool) string {
+	if landscape {
+		return "LANDSCAPE"
+	}
+	return "PORTRAIT"
 }

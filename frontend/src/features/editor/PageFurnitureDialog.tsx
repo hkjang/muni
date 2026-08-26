@@ -9,6 +9,8 @@ import {
   DialogTitle,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from "@mui/material";
 
@@ -27,6 +29,7 @@ export function PageFurnitureDialog({
   onClose,
   header,
   footer,
+  orientation,
   title,
   canEdit,
   onSave,
@@ -35,24 +38,37 @@ export function PageFurnitureDialog({
   onClose: () => void;
   header: string;
   footer: string;
+  orientation: string;
   title: string;
   canEdit: boolean;
-  onSave: (values: { pageHeader: string; pageFooter: string }) => Promise<void>;
+  onSave: (values: {
+    pageHeader: string;
+    pageFooter: string;
+    pageOrientation: string;
+  }) => Promise<void>;
 }) {
   const [nextHeader, setNextHeader] = useState(header);
   const [nextFooter, setNextFooter] = useState(footer);
+  const [nextOrientation, setNextOrientation] = useState(orientation);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setNextHeader(header);
     setNextFooter(footer);
-  }, [open, header, footer]);
+    setNextOrientation(orientation || "PORTRAIT");
+  }, [open, header, footer, orientation]);
+
+  const landscape = nextOrientation === "LANDSCAPE";
 
   const save = async () => {
     setSaving(true);
     try {
-      await onSave({ pageHeader: nextHeader, pageFooter: nextFooter });
+      await onSave({
+        pageHeader: nextHeader,
+        pageFooter: nextFooter,
+        pageOrientation: nextOrientation,
+      });
       onClose();
     } finally {
       setSaving(false);
@@ -61,13 +77,38 @@ export function PageFurnitureDialog({
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>머리글과 바닥글</DialogTitle>
+      <DialogTitle>페이지 설정</DialogTitle>
       <DialogContent>
         <Stack gap={2.5} mt={1}>
           <Typography variant="body2" color="text.secondary">
-            인쇄하거나 PDF·Word로 내보낼 때 <b>모든 페이지</b>에 찍히는 한 줄입니다.
-            대외비 표시, 부서명, 문서번호를 넣는 자리입니다. 화면에서 편집할 때는
+            인쇄하거나 PDF·Word로 내보낼 때 적용됩니다. 화면에서 편집할 때는
             보이지 않습니다.
+          </Typography>
+
+          <Box>
+            <Typography variant="body2" fontWeight={640} mb={0.8}>
+              용지 방향
+            </Typography>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={nextOrientation}
+              onChange={(_, value) => value && setNextOrientation(value)}
+              disabled={!canEdit}
+            >
+              <ToggleButton value="PORTRAIT">세로</ToggleButton>
+              <ToggleButton value="LANDSCAPE">가로</ToggleButton>
+            </ToggleButtonGroup>
+            <Typography variant="caption" color="text.secondary" display="block" mt={0.6}>
+              {landscape
+                ? "가로 A4 (297 × 210mm). 넓은 표가 잘리지 않습니다."
+                : "세로 A4 (210 × 297mm)."}
+            </Typography>
+          </Box>
+
+          <Typography variant="body2" color="text.secondary">
+            아래 두 줄은 <b>모든 페이지</b>에 찍힙니다. 대외비 표시, 부서명,
+            문서번호를 넣는 자리입니다.
           </Typography>
 
           <TextField
@@ -104,6 +145,9 @@ export function PageFurnitureDialog({
                 bgcolor: "action.hover",
                 fontSize: 12,
                 color: "text.secondary",
+                // The preview is the shape of the page it describes.
+                maxWidth: landscape ? "100%" : 260,
+                mx: landscape ? 0 : "auto",
               }}
             >
               <Box sx={{ textAlign: "right", minHeight: 18 }}>

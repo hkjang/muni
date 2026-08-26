@@ -261,7 +261,7 @@ func TestHTMLExportImportRoundTrip(t *testing.T) {
 				{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"좌"}]}]},
 				{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"우"}]}]}]}]}
 	]}`)
-	exported := fullHTML("문서 제목", renderHTML(original))
+	exported := fullHTML("문서 제목", false, renderHTML(original))
 	content, _, err := htmlDocument([]byte(exported))
 	if err != nil {
 		t.Fatal(err)
@@ -413,7 +413,7 @@ func TestCrossFormatRoundTrip(t *testing.T) {
 			return content, err
 		}},
 		{"html", func() (json.RawMessage, error) {
-			content, _, err := htmlDocument([]byte(fullHTML("", renderHTML(original))))
+			content, _, err := htmlDocument([]byte(fullHTML("", false, renderHTML(original))))
 			return content, err
 		}},
 	}

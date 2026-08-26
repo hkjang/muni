@@ -73,6 +73,8 @@ export type DocumentItem = {
   pageHeader: string;
   /** The one line printed at the bottom left; page numbers go on the right. */
   pageFooter: string;
+  /** "PORTRAIT" or "LANDSCAPE" — which way the paper turns when printed. */
+  pageOrientation: string;
   /** Labels that group documents across folders. */
   tags: string[];
   favorite: boolean;

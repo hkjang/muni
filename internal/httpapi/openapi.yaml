@@ -203,6 +203,7 @@ paths:
                 status: { type: string, enum: [DRAFT, REVIEW, PUBLISHED, ARCHIVED] }
                 pageHeader: { type: string, maxLength: 200, description: "One line printed at the top of every page — where a Korean office document carries 대외비 and the department. Whitespace is collapsed: a header is one line." }
                 pageFooter: { type: string, maxLength: 200, description: "One line printed at the bottom left; page numbers go on the right. Empty means the document title." }
+                pageOrientation: { type: string, enum: [PORTRAIT, LANDSCAPE], description: "Which way the paper turns when printed. A landscape document also gets a wider text column, which is the point of turning it." }
                 visibility: { type: string, enum: [RESTRICTED, WORKSPACE, ORGANIZATION, LINK] }
                 reason: { type: string, maxLength: 100 }
       responses:

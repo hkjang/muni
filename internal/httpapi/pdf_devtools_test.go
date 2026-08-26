@@ -45,7 +45,7 @@ func TestDevtoolsPDFHasPageNumbers(t *testing.T) {
 				strings.Repeat("more words ", 6) + "</p>")
 		}
 	}
-	if err := os.WriteFile(htmlPath, []byte(fullHTML(title, body.String())), 0600); err != nil {
+	if err := os.WriteFile(htmlPath, []byte(fullHTML(title, false, body.String())), 0600); err != nil {
 		t.Fatal(err)
 	}
 

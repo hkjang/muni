@@ -232,9 +232,13 @@ func (b *builder) imageRun(node *richdoc.Node) string {
 	}
 	cx := width * emuPerPixel
 	cy := height * emuPerPixel
-	if cx > contentWidthEMU {
-		cy = int(float64(cy) * float64(contentWidthEMU) / float64(cx))
-		cx = contentWidthEMU
+	// An image is shrunk to the text column, which is wider on a page that has
+	// been turned. Measuring against the portrait column would keep a picture
+	// small on a landscape page for no reason.
+	available := b.contentWidth() * emuPerTwip
+	if cx > available {
+		cy = int(float64(cy) * float64(available) / float64(cx))
+		cx = available
 	}
 	if cy < 1 {
 		cy = 1

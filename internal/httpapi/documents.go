@@ -39,6 +39,9 @@ type documentItem struct {
 	// not of formatting.
 	PageHeader string `json:"pageHeader"`
 	PageFooter string `json:"pageFooter"`
+	// PageOrientation is "PORTRAIT" or "LANDSCAPE". A Korean office document
+	// is full of wide tables and printing one sideways is routine.
+	PageOrientation string `json:"pageOrientation"`
 	// CRDTGeneration changes when the shared editing state is replaced
 	// wholesale — a restore, say. The editor keys its offline copy on it so a
 	// stale local state cannot be pushed back over the restored content.
@@ -52,13 +55,13 @@ type documentItem struct {
 }
 
 func documentSelect() string {
-	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,d.heading_numbering,d.page_header,d.page_footer,
+	return `SELECT d.id,d.workspace_id,d.folder_id,d.owner_id,u.display_name,d.title,d.status,d.visibility,d.workflow_status,d.content_json,d.revision_no,d.crdt_generation,d.heading_numbering,d.page_header,d.page_footer,d.page_orientation,
 	ARRAY(SELECT t.name::text FROM document_tags dt JOIN tags t ON t.id=dt.tag_id WHERE dt.document_id=d.id ORDER BY t.name),
 	EXISTS(SELECT 1 FROM favorites f WHERE f.document_id=d.id AND f.user_id=$2),d.created_at,d.updated_at,d.deleted_at FROM documents d JOIN users u ON u.id=d.owner_id`
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
+	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.PageOrientation, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
 }
 
 func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {
@@ -280,6 +283,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		HeadingNumbering *string         `json:"headingNumbering"`
 		PageHeader       *string         `json:"pageHeader"`
 		PageFooter       *string         `json:"pageFooter"`
+		PageOrientation  *string         `json:"pageOrientation"`
 		Reason           string          `json:"reason"`
 	}
 	if !decodeJSON(w, r, &input) {
@@ -331,15 +335,23 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		}
 		*field = &trimmed
 	}
+	if input.PageOrientation != nil {
+		value := strings.ToUpper(strings.TrimSpace(*input.PageOrientation))
+		if !contains([]string{"PORTRAIT", "LANDSCAPE"}, value) {
+			writeError(w, 400, "INVALID_ORIENTATION", "용지 방향은 세로 또는 가로여야 합니다.")
+			return
+		}
+		input.PageOrientation = &value
+	}
 	if input.Reason == "" {
 		input.Reason = "autosave"
 	}
 	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
 		var currentTitle, currentStatus, currentVisibility, currentWorkflow, currentNumbering string
-		var currentHeader, currentFooter string
+		var currentHeader, currentFooter, currentOrientation string
 		var currentContent json.RawMessage
 		var revision int
-		if err := tx.QueryRow(r.Context(), `SELECT title,status,visibility,workflow_status,content_json,revision_no,heading_numbering,page_header,page_footer FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&currentTitle, &currentStatus, &currentVisibility, &currentWorkflow, &currentContent, &revision, &currentNumbering, &currentHeader, &currentFooter); err != nil {
+		if err := tx.QueryRow(r.Context(), `SELECT title,status,visibility,workflow_status,content_json,revision_no,heading_numbering,page_header,page_footer,page_orientation FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&currentTitle, &currentStatus, &currentVisibility, &currentWorkflow, &currentContent, &revision, &currentNumbering, &currentHeader, &currentFooter, &currentOrientation); err != nil {
 			return err
 		}
 		if currentWorkflow == "PENDING" {
@@ -366,6 +378,9 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 		if input.PageFooter != nil {
 			currentFooter = *input.PageFooter
 		}
+		if input.PageOrientation != nil {
+			currentOrientation = *input.PageOrientation
+		}
 		contentChanged := len(input.Content) > 0 && string(input.Content) != string(currentContent)
 		if len(input.Content) > 0 {
 			currentContent = input.Content
@@ -375,7 +390,7 @@ func (s *Server) updateDocument(w http.ResponseWriter, r *http.Request) {
 			newRevision++
 		}
 		text := extractDocumentText(currentContent)
-		if _, err := tx.Exec(r.Context(), `UPDATE documents SET title=$2,status=$3,visibility=$4,content_json=$5,content_text=$6,revision_no=$7,heading_numbering=$8,page_header=$9,page_footer=$10,updated_at=now() WHERE id=$1`, id, currentTitle, currentStatus, currentVisibility, currentContent, text, newRevision, currentNumbering, currentHeader, currentFooter); err != nil {
+		if _, err := tx.Exec(r.Context(), `UPDATE documents SET title=$2,status=$3,visibility=$4,content_json=$5,content_text=$6,revision_no=$7,heading_numbering=$8,page_header=$9,page_footer=$10,page_orientation=$11,updated_at=now() WHERE id=$1`, id, currentTitle, currentStatus, currentVisibility, currentContent, text, newRevision, currentNumbering, currentHeader, currentFooter, currentOrientation); err != nil {
 			return err
 		}
 		if contentChanged {

@@ -350,6 +350,10 @@ func normalizeStyleName(value string) string {
 type Meta struct {
 	Header string
 	Footer string
+	// Landscape is set when the document's section is turned sideways, which
+	// is how a wide table gets printed. muni holds one orientation for the
+	// whole document; a file that changes it partway keeps the first.
+	Landscape bool
 }
 
 // pageFurniture pulls the default header and footer text out of the package.
@@ -404,9 +408,22 @@ func (imp *importer) pageFurniture(files map[string]*zip.File, body *xnode) Meta
 		}
 		return fallback
 	}
+	landscape := false
+	if size := section.child("w", "pgSz"); size != nil {
+		// w:orient is what Word writes and reads. Some producers only swap the
+		// numbers, so a page wider than it is tall counts too.
+		if strings.EqualFold(size.attr("w:orient"), "landscape") {
+			landscape = true
+		} else {
+			width, wErr := strconv.Atoi(size.attr("w:w"))
+			height, hErr := strconv.Atoi(size.attr("w:h"))
+			landscape = wErr == nil && hErr == nil && width > height
+		}
+	}
 	return Meta{
-		Header: truncateRunes(pick("headerReference"), 200),
-		Footer: truncateRunes(pick("footerReference"), 200),
+		Header:    truncateRunes(pick("headerReference"), 200),
+		Footer:    truncateRunes(pick("footerReference"), 200),
+		Landscape: landscape,
 	}
 }
 

@@ -227,7 +227,7 @@ func TestPDFExportGivesUpWhenSlotsAreBusy(t *testing.T) {
 	}()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := makePDF(ctx, "제목", "", "", "<p>본문</p>")
+	_, err := makePDF(ctx, "제목", "", "", false, "<p>본문</p>")
 	if err == nil {
 		t.Fatal("expected the export to be rejected while all slots are busy")
 	}
@@ -339,7 +339,7 @@ func TestBlockIDsSurviveTheHTMLRoundTrip(t *testing.T) {
 			t.Fatalf("export dropped %s:\n%s", expected, rendered)
 		}
 	}
-	content, _, err := htmlDocument([]byte(fullHTML("", rendered)))
+	content, _, err := htmlDocument([]byte(fullHTML("", false, rendered)))
 	if err != nil {
 		t.Fatal(err)
 	}

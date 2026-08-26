@@ -31,6 +31,10 @@ type Options struct {
 	// document number.
 	Header string
 	Footer string
+	// Landscape turns the page sideways. A Korean office document is full of
+	// wide tables, and the text column is what they are sized against, so this
+	// changes their width too rather than only the paper.
+	Landscape bool
 	// ResolveImage turns an image node's src into embeddable bytes. Returning
 	// false drops the image rather than failing the whole export.
 	ResolveImage func(src string) (Image, bool)
@@ -165,11 +169,33 @@ func (b *builder) pageFurniture() string {
 	return refs.String()
 }
 
+// pageSize returns the paper in twips, turned if the document asks for it.
+func (b *builder) pageSize() (width, height int) {
+	if b.opts.Landscape {
+		return pageHeightTwips, pageWidthTwips
+	}
+	return pageWidthTwips, pageHeightTwips
+}
+
+// contentWidth is the text column between the margins.
+func (b *builder) contentWidth() int {
+	width, _ := b.pageSize()
+	return width - 2*pageMarginTwips
+}
+
 func (b *builder) sectionProperties() string {
+	width, height := b.pageSize()
+	orientation := ""
+	if b.opts.Landscape {
+		// Word reads w:orient, not the fact that w is larger than h. Writing
+		// the size without it gives a page that is the right shape and prints
+		// on the wrong one.
+		orientation = ` w:orient="landscape"`
+	}
 	// The references come before w:pgSz: CT_SectPr fixes the order, and Word
 	// refuses a file that puts them after.
 	return `<w:sectPr>` + b.pageFurniture() +
-		`<w:pgSz` + intAttr("w:w", pageWidthTwips) + intAttr("w:h", pageHeightTwips) + `/>` +
+		`<w:pgSz` + intAttr("w:w", width) + intAttr("w:h", height) + orientation + `/>` +
 		`<w:pgMar` + intAttr("w:top", pageMarginTwips) + intAttr("w:right", pageMarginTwips) +
 		intAttr("w:bottom", pageMarginTwips) + intAttr("w:left", pageMarginTwips) +
 		` w:header="708" w:footer="708" w:gutter="0"/>` +

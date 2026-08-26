@@ -58,7 +58,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := s.db.Query(r.Context(), `
-		SELECT d.id, d.title, d.content_json, d.folder_id, d.updated_at, d.deleted_at, u.display_name
+		SELECT d.id, d.title, d.content_json, d.folder_id, d.updated_at, d.deleted_at, u.display_name, d.page_orientation
 		FROM documents d JOIN users u ON u.id = d.owner_id
 		WHERE d.workspace_id = $1 AND ($2 OR d.deleted_at IS NULL)
 		ORDER BY d.folder_id NULLS FIRST, d.title
@@ -75,13 +75,18 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 		updated  time.Time
 		trashed  bool
 		owner    string
+		// A document turned sideways stays turned in a bulk export; the
+		// alternative is a zip where the wide tables are the ones cut off.
+		landscape bool
 	}
 	items := make([]exportItem, 0, 64)
 	for rows.Next() {
 		var item exportItem
 		var deleted *time.Time
+		var orientation string
 		if rows.Scan(&item.id, &item.title, &item.content, &item.folderID,
-			&item.updated, &deleted, &item.owner) == nil {
+			&item.updated, &deleted, &item.owner, &orientation) == nil {
+			item.landscape = orientation == "LANDSCAPE"
 			item.trashed = deleted != nil
 			items = append(items, item)
 		}
@@ -120,7 +125,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 		case "md":
 			body = renderMarkdown(item.title, item.content)
 		case "html":
-			body = fullHTML(item.title, renderHTML(item.content))
+			body = fullHTML(item.title, item.landscape, renderHTML(item.content))
 		case "txt":
 			body = renderPlainText(item.title, item.content)
 		}

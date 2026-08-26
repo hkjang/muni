@@ -89,7 +89,7 @@ func sortByColumn(cells []placedCell) {
 
 // columnWidths converts the editor's per-cell pixel widths into twips that add
 // up to the printable page width, falling back to an even split.
-func columnWidths(grid [][]placedCell, columns int) []int {
+func columnWidths(grid [][]placedCell, columns int, available int) []int {
 	if columns <= 0 {
 		return nil
 	}
@@ -131,12 +131,12 @@ func columnWidths(grid [][]placedCell, columns int) []int {
 		}
 	}
 	if total == 0 {
-		width := contentWidthTwip / columns
+		width := available / columns
 		widths := make([]int, columns)
 		for index := range widths {
 			widths[index] = width
 		}
-		widths[columns-1] = contentWidthTwip - width*(columns-1)
+		widths[columns-1] = available - width*(columns-1)
 		return widths
 	}
 	if missing > 0 {
@@ -151,14 +151,14 @@ func columnWidths(grid [][]placedCell, columns int) []int {
 	widths := make([]int, columns)
 	assigned := 0
 	for index, value := range pixels {
-		widths[index] = int(value / total * float64(contentWidthTwip))
+		widths[index] = int(value / total * float64(available))
 		if widths[index] < 240 {
 			widths[index] = 240
 		}
 		assigned += widths[index]
 	}
 	// Absorb rounding drift into the last column so the grid stays exact.
-	if difference := contentWidthTwip - assigned; difference != 0 && columns > 0 {
+	if difference := available - assigned; difference != 0 && columns > 0 {
 		if widths[columns-1]+difference >= 240 {
 			widths[columns-1] += difference
 		}
@@ -180,7 +180,7 @@ func (b *builder) table(node *richdoc.Node, ctx blockContext) {
 	if columns == 0 {
 		return
 	}
-	widths := columnWidths(grid, columns)
+	widths := columnWidths(grid, columns, b.contentWidth())
 
 	var out strings.Builder
 	out.WriteString(`<w:tbl><w:tblPr><w:tblStyle w:val="TableGrid"/>` +
