@@ -151,9 +151,9 @@ func TestARunsOwnSwitchIsNotFlippedByItsStyle(t *testing.T) {
 	}
 }
 
-// muni's documents are Korean. A run naming both fonts means the Hangul one
-// for its Hangul; taking w:ascii labels the text with the font its punctuation
-// is set in — and once styles merge, with a latin font it never asked for.
+// A run that named a font has chosen one. Letting the style fill in the other
+// half of w:rFonts changes which font is read: a run saying only 바탕체, under
+// a style saying only Cambria, came out Cambria.
 func TestAKoreanRunKeepsItsKoreanFont(t *testing.T) {
 	styles := `<w:style w:type="character" w:styleId="Latin"><w:name w:val="라틴"/>` +
 		`<w:rPr><w:rFonts w:ascii="Cambria"/></w:rPr></w:style>`
@@ -169,5 +169,36 @@ func TestAKoreanRunKeepsItsKoreanFont(t *testing.T) {
 	}
 	if contains(encoded, "Cambria") {
 		t.Errorf("런이 요청하지 않은 라틴 글꼴이 붙었습니다: %s", encoded)
+	}
+}
+
+// A run that names no font at all — a bare w:hint="eastAsia", which Korean
+// files write constantly — still takes the style's.
+func TestARunThatNamesNoFontTakesTheStyles(t *testing.T) {
+	styles := `<w:style w:type="character" w:styleId="Named"><w:name w:val="이름"/>` +
+		`<w:rPr><w:rFonts w:ascii="맑은 고딕"/></w:rPr></w:style>`
+	body := `<w:p><w:r><w:rPr><w:rStyle w:val="Named"/><w:rFonts w:hint="eastAsia"/></w:rPr>` +
+		`<w:t>이름붙은글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := marshalDocument(t, document)
+	if !contains(encoded, "맑은 고딕") {
+		t.Errorf("스타일의 글꼴이 오지 않았습니다: %s", encoded)
+	}
+}
+
+// And the font a run names still decides whether it is code. Preferring the
+// Hangul half would have read D2Coding as 맑은 고딕 and lost the code mark.
+func TestACodeRunIsStillCode(t *testing.T) {
+	body := `<w:p><w:r><w:rPr><w:rFonts w:ascii="D2Coding" w:eastAsia="맑은 고딕"/></w:rPr>` +
+		`<w:t>코드글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marks := markedText(t, document, "코드글자"); !has(marks, "code") {
+		t.Errorf("코드 표시가 사라졌습니다: %v", marks)
 	}
 }

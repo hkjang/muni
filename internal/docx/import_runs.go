@@ -192,6 +192,14 @@ func (imp *importer) styledRunProperties(properties *xnode) *xnode {
 	}
 	// w:rStyle stays: marks() reads it to recognise a code style.
 	var skip []string
+	if namesAFont(properties.child("w", "rFonts")) {
+		// A run that named a font has chosen one. Letting the style fill in
+		// the other half of w:rFonts changes which font is read: a run saying
+		// only 바탕체, under a style saying only Cambria, would come out
+		// Cambria. A run that names none — a bare w:hint="eastAsia", which
+		// Korean files write constantly — still takes the style's.
+		skip = append(skip, "w:rFonts")
+	}
 	if hyperlink {
 		// Word's Hyperlink style is its blue and its underline. muni draws a
 		// link its own way, and a colour taken from the style would freeze
@@ -238,13 +246,9 @@ func (imp *importer) marks(properties *xnode) []richdoc.Mark {
 
 	monospaced := false
 	if fonts := properties.child("w", "rFonts"); fonts != nil {
-		// w:eastAsia first. muni's documents are Korean, and a run that names
-		// both means the Hangul one for its Hangul; taking w:ascii labels the
-		// text with the font its punctuation is set in — and once styles are
-		// merged in, with a latin font the run never asked for.
-		family := fonts.attr("w:eastAsia")
+		family := fonts.attr("w:ascii")
 		if family == "" {
-			family = fonts.attr("w:ascii")
+			family = fonts.attr("w:eastAsia")
 		}
 		if family != "" {
 			if isMonospaceFont(family) {
@@ -437,6 +441,20 @@ func sameMarks(left, right []richdoc.Mark) bool {
 		}
 	}
 	return true
+}
+
+// namesAFont reports whether a w:rFonts actually chooses a typeface, rather
+// than only hinting at which half of a run is which.
+func namesAFont(fonts *xnode) bool {
+	if fonts == nil {
+		return false
+	}
+	for _, name := range []string{"w:ascii", "w:eastAsia", "w:hAnsi", "w:cs"} {
+		if strings.TrimSpace(fonts.attr(name)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // alternateContent picks the branch of an mc:AlternateContent to read.
