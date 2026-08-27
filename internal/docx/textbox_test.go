@@ -133,3 +133,16 @@ func TestABlockLevelTextBoxKeepsItsWords(t *testing.T) {
 		}
 	}
 }
+
+// The shape Word actually writes for a block-level drawing is a paragraph
+// inside the branch. The block walker hands that to the run walker, so reading
+// the branch for shapes as well put every stamp in the document twice.
+func TestABlockLevelShapeIsReadOnce(t *testing.T) {
+	body := `<mc:AlternateContent><mc:Choice Requires="wps"><w:p><w:r><w:pict><v:shape><v:textbox>` +
+		`<w:txbxContent><w:p><w:r><w:t>직인</w:t></w:r></w:p></w:txbxContent>` +
+		`</v:textbox></v:shape></w:pict></w:r></w:p></mc:Choice></mc:AlternateContent>`
+	text := importedText(t, body)
+	if count := strings.Count(text, "직인"); count != 1 {
+		t.Errorf("직인이 %d번 나옵니다: %q", count, text)
+	}
+}

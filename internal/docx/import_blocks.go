@@ -24,11 +24,14 @@ func (imp *importer) blocks(nodes []*xnode) []block {
 	// read. See tocEntrySpan.
 	skipUntil := -1
 	for index, node := range nodes {
+		// Whatever the contents field wrapped, not only its paragraphs: Word
+		// also lays the cached entries out as a table, and importing that is
+		// importing the frozen page numbers this exists to drop.
+		if index <= skipUntil {
+			continue
+		}
 		switch {
 		case node.is("w", "p"):
-			if index <= skipUntil {
-				continue
-			}
 			if end, ok := tocEntrySpan(nodes, index); ok {
 				out = append(out, block{node: &richdoc.Node{Type: richdoc.TableOfContentsType}})
 				skipUntil = end
@@ -45,9 +48,15 @@ func (imp *importer) blocks(nodes []*xnode) []block {
 			}
 		case node.is("mc", "AlternateContent"):
 			branch := alternateContent(node)
-			out = append(out, imp.blocks(branch)...)
-			// A shape sitting at block level carries words too, and the block
-			// walker only knows paragraphs and tables.
+			if holdsBlocks(branch) {
+				// The shape is inside a paragraph of its own, which the block
+				// walker hands to the run walker. Reading it here as well
+				// would put every stamp in the document twice.
+				out = append(out, imp.blocks(branch)...)
+				break
+			}
+			// A shape sitting bare at block level: the block walker knows only
+			// paragraphs and tables, so its words would be lost.
 			if words := imp.shapes(branch, nil); len(words) > 0 {
 				out = append(out, block{node: richdoc.Paragraph(words...)})
 			}
@@ -106,6 +115,17 @@ func fieldInstructions(paragraph *xnode) []string {
 	}
 	walk(paragraph)
 	return out
+}
+
+// holdsBlocks reports whether a list of nodes carries block content of its
+// own, rather than a bare shape.
+func holdsBlocks(nodes []*xnode) bool {
+	for _, node := range nodes {
+		if node.is("w", "p") || node.is("w", "tbl") {
+			return true
+		}
+	}
+	return false
 }
 
 // tocFieldInstruction reports whether a field instruction asks for a table of
@@ -220,6 +240,14 @@ func mergeProperties(own []*xnode, chain [][]*xnode, skip ...string) []*xnode {
 			return
 		}
 		existing, seen := byKey[key]
+		if seen && fromStyle && len(existing.Attrs) == 0 {
+			// An on/off property is the element, not an attribute of it:
+			// <w:b/> means bold and <w:b w:val="0"/> means not bold. Merging
+			// the style's w:val into the run's bare element turns the author's
+			// bold off. A node that wrote the element bare has already said
+			// everything it has to say.
+			return
+		}
 		if !seen {
 			// A style's element is copied, never shared: a later paragraph
 			// naming the same style must not see attributes this one gained.
@@ -627,8 +655,8 @@ func (imp *importer) table(node *xnode) *richdoc.Node {
 				cell.SetAttr("backgroundColor", shade)
 			}
 			// Word's default is the top, and saying nothing means the top.
-			// muni draws a cell centred unless told otherwise, so an imported
-			// cell has to say where its text sat or it moves.
+			// The cell records it either way: an export reads this attribute,
+			// and a cell that says nothing is a cell muni wrote itself.
 			cell.SetAttr("verticalAlign", cellVerticalAlign(properties))
 			if columnWidths := widthsFor(widths, column, span); len(columnWidths) > 0 {
 				cell.SetAttr("colwidth", columnWidths)

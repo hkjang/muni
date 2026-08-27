@@ -238,9 +238,13 @@ func (imp *importer) marks(properties *xnode) []richdoc.Mark {
 
 	monospaced := false
 	if fonts := properties.child("w", "rFonts"); fonts != nil {
-		family := fonts.attr("w:ascii")
+		// w:eastAsia first. muni's documents are Korean, and a run that names
+		// both means the Hangul one for its Hangul; taking w:ascii labels the
+		// text with the font its punctuation is set in — and once styles are
+		// merged in, with a latin font the run never asked for.
+		family := fonts.attr("w:eastAsia")
 		if family == "" {
-			family = fonts.attr("w:eastAsia")
+			family = fonts.attr("w:ascii")
 		}
 		if family != "" {
 			if isMonospaceFont(family) {

@@ -129,3 +129,45 @@ func TestAMissingStyleIsNotAnError(t *testing.T) {
 		t.Errorf("marks = %v", marks)
 	}
 }
+
+// An on/off property is the element, not an attribute of it: <w:b/> means bold
+// and <w:b w:val="0"/> means not bold. Merging the style's w:val into the
+// run's bare element turned the author's bold off.
+func TestARunsOwnSwitchIsNotFlippedByItsStyle(t *testing.T) {
+	styles := `<w:style w:type="character" w:styleId="NoBold"><w:name w:val="굵기끔"/>` +
+		`<w:rPr><w:b w:val="0"/></w:rPr></w:style>`
+	body := `<w:p><w:r><w:rPr><w:rStyle w:val="NoBold"/><w:b/></w:rPr><w:t>굵게쓴글자</w:t></w:r></w:p>` +
+		`<w:p><w:r><w:rPr><w:rStyle w:val="NoBold"/></w:rPr><w:t>스타일만글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marks := markedText(t, document, "굵게쓴글자"); !has(marks, "bold") {
+		t.Errorf("쓴 사람이 준 굵기를 스타일이 껐습니다: %v", marks)
+	}
+	// And where the run says nothing, the style still speaks.
+	if marks := markedText(t, document, "스타일만글자"); has(marks, "bold") {
+		t.Errorf("스타일이 끈 굵기가 살아났습니다: %v", marks)
+	}
+}
+
+// muni's documents are Korean. A run naming both fonts means the Hangul one
+// for its Hangul; taking w:ascii labels the text with the font its punctuation
+// is set in — and once styles merge, with a latin font it never asked for.
+func TestAKoreanRunKeepsItsKoreanFont(t *testing.T) {
+	styles := `<w:style w:type="character" w:styleId="Latin"><w:name w:val="라틴"/>` +
+		`<w:rPr><w:rFonts w:ascii="Cambria"/></w:rPr></w:style>`
+	body := `<w:p><w:r><w:rPr><w:rStyle w:val="Latin"/><w:rFonts w:eastAsia="바탕체"/></w:rPr>` +
+		`<w:t>한글글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, _ := marshalDocument(t, document)
+	if !contains(encoded, "바탕체") {
+		t.Errorf("한글 글꼴이 사라졌습니다: %s", encoded)
+	}
+	if contains(encoded, "Cambria") {
+		t.Errorf("런이 요청하지 않은 라틴 글꼴이 붙었습니다: %s", encoded)
+	}
+}

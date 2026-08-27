@@ -452,22 +452,60 @@ func furnitureText(root *xnode) string {
 		}
 		text := current.text
 		if index > 0 && pieces[index-1].field {
-			text = strings.TrimLeftFunc(text, isFieldJoiner)
+			text = trimFieldJoiners(text, true)
 		}
 		if index+1 < len(pieces) && pieces[index+1].field {
-			text = strings.TrimRightFunc(text, isFieldJoiner)
+			text = trimFieldJoiners(text, false)
 		}
 		out.WriteString(text)
 	}
 	return out.String()
 }
 
+// trimFieldJoiners removes the punctuation that only held a field to its
+// neighbour, from the side the field was on.
+//
+// A run of spaces alone is left where it is: the space in "총 [NUMPAGES] 쪽"
+// separates two words the author wrote, and eating it gives "총쪽". Only a run
+// that actually carries a joining mark goes, which is what "[PAGE] / " and
+// "[STYLEREF] · " are. Brackets are not joiners — trimming the one in
+// "홍길동 (기획조정실) / [PAGE]" would leave the parenthesis unclosed.
+func trimFieldJoiners(text string, leading bool) string {
+	runes := []rune(text)
+	start, end := 0, len(runes)
+	mark := false
+	if leading {
+		for start < end && isFieldJoiner(runes[start]) {
+			if !isSpace(runes[start]) {
+				mark = true
+			}
+			start++
+		}
+	} else {
+		for end > start && isFieldJoiner(runes[end-1]) {
+			if !isSpace(runes[end-1]) {
+				mark = true
+			}
+			end--
+		}
+	}
+	if !mark {
+		return text
+	}
+	return string(runes[start:end])
+}
+
+func isSpace(r rune) bool {
+	return r == ' ' || r == '\t' || r == '\u00a0'
+}
+
 // isFieldJoiner reports whether a rune is the sort of punctuation that sits
 // between a field and its neighbour rather than saying anything itself. Only
-// the marks that join: a comma or a full stop belongs to whoever typed it.
+// the marks that join: a comma, a full stop or a bracket belongs to whoever
+// typed it.
 func isFieldJoiner(r rune) bool {
 	switch r {
-	case ' ', '\t', '\u00a0', '/', '-', '~', '·', '|', '(', ')', '[', ']':
+	case ' ', '\t', '\u00a0', '/', '-', '~', '·', '|':
 		return true
 	}
 	return false
@@ -605,7 +643,7 @@ func (imp *importer) loadNotes(file *zip.File, local string) {
 		// Only the type says what a separator is. Word numbers its separators
 		// -1 and 0 and its first real note 1; muni's own writer numbers them
 		// 0 and 1 and starts at 2. A guard on the number was tuned to muni's
-		// output and threw away the first footnote of every Word file.
+		// own output and threw away the first footnote of every Word file.
 		id := child.attr("w:id")
 		if id == "" {
 			continue

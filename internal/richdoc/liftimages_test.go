@@ -156,3 +156,19 @@ func TestLiftImagesDoesNotSplitAHeadingInTwo(t *testing.T) {
 		t.Errorf("그림이 제목 뒤에 오지 않았습니다: %s", dump(t, doc))
 	}
 }
+
+// A heading that was only a picture — a logo on a cover page — leaves no
+// heading behind. An empty one would still draw its spacing and its weight.
+func TestLiftImagesLeavesNoEmptyHeading(t *testing.T) {
+	image := &Node{Type: "image"}
+	image.SetAttr("src", "/api/v1/attachments/abc")
+	heading := &Node{Type: "heading", Content: []*Node{image}}
+	heading.SetAttr("level", 1)
+	doc := Doc(heading)
+
+	LiftImages(doc)
+
+	if len(doc.Content) != 1 || doc.Content[0].Type != "image" {
+		t.Fatalf("그림만 남아야 합니다: %s", dump(t, doc))
+	}
+}

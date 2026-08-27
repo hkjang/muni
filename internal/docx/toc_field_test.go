@@ -137,3 +137,24 @@ func TestAContentsFieldClosingElsewhereDoesNotEatTheDocument(t *testing.T) {
 		t.Errorf("블록 = %v", blockTypes(document))
 	}
 }
+
+// Word also lays the cached entries out as a table. Skipping only paragraphs
+// left that table in the document — the frozen page numbers this exists to
+// drop, kept as a real table beside the contents node that replaced them.
+func TestTheCachedContentsTableIsDroppedToo(t *testing.T) {
+	body := wordParagraph(wordFieldChar("begin"), wordInstruction(" TOC \\h "), wordFieldChar("separate")) +
+		`<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/>` + wordParagraph(wordText("제1장 총칙\t1")) + `</w:tc></w:tr></w:tbl>` +
+		wordParagraph(wordFieldChar("end")) +
+		wordParagraph(wordText("본문입니다"))
+
+	document, _, _, err := Parse(wordPackage(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := blockTypes(document); len(got) != 2 || got[0] != richdoc.TableOfContentsType || got[1] != "paragraph" {
+		t.Fatalf("블록 = %v", got)
+	}
+	if strings.Contains(document.PlainText(), "제1장 총칙") {
+		t.Error("굳어버린 목차 표가 남았습니다")
+	}
+}

@@ -70,6 +70,12 @@ func splitAroundImages(block *Node) []*Node {
 			}
 			kept = append(kept, child)
 		}
+		if len(kept) == 0 {
+			// A heading that was only a picture — a logo on a cover page —
+			// leaves no heading behind. An empty one would still draw its
+			// spacing and its weight above the picture.
+			return pictures
+		}
 		block.Content = kept
 		return append([]*Node{block}, pictures...)
 	}

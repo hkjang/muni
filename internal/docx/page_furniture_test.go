@@ -278,3 +278,21 @@ func TestAHeaderKeepsPunctuationBetweenItsOwnWords(t *testing.T) {
 		t.Errorf("머리글 = %q", got)
 	}
 }
+
+// A space around a field separates two words the author wrote. Eating it turns
+// "총 3 쪽" into "총쪽", and a bracket is not a joiner either — trimming the one
+// in "홍길동 (기획조정실) / [PAGE]" would leave the parenthesis unclosed.
+func TestFieldTrimmingLeavesTheAuthorsOwnMarks(t *testing.T) {
+	pageField := `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+		`<w:r><w:instrText> PAGE </w:instrText></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="end"/></w:r>`
+	for _, want := range []struct{ name, xml, expect string }{
+		{"세는 말", `<w:p><w:r><w:t>총 </w:t></w:r>` + pageField + `<w:r><w:t> 쪽</w:t></w:r></w:p>`, "총 쪽"},
+		{"괄호", `<w:p><w:r><w:t>홍길동 (기획조정실) / </w:t></w:r>` + pageField + `</w:p>`, "홍길동 (기획조정실)"},
+	} {
+		if got := collapseSpaces(furnitureText(mustParseXML(t, want.xml))); got != want.expect {
+			t.Errorf("%s: %q, %q 를 기대했습니다", want.name, got, want.expect)
+		}
+	}
+}

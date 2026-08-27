@@ -3,8 +3,11 @@ package docx
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/hkjang/muni/internal/richdoc"
 )
 
 // Every other import test in this package feeds Parse something Build wrote,
@@ -153,4 +156,15 @@ func mustParseXML(t *testing.T, fragment string) *xnode {
 		t.Fatal(err)
 	}
 	return root
+}
+
+// marshalDocument renders an imported document as JSON for whole-document
+// assertions.
+func marshalDocument(t *testing.T, document *richdoc.Node) (string, error) {
+	t.Helper()
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(encoded), nil
 }
