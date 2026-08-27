@@ -127,6 +127,40 @@
 					"text": "아래첨자표시"
 				},
 				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "highlight",
+							"attrs": {
+								"color": "#fff3a3"
+							}
+						}
+					],
+					"text": "형광펜표시"
+				},
+				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "textStyle",
+							"attrs": {
+								"color": "#c00000",
+								"fontFamily": "맑은 고딕",
+								"fontSize": "14pt"
+							}
+						}
+					],
+					"text": "글자서식표시"
+				},
+				{
 					"type": "footnote",
 					"content": [
 						{

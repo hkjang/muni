@@ -18,12 +18,13 @@ import (
 // in all four formats at once, and each was found separately. One document
 // through every path finds the next one in a single run.
 //
-// It lives in testdata/every-node.json because the editor's own test reads the
-// same file. Two copies of "every kind of content" drift apart, and the copy
-// that drifts is the one that stops finding things.
+// It lives in frontend/testdata/every-node.json because the editor's own test
+// reads the same file, and the frontend has to build from its own directory
+// alone — the production image copies nothing else. Two copies of "every kind
+// of content" drift apart, and the copy that drifts stops finding things.
 func everyNode(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "every-node.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "..", "frontend", "testdata", "every-node.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +35,8 @@ func everyNode(t *testing.T) string {
 // around them.
 var carriedPhrases = []string{
 	"제목입니다", "평문과", "굵은글씨", "기울임", "밑줄", "취소선", "코드조각",
-	"링크글자", "위첨자표시", "아래첨자표시", "각주내용입니다", "줄바꿈뒤문장",
+	"링크글자", "위첨자표시", "아래첨자표시", "형광펜표시", "글자서식표시",
+	"각주내용입니다", "줄바꿈뒤문장",
 	"인용문입니다", "글머리항목", "번호항목", "할일항목", "코드블록내용",
 	"표머리글", "표셀내용", "마지막문단",
 }

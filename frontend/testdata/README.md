@@ -9,6 +9,12 @@ disagree about what "every kind" means:
 - `frontend/src/serverDocument.test.ts` — the editor itself, which has to be
   able to open what the server sends
 
+It lives under `frontend/` rather than at the repository root because the
+production image builds the web bundle from `frontend/` alone: a test file that
+imports something outside that directory typechecks locally and fails the image
+build. The Go tests have the whole repository, so they are the side that
+reaches across.
+
 The Go tests check that each distinctive Korean phrase survives the format.
 The editor test checks something the Go tests cannot see: that the *shape* is
 one the ProseMirror schema can hold. A paragraph with an image inside it

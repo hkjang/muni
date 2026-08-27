@@ -1,6 +1,6 @@
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
-import everyNodeFixture from "../../testdata/every-node.json";
+import everyNodeFixture from "../testdata/every-node.json";
 import { documentExtensions } from "./features/editor/documentExtensions";
 
 /**
@@ -32,6 +32,8 @@ const carriedPhrases = [
   "링크글자",
   "위첨자표시",
   "아래첨자표시",
+  "형광펜표시",
+  "글자서식표시",
   "각주내용입니다",
   "줄바꿈뒤문장",
   "인용문입니다",
