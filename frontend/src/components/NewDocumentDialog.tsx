@@ -187,11 +187,11 @@ export function NewDocumentDialog({
         >
           {file
             ? file.name
-            : "PDF · DOCX · HWPX · Markdown · TXT · HTML 가져오기"}
+            : "PDF · DOCX · HWP · HWPX · Markdown · TXT · HTML 가져오기"}
           <input
             hidden
             type="file"
-            accept=".pdf,.docx,.hwpx,.md,.markdown,.txt,.html,.htm"
+            accept=".pdf,.docx,.hwp,.hwpx,.md,.markdown,.txt,.html,.htm"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Button>

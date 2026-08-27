@@ -558,3 +558,15 @@ func TestAHangulFileIsNotMistakenForAWordFile(t *testing.T) {
 		t.Errorf("워드 파일을 %q 로 봤습니다", got)
 	}
 }
+
+// A .hwp is an OLE2 compound file, which nothing else muni imports is. The
+// signature is enough to tell it apart from a zip.
+func TestAnOldHangulFileIsRecognisedByItsSignature(t *testing.T) {
+	compound := append([]byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}, make([]byte, 504)...)
+	if got := extensionFromMediaType("application/octet-stream", compound); got != ".hwp" {
+		t.Errorf("옛 한글 파일을 %q 로 봤습니다", got)
+	}
+	if got := extensionFromMediaType("application/x-hwp", nil); got != ".hwp" {
+		t.Errorf("한글 미디어 타입을 %q 로 봤습니다", got)
+	}
+}

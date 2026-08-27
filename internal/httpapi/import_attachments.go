@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/database"
 	"github.com/hkjang/muni/internal/docx"
+	"github.com/hkjang/muni/internal/hwp"
 	"github.com/hkjang/muni/internal/hwpx"
 	"github.com/hkjang/muni/internal/pdfx"
 	"github.com/hkjang/muni/internal/richdoc"
@@ -94,6 +95,8 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		content, assets, furniture, err = docxImport(body)
 	case ".hwpx":
 		content, assets, furniture, err = hwpxImport(body)
+	case ".hwp":
+		content, assets, err = hwpImport(body)
 	case ".pdf":
 		// PDF interpretation is CPU bound; bound it so one upload cannot hold
 		// a worker for the whole request timeout.
@@ -101,7 +104,7 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		content, assets, embeddedTitle, err = pdfImport(parseCtx, body)
 		cancelParse()
 	default:
-		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 PDF, DOCX, HWPX, Markdown, TXT, HTML입니다.")
+		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 PDF, DOCX, HWP, HWPX, Markdown, TXT, HTML입니다.")
 		return
 	}
 	if err != nil {
@@ -199,6 +202,21 @@ func hwpxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error
 	return content, assets, docx.Meta{Landscape: meta.Landscape}, nil
 }
 
+// hwpImport converts the older binary Hangul format. It keeps the words and
+// the paragraphs they sit in; the formatting a .hwp keeps in its DocInfo is
+// not read yet.
+func hwpImport(body []byte) (json.RawMessage, []richdoc.Asset, error) {
+	document, assets, _, err := hwp.Parse(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	content, err := document.JSON()
+	if err != nil {
+		return nil, nil, err
+	}
+	return content, assets, nil
+}
+
 // pdfImport reconstructs paragraphs, headings, lists, tables and images from
 // a PDF's text layer.
 func pdfImport(ctx context.Context, body []byte) (json.RawMessage, []richdoc.Asset, string, error) {
@@ -292,6 +310,8 @@ func extensionFromMediaType(mediaType string, body []byte) string {
 		return ".docx"
 	case "application/hwp+zip", "application/vnd.hancom.hwpx", "application/haansofthwpx":
 		return ".hwpx"
+	case "application/x-hwp", "application/haansofthwp", "application/vnd.hancom.hwp":
+		return ".hwp"
 	case "text/markdown":
 		return ".md"
 	case "text/html":
@@ -302,6 +322,9 @@ func extensionFromMediaType(mediaType string, body []byte) string {
 	switch {
 	case bytes.HasPrefix(body, []byte("%PDF-")):
 		return ".pdf"
+	case bytes.HasPrefix(body, []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}):
+		// An OLE2 compound file. Only Hangul's is a document muni reads.
+		return ".hwp"
 	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
 		// Both formats are zips. Which one it is is written inside it.
 		return zipKind(body)

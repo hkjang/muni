@@ -2,7 +2,7 @@
 
 `muni`는 오프라인·폐쇄망 배포를 우선으로 설계한 Go + React 협업 문서 플랫폼입니다. Tiptap/ProseMirror 문서 모델, Yjs CRDT 공동편집, revision, 댓글·제안, 문서 ACL, 조건부 검토·승인, OpenAI 호환 스트리밍 AI, Keycloak OIDC, REST API와 MCP를 한 이미지로 제공합니다.
 
-개인·팀 Workspace, 중첩 Folder, 최근/공유/즐겨찾기/휴지통, 팀 멤버, PDF·DOCX·HWPX·Markdown·TXT·HTML Import, DOCX·PDF·HTML·Markdown·TXT Export, 첨부파일, PostgreSQL FTS, 감사 로그를 포함합니다. 개인 설정과 서비스 관리 영역은 라우트·권한·UI 수준에서 분리됩니다.
+개인·팀 Workspace, 중첩 Folder, 최근/공유/즐겨찾기/휴지통, 팀 멤버, PDF·DOCX·HWP·HWPX·Markdown·TXT·HTML Import, DOCX·PDF·HTML·Markdown·TXT Export, 첨부파일, PostgreSQL FTS, 감사 로그를 포함합니다. 개인 설정과 서비스 관리 영역은 라우트·권한·UI 수준에서 분리됩니다.
 
 ## 기술 선택
 
@@ -58,6 +58,7 @@ Import와 Export는 모두 Tiptap/ProseMirror 문서 모델을 직접 다루므�
 
 | 형식 | Import | Export | 유지되는 요소 |
 | --- | --- | --- | --- |
+| HWP | O | - | 한글 오피스의 옛 이진 형식입니다. OLE2 복합 파일 안에 압축된 이진 레코드가 들어 있어, Import 는 지금 **글자와 문단까지** 읽습니다. 서식·표·그림은 아직입니다. 암호가 걸린 문서는 무엇이 문제인지 말하고 거절합니다. |
 | HWPX | O | - | 한글 오피스가 쓰는 XML 형식입니다. Import 는 제목 단계(개요 1~7), 문단 정렬·들여쓰기·줄간격, 굵게·기울임·밑줄·취소선·글자색·글꼴·크기, 표(가로·세로 병합, 머리글 행, 칸 음영·세로 정렬), 그림, 용지 방향을 읽습니다. |
 | DOCX | O | O | 제목 단계, 글머리·번호·체크 목록(중첩 포함), 표(가로·세로 병합, 열 너비, 머리글 행, 칸 음영·세로 정렬), 굵게·기울임·밑줄·취소선·코드·형광·글자색·글꼴·크기·위첨자·아래첨자, 하이퍼링크, 문단 정렬·들여쓰기·줄간격, 인용, 코드 블록, 구분선, 쪽 나누기, 이미지, 각주·미주, 목차, 머리글·바닥글, 용지 방향 |
 | PDF | O | O | Import는 텍스트 레이어에서 제목·문단·목록·표·코드 블록·이미지를 복원합니다. Export는 Chromium 렌더링으로 화면과 같은 레이아웃을 만듭니다. |
@@ -72,6 +73,8 @@ DOCX Export는 `styles.xml`·`numbering.xml`·`theme1.xml`·`footnotes.xml`을 �
 **워드 문서는 서식을 대개 그것이 붙은 자리가 아니라 스타일에 적어 둡니다.** Import는 그래서 문단 스타일의 들여쓰기·줄간격·정렬과 문자 스타일의 굵기·색을 `basedOn` 사슬을 따라 읽고, 그 위에 문단이나 런이 스스로 정한 것을 얹습니다 — 직접 준 쪽이 이깁니다. 표의 머리글 행도 마찬가지로 `w:tblLook`과 표 스타일의 첫 행 서식을 함께 보고 판단합니다(모든 행을 같게 그리는 Table Grid에는 머리글을 지어내지 않습니다). 목차는 워드가 마지막으로 계산해 둔 항목이 아니라 살아있는 목차 노드로 들어오고, 텍스트 상자 안의 글자와 미주도 함께 읽습니다. 그 밖에 스타일 이름(로케일 포함)·스타일에 붙은 numbering·`w:sym` 기호·hyperlink 관계·`w14:checkbox`를 해석하고, 확정되지 않은 삽입(`w:ins`)은 살리고 삭제(`w:del`)는 버립니다.
 
 PDF Import는 xref가 손상된 파일도 객체 스캔으로 복구하고, Flate·LZW·ASCII85·ASCIIHex·RunLength 필터와 PNG predictor, 소유자 암호만 걸린 RC4/AES 암호화 문서를 지원합니다. 스캔본처럼 텍스트 레이어가 없는 PDF는 OCR 후 가져오라는 오류를 돌려줍니다.
+
+`.hwp` 는 세 겹을 벗겨야 글자가 나옵니다 — OLE2 복합 파일, 스트림마다 걸린 raw deflate 압축(zlib 껍데기가 없어서 zlib 리더는 "invalid header" 를 냅니다), 그리고 레코드입니다. 문단 글자 안의 제어 표시는 **크기가 8 WCHAR, 즉 16바이트**입니다 — 형식 문서의 "8" 을 바이트로 읽으면 표시 한가운데에 내려앉아 그 뒷부분을 글자로 읽고, 문서에 없던 한자가 흩뿌려집니다.
 
 **HWPX 는 서식을 문단이나 런에 적지 않고 머리(`Contents/header.xml`)에 적어 두고 번호로 가리킵니다.** 런에는 `charPrIDRef="7"` 하나만 있어서, 런만 읽으면 서식이 아예 없습니다 — muni 가 워드 스타일을 잃던 것과 같은 모양이라 이 가져오기는 머리부터 읽습니다. 표는 한글에서 문단 안에 들어 있고 muni 에서는 블록이므로 밖으로 꺼내며, 그림도 같습니다. 아직 Export 는 하지 않습니다.
 
