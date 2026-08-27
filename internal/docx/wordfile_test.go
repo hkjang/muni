@@ -104,3 +104,41 @@ func wordPackageWithStyles(t *testing.T, body, styles string) []byte {
 	}
 	return buffer.Bytes()
 }
+
+// wordPackageWithNotes is wordPackage with the two note parts, for the notes a
+// document refers to by number.
+func wordPackageWithNotes(t *testing.T, body, footnotes, endnotes string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	parts := []struct{ name, content string }{
+		{"[Content_Types].xml", xmlHeader +
+			`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+			`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+			`<Default Extension="xml" ContentType="application/xml"/>` +
+			`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+			`</Types>`},
+		{"_rels/.rels", xmlHeader +
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+			`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>` +
+			`</Relationships>`},
+		{"word/document.xml", xmlHeader + `<w:document` + documentNamespaces + `><w:body>` + body + `</w:body></w:document>`},
+		{"word/footnotes.xml", xmlHeader + `<w:footnotes` + documentNamespaces + `>` + footnotes + `</w:footnotes>`},
+		{"word/endnotes.xml", xmlHeader + `<w:endnotes` + documentNamespaces + `>` + endnotes + `</w:endnotes>`},
+		{"word/_rels/document.xml.rels", xmlHeader +
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`},
+	}
+	for _, part := range parts {
+		writer, err := archive.Create(part.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(part.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}

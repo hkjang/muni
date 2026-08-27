@@ -89,6 +89,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	imp.loadStyles(files["word/styles.xml"])
 	imp.loadNumbering(files["word/numbering.xml"])
 	imp.loadFootnotes(files["word/footnotes.xml"])
+	imp.loadEndnotes(files["word/endnotes.xml"])
 	imp.loadMedia(files)
 
 	root, err := readXML(documentPart)
@@ -506,13 +507,29 @@ func truncateRunes(value string, max int) string {
 // The reference mark at the head of a note is dropped: muni numbers notes by
 // their order in the document, so a number carried in from the file would be
 // the old document's number.
+// loadFootnotes reads word/footnotes.xml, and loadEndnotes reads
+// word/endnotes.xml into the same place.
+//
+// muni has one kind of note. An endnote and a footnote differ only in where
+// they are printed, and muni already prints its notes at the end of a PDF
+// because the browser it prints through has no way to put them on the page
+// they belong to. Reading 미주 as 각주 keeps the words and the place in the
+// sentence they were attached to; dropping them keeps neither.
 func (imp *importer) loadFootnotes(file *zip.File) {
+	imp.loadNotes(file, "footnote")
+}
+
+func (imp *importer) loadEndnotes(file *zip.File) {
+	imp.loadNotes(file, "endnote")
+}
+
+func (imp *importer) loadNotes(file *zip.File, local string) {
 	root, err := readXML(file)
 	if err != nil || root == nil {
 		return
 	}
 	for _, child := range root.Children {
-		if child.Local != "footnote" {
+		if child.Local != local {
 			continue
 		}
 		switch child.attr("w:type") {
@@ -527,6 +544,8 @@ func (imp *importer) loadFootnotes(file *zip.File) {
 		if text == "" {
 			continue
 		}
-		imp.footnotes[id] = []*richdoc.Node{richdoc.Text(text)}
+		// The two files number themselves separately, so a footnote 2 and an
+		// endnote 2 would collide.
+		imp.footnotes[local+":"+id] = []*richdoc.Node{richdoc.Text(text)}
 	}
 }

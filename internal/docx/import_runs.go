@@ -32,6 +32,8 @@ func (imp *importer) runs(nodes []*xnode, link richdoc.Mark) []*richdoc.Node {
 			out = append(out, imp.runs(node.Children, target)...)
 		case node.is("w", "ins"), node.is("w", "smartTag"), node.is("w", "bdo"), node.is("w", "dir"):
 			out = append(out, imp.runs(node.Children, link)...)
+		case node.is("mc", "AlternateContent"):
+			out = append(out, imp.shapes(alternateContent(node), nil)...)
 		case node.is("w", "sdt"):
 			if content := node.child("w", "sdtContent"); content != nil {
 				out = append(out, imp.runs(content.Children, link)...)
@@ -93,10 +95,12 @@ func (imp *importer) run(node *xnode, link richdoc.Mark) []*richdoc.Node {
 			out = append(out, &richdoc.Node{Type: "hardBreak"})
 		case child.is("w", "noBreakHyphen"):
 			out = append(out, richdoc.Text("-", marks...))
-		case child.is("w", "footnoteReference"):
+		case child.is("w", "footnoteReference"), child.is("w", "endnoteReference"):
 			// The little number in the sentence. What it points at lives in
-			// word/footnotes.xml, which was read before the body was walked.
-			if note := imp.footnotes[child.attr("w:id")]; len(note) > 0 {
+			// word/footnotes.xml or word/endnotes.xml, both read before the
+			// body was walked.
+			key := strings.TrimSuffix(child.Local, "Reference") + ":" + child.attr("w:id")
+			if note := imp.footnotes[key]; len(note) > 0 {
 				out = append(out, &richdoc.Node{Type: richdoc.FootnoteType, Content: note})
 			}
 		case child.is("w", "softHyphen"):
@@ -105,10 +109,10 @@ func (imp *importer) run(node *xnode, link richdoc.Mark) []*richdoc.Node {
 			if glyph := symbolRune(child.attr("w:char"), child.attr("w:font")); glyph != "" {
 				out = append(out, richdoc.Text(glyph, marks...))
 			}
+		case child.is("mc", "AlternateContent"):
+			out = append(out, imp.shapes(alternateContent(child), marks)...)
 		case child.is("w", "drawing"), child.is("w", "pict"), child.is("w", "object"):
-			if image := imp.image(child); image != nil {
-				out = append(out, image)
-			}
+			out = append(out, imp.shapes([]*xnode{child}, marks)...)
 		}
 	}
 	return out
@@ -427,4 +431,70 @@ func sameMarks(left, right []richdoc.Mark) bool {
 		}
 	}
 	return true
+}
+
+// alternateContent picks the branch of an mc:AlternateContent to read.
+//
+// The element offers the same thing twice: an mc:Choice for readers that
+// understand some extension, and an mc:Fallback for the rest. muni is one of
+// the rest. Reading both would put every shape's words in the document twice.
+func alternateContent(node *xnode) []*xnode {
+	if fallback := node.child("mc", "Fallback"); fallback != nil {
+		return fallback.Children
+	}
+	if choice := node.child("mc", "Choice"); choice != nil {
+		return choice.Children
+	}
+	return nil
+}
+
+// shapes reads what muni can hold out of the things Word draws: a picture, or
+// the words in a text box. A shape is often wrapped one layer deeper than the
+// run — an mc:Fallback holding a w:pict — so this takes a list of candidates
+// rather than one node.
+func (imp *importer) shapes(nodes []*xnode, marks []richdoc.Mark) []*richdoc.Node {
+	out := []*richdoc.Node{}
+	for _, node := range nodes {
+		if node == nil {
+			continue
+		}
+		if image := imp.image(node); image != nil {
+			out = append(out, image)
+			continue
+		}
+		out = append(out, textBoxWords(node, marks)...)
+	}
+	return out
+}
+
+// textBoxWords pulls the words out of a text box.
+//
+// A Korean office document keeps things in text boxes that the page cannot do
+// without: the 붙임 label, the stamp beside a signature, a note in the margin.
+// muni has no box to put them in, and the drawing they arrive in is not a
+// picture — so muni found no image, kept nothing, and left an empty paragraph
+// where the words had been.
+//
+// The words come across as words. A box holding several paragraphs keeps its
+// lines, because a two-line stamp read as one line is a different stamp.
+func textBoxWords(node *xnode, marks []richdoc.Mark) []*richdoc.Node {
+	content := node.descendant("w", "txbxContent")
+	if content == nil {
+		return nil
+	}
+	out := []*richdoc.Node{}
+	for _, child := range content.Children {
+		if !child.is("w", "p") {
+			continue
+		}
+		text := collapseSpaces(child.allText())
+		if text == "" {
+			continue
+		}
+		if len(out) > 0 {
+			out = append(out, &richdoc.Node{Type: "hardBreak"})
+		}
+		out = append(out, richdoc.Text(text, marks...))
+	}
+	return out
 }

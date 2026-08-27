@@ -114,3 +114,48 @@ func TestTheSeparatorEntriesAreNotReadAsNotes(t *testing.T) {
 		}
 	}
 }
+
+// muni has one kind of note. An endnote and a footnote differ only in where
+// they are printed, and muni already prints its notes at the end of a PDF.
+// Reading 미주 as 각주 keeps the words and the place in the sentence they were
+// attached to; dropping them, which is what muni did, keeps neither.
+func TestAnEndnoteIsReadAsANote(t *testing.T) {
+	body := `<w:p><w:r><w:t>문장입니다</w:t></w:r>` +
+		`<w:r><w:endnoteReference w:id="2"/></w:r><w:r><w:t>.</w:t></w:r></w:p>`
+	notes := `<w:endnote w:type="separator" w:id="0"><w:p><w:r><w:separator/></w:r></w:p></w:endnote>` +
+		`<w:endnote w:id="2"><w:p><w:r><w:t>미주 내용입니다</w:t></w:r></w:p></w:endnote>`
+	document, _, _, err := Parse(wordPackageWithNotes(t, body, "", notes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := richdoc.Footnotes(document)
+	if len(found) != 1 {
+		t.Fatalf("주석 = %d개: %s", len(found), document.PlainText())
+	}
+	if text := richdoc.FootnoteText(found[0]); text != "미주 내용입니다" {
+		t.Errorf("주석 내용 = %q", text)
+	}
+}
+
+// The two files number themselves separately, so a footnote 2 and an endnote 2
+// must not become each other.
+func TestAFootnoteAndAnEndnoteWithTheSameNumberStayApart(t *testing.T) {
+	body := `<w:p><w:r><w:t>앞</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r>` +
+		`<w:r><w:t>뒤</w:t></w:r><w:r><w:endnoteReference w:id="2"/></w:r></w:p>`
+	footnotes := `<w:footnote w:id="2"><w:p><w:r><w:t>각주 쪽</w:t></w:r></w:p></w:footnote>`
+	endnotes := `<w:endnote w:id="2"><w:p><w:r><w:t>미주 쪽</w:t></w:r></w:p></w:endnote>`
+	document, _, _, err := Parse(wordPackageWithNotes(t, body, footnotes, endnotes))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := richdoc.Footnotes(document)
+	if len(found) != 2 {
+		t.Fatalf("주석 = %d개", len(found))
+	}
+	if got := richdoc.FootnoteText(found[0]); got != "각주 쪽" {
+		t.Errorf("첫 주석 = %q", got)
+	}
+	if got := richdoc.FootnoteText(found[1]); got != "미주 쪽" {
+		t.Errorf("둘째 주석 = %q", got)
+	}
+}
