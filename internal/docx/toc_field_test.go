@@ -111,3 +111,29 @@ func TestAnUnclosedContentsFieldDoesNotEatTheDocument(t *testing.T) {
 		t.Errorf("블록 = %v", blockTypes(document))
 	}
 }
+
+// A table of contents laid out in a table — not rare in Korean report
+// templates — closes its field inside a cell, which the block walker descends
+// into separately. A running "am I still inside it" flag never sees that end
+// and drops every remaining paragraph: the import succeeds, and the document
+// stops at its table of contents.
+func TestAContentsFieldClosingElsewhereDoesNotEatTheDocument(t *testing.T) {
+	body := wordParagraph(wordFieldChar("begin"), wordInstruction(" TOC \\h "), wordFieldChar("separate")) +
+		`<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/>` + wordParagraph(wordFieldChar("end")) + `</w:tc></w:tr></w:tbl>` +
+		wordParagraph(wordText("목차 뒤 본문입니다")) +
+		wordParagraph(wordText("그리고 더 많은 본문"))
+
+	document, _, _, err := Parse(wordPackage(t, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := document.PlainText()
+	for _, want := range []string{"목차 뒤 본문입니다", "그리고 더 많은 본문"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("%q 가 사라졌습니다: %q", want, text)
+		}
+	}
+	if document.Content[0].Type != richdoc.TableOfContentsType {
+		t.Errorf("블록 = %v", blockTypes(document))
+	}
+}

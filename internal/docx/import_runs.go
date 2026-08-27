@@ -175,28 +175,30 @@ func (imp *importer) styledRunProperties(properties *xnode) *xnode {
 		return properties
 	}
 	merged := &xnode{Space: properties.Space, Local: properties.Local, Attrs: properties.Attrs}
-	merged.Children = append(merged.Children, properties.Children...)
-	present := map[string]bool{}
-	for _, child := range properties.Children {
-		present[child.Space+":"+child.Local] = true
-	}
 	// basedOn chains: "Strong" may sit on a style that sets the font. The
 	// bound stops a file whose styles refer to each other in a circle.
+	chain := make([][]*xnode, 0, 4)
+	hyperlink := false
 	for depth := 0; id != "" && depth < 16; depth++ {
 		style, ok := imp.styles[id]
 		if !ok {
 			break
 		}
-		for _, child := range style.runProperties.children() {
-			key := child.Space + ":" + child.Local
-			if present[key] {
-				continue
-			}
-			present[key] = true
-			merged.Children = append(merged.Children, child)
+		if strings.Contains(strings.ToLower(id), "hyperlink") {
+			hyperlink = true
 		}
+		chain = append(chain, style.runProperties.children())
 		id = style.basedOn
 	}
+	// w:rStyle stays: marks() reads it to recognise a code style.
+	var skip []string
+	if hyperlink {
+		// Word's Hyperlink style is its blue and its underline. muni draws a
+		// link its own way, and a colour taken from the style would freeze
+		// every imported link to whatever blue that file happened to use.
+		skip = append(skip, "w:color")
+	}
+	merged.Children = mergeProperties(properties.children(), chain, skip...)
 	return merged
 }
 

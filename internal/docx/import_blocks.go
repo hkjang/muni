@@ -20,35 +20,18 @@ type block struct {
 
 func (imp *importer) blocks(nodes []*xnode) []block {
 	out := make([]block, 0, len(nodes))
-	// Where a Word table of contents is open, and how deep the fields were
-	// when it opened. See tocFieldInstruction.
-	depth, tocOpenedAt, insideTOC := 0, 0, false
-	for _, node := range nodes {
+	// The cached entries of a table of contents, which are skipped rather than
+	// read. See tocEntrySpan.
+	skipUntil := -1
+	for index, node := range nodes {
 		switch {
 		case node.is("w", "p"):
-			delta, instructions := fieldMoves(node)
-			opensTOC := false
-			for _, instruction := range instructions {
-				if tocFieldInstruction(instruction) {
-					opensTOC = true
-				}
-			}
-			before := depth
-			if depth += delta; depth < 0 {
-				depth = 0
-			}
-			if insideTOC {
-				// The cached entries, and the paragraph that closes the field.
-				if depth <= tocOpenedAt {
-					insideTOC = false
-				}
+			if index <= skipUntil {
 				continue
 			}
-			if opensTOC {
+			if end, ok := tocEntrySpan(nodes, index); ok {
 				out = append(out, block{node: &richdoc.Node{Type: richdoc.TableOfContentsType}})
-				if depth > before {
-					insideTOC, tocOpenedAt = true, before
-				}
+				skipUntil = end
 				continue
 			}
 			out = append(out, imp.paragraph(node)...)
@@ -84,31 +67,45 @@ func (imp *importer) blocks(nodes []*xnode) []block {
 // muni's own contents node is generated from the headings, so the field
 // becomes that node and the cache is dropped.
 
-// fieldMoves reports what a paragraph does to the number of open fields, and
-// what instructions it carries.
-func fieldMoves(paragraph *xnode) (delta int, instructions []string) {
+// fieldDelta reports what a paragraph does to the number of open fields.
+func fieldDelta(paragraph *xnode) int {
+	delta := 0
 	var walk func(*xnode)
 	walk = func(node *xnode) {
-		switch {
-		case node.is("w", "fldChar"):
+		if node.is("w", "fldChar") {
 			switch strings.ToLower(node.attr("w:fldCharType")) {
 			case "begin":
 				delta++
 			case "end":
 				delta--
 			}
-		case node.is("w", "instrText"):
-			instructions = append(instructions, node.Text)
-		case node.is("w", "fldSimple"):
-			// The one-element form, which opens and closes at once.
-			instructions = append(instructions, node.attr("w:instr"))
 		}
 		for _, child := range node.Children {
 			walk(child)
 		}
 	}
 	walk(paragraph)
-	return delta, instructions
+	return delta
+}
+
+// fieldInstructions reports the field instructions a paragraph carries.
+func fieldInstructions(paragraph *xnode) []string {
+	var out []string
+	var walk func(*xnode)
+	walk = func(node *xnode) {
+		switch {
+		case node.is("w", "instrText"):
+			out = append(out, node.Text)
+		case node.is("w", "fldSimple"):
+			// The one-element form, which opens and closes at once.
+			out = append(out, node.attr("w:instr"))
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(paragraph)
+	return out
 }
 
 // tocFieldInstruction reports whether a field instruction asks for a table of
@@ -117,6 +114,45 @@ func fieldMoves(paragraph *xnode) (delta int, instructions []string) {
 func tocFieldInstruction(instruction string) bool {
 	fields := strings.Fields(instruction)
 	return len(fields) > 0 && strings.EqualFold(fields[0], "TOC")
+}
+
+// tocEntrySpan reports where a table of contents starting at a paragraph ends,
+// and whether it is one at all.
+//
+// The span is worked out before anything is skipped. A running "am I still
+// inside it" flag has nowhere to stop: the field's closing fldChar can sit in
+// a table cell or a content control, which this walker descends into
+// separately, and a file can simply be unbalanced. Either way the flag would
+// stay set and every remaining paragraph in the document would be dropped —
+// the import succeeding, and the document ending at its table of contents.
+//
+// Not finding the end means the span is the opening paragraph alone. Losing
+// the cached entries of a malformed field is a smaller wrong than losing
+// everything after it.
+func tocEntrySpan(nodes []*xnode, start int) (end int, isTOC bool) {
+	opens := false
+	for _, instruction := range fieldInstructions(nodes[start]) {
+		if tocFieldInstruction(instruction) {
+			opens = true
+		}
+	}
+	if !opens {
+		return 0, false
+	}
+	depth := fieldDelta(nodes[start])
+	if depth <= 0 {
+		// Opened and closed in the one paragraph.
+		return start, true
+	}
+	for index := start + 1; index < len(nodes); index++ {
+		if !nodes[index].is("w", "p") {
+			continue
+		}
+		if depth += fieldDelta(nodes[index]); depth <= 0 {
+			return index, true
+		}
+	}
+	return start, true
 }
 
 // styledParagraphProperties returns a paragraph's properties with the ones its
@@ -135,30 +171,92 @@ func (imp *importer) styledParagraphProperties(properties *xnode, styleID string
 		return properties
 	}
 	merged := &xnode{Space: "w", Local: "pPr"}
-	present := map[string]bool{"w:pStyle": true, "w:numPr": true}
 	if properties != nil {
 		merged.Space, merged.Local, merged.Attrs = properties.Space, properties.Local, properties.Attrs
-		merged.Children = append(merged.Children, properties.Children...)
-		for _, child := range properties.Children {
-			present[child.Space+":"+child.Local] = true
-		}
 	}
+	chain := make([][]*xnode, 0, 4)
 	for depth := 0; styleID != "" && depth < 16; depth++ {
 		style, ok := imp.styles[styleID]
 		if !ok {
 			break
 		}
-		for _, child := range style.paragraphProperties.children() {
-			key := child.Space + ":" + child.Local
-			if present[key] {
-				continue
-			}
-			present[key] = true
-			merged.Children = append(merged.Children, child)
-		}
+		chain = append(chain, style.paragraphProperties.children())
 		styleID = style.basedOn
 	}
+	// w:pStyle is the reference rather than a property, and w:numPr already
+	// has its own path through styleNumbering.
+	merged.Children = mergeProperties(properties.children(), chain, "w:pStyle", "w:numPr")
 	return merged
+}
+
+// mergeProperties layers a chain of style property lists under a node's own,
+// attribute by attribute rather than element by element. The skip list names
+// what must not be inherited; a node's own properties are never dropped.
+//
+// OOXML inherits per attribute. A style that sets
+// `<w:spacing w:line="384" w:lineRule="auto"/>` and a paragraph that sets only
+// `<w:spacing w:before="240"/>` render at 160% in Word — the paragraph says
+// nothing about w:line, so the style still speaks. Skipping the style's
+// element because the paragraph has one of its own loses the line spacing
+// entirely, which is most of what reading styles was for. The same shape turns
+// up on runs, where a Korean document routinely writes a bare
+// `<w:rFonts w:hint="eastAsia"/>` that would otherwise silence the style's
+// font.
+func mergeProperties(own []*xnode, chain [][]*xnode, skip ...string) []*xnode {
+	ignored := map[string]bool{}
+	for _, key := range skip {
+		ignored[key] = true
+	}
+	order := make([]string, 0, len(own))
+	byKey := map[string]*xnode{}
+	take := func(child *xnode, fromStyle bool) {
+		// The prefix, not the namespace URI a node actually carries: the
+		// caller names what to skip the way the file writes it.
+		key := prefixFor(child.Space) + ":" + child.Local
+		// Skipping means "do not inherit this", never "discard it". What the
+		// node says about itself is always its own: a list item's w:numPr is
+		// what makes it a list item.
+		if fromStyle && ignored[key] {
+			return
+		}
+		existing, seen := byKey[key]
+		if !seen {
+			// A style's element is copied, never shared: a later paragraph
+			// naming the same style must not see attributes this one gained.
+			copied := &xnode{Space: child.Space, Local: child.Local, Text: child.Text, Children: child.Children}
+			copied.Attrs = map[string]string{}
+			for name, value := range child.Attrs {
+				copied.Attrs[name] = value
+			}
+			byKey[key] = copied
+			order = append(order, key)
+			return
+		}
+		if !fromStyle {
+			return
+		}
+		for name, value := range child.Attrs {
+			if _, set := existing.Attrs[name]; !set {
+				existing.Attrs[name] = value
+			}
+		}
+		if len(existing.Children) == 0 {
+			existing.Children = child.Children
+		}
+	}
+	for _, child := range own {
+		take(child, false)
+	}
+	for _, level := range chain {
+		for _, child := range level {
+			take(child, true)
+		}
+	}
+	out := make([]*xnode, 0, len(order))
+	for _, key := range order {
+		out = append(out, byKey[key])
+	}
+	return out
 }
 
 func (imp *importer) paragraph(node *xnode) []block {

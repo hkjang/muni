@@ -124,3 +124,69 @@ func TestACircularParagraphStyleDoesNotSpin(t *testing.T) {
 		t.Errorf("정렬 = %q", got)
 	}
 }
+
+// OOXML inherits per attribute, not per element. A style that sets the line
+// spacing and a paragraph that sets only the space before it render at the
+// style's spacing in Word — the paragraph says nothing about w:line, so the
+// style still speaks. Skipping the style's element because the paragraph has
+// one of its own loses most of what reading styles was for.
+func TestAParagraphTakesTheAttributesItDidNotSet(t *testing.T) {
+	styles := `<w:style w:type="paragraph" w:styleId="Body"><w:name w:val="본문"/>` +
+		`<w:pPr><w:spacing w:line="384" w:lineRule="auto"/><w:ind w:left="720"/></w:pPr></w:style>`
+	body := styledParagraph("Body", "부분지정문단", `<w:spacing w:before="240"/><w:ind w:firstLine="200"/>`)
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraph := paragraphCarrying(t, document, "부분지정문단")
+	if got := paragraph.AttrString("lineHeight"); got != "1.6" {
+		t.Errorf("줄간격 = %q, 스타일의 1.6 을 기대했습니다: %v", got, paragraph.Attrs)
+	}
+	if paragraph.AttrInt("indent", 0) == 0 {
+		t.Errorf("스타일의 들여쓰기가 사라졌습니다: %v", paragraph.Attrs)
+	}
+	if !paragraph.Attr("firstLine").(bool) {
+		t.Errorf("문단이 스스로 정한 첫 줄 들여쓰기가 사라졌습니다: %v", paragraph.Attrs)
+	}
+}
+
+// The same shape on a run: a Korean document routinely writes a bare
+// w:rFonts w:hint="eastAsia" that must not silence the style's font.
+func TestARunTakesTheAttributesItDidNotSet(t *testing.T) {
+	styles := `<w:style w:type="character" w:styleId="Named"><w:name w:val="이름"/>` +
+		`<w:rPr><w:rFonts w:ascii="맑은 고딕"/><w:b/></w:rPr></w:style>`
+	body := `<w:p><w:r><w:rPr><w:rStyle w:val="Named"/><w:rFonts w:hint="eastAsia"/></w:rPr>` +
+		`<w:t>이름붙은글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks := markedText(t, document, "이름붙은글자")
+	if !has(marks, "bold") {
+		t.Errorf("스타일의 굵기가 사라졌습니다: %v", marks)
+	}
+	if !has(marks, "textStyle") {
+		t.Errorf("스타일의 글꼴이 사라졌습니다: %v", marks)
+	}
+}
+
+// Word's Hyperlink style is its blue and its underline. muni draws a link its
+// own way, and a colour taken from the style would freeze every imported link
+// to whatever blue that file happened to use.
+func TestAnImportedLinkIsNotFrozenToWordsBlue(t *testing.T) {
+	styles := `<w:style w:type="character" w:styleId="Hyperlink"><w:name w:val="Hyperlink"/>` +
+		`<w:rPr><w:color w:val="0563C1"/><w:u w:val="single"/></w:rPr></w:style>`
+	body := `<w:p><w:r><w:rPr><w:rStyle w:val="Hyperlink"/></w:rPr><w:t>링크글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	marks := markedText(t, document, "링크글자")
+	if has(marks, "textStyle") {
+		t.Errorf("워드의 파랑이 글자에 박혔습니다: %v", marks)
+	}
+	// The underline the style draws is still the style's, and still comes.
+	if !has(marks, "underline") {
+		t.Errorf("밑줄이 사라졌습니다: %v", marks)
+	}
+}
