@@ -62,17 +62,18 @@ func documentSelect() string {
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	if err := row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.PageOrientation, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt); err != nil {
-		return err
-	}
-	target.Content = liftStoredImages(target.Content)
-	return nil
+	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.PageOrientation, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
 }
 
 // liftStoredImages repairs documents imported before the importers learned to
 // give a picture a line of its own. Their images sit inside a paragraph, which
 // is a shape the editor refuses outright — the document would not open at all.
-// Documents without a picture pay one substring scan and nothing else.
+//
+// It runs where content is handed to something that builds a ProseMirror
+// document out of it: the editor and the share view. The exporters and the
+// presentation brief read the tree themselves and draw a picture wherever they
+// find one, so they need nothing. Documents without a picture pay one
+// substring scan and nothing else.
 func liftStoredImages(content json.RawMessage) json.RawMessage {
 	if !bytes.Contains(content, []byte(`"image"`)) {
 		return content
@@ -201,6 +202,7 @@ func (s *Server) getDocumentByID(w http.ResponseWriter, r *http.Request, id uuid
 		return
 	}
 	d.Permission = role
+	d.Content = liftStoredImages(d.Content)
 	all, _ := s.settings.GetAll(r.Context(), false)
 	if all.Security.AuditReads {
 		s.audit(r, &p.User.ID, "READ_DOCUMENT", "DOCUMENT", &id, nil)
