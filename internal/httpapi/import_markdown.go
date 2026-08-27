@@ -16,6 +16,7 @@ func markdownDocument(value string) (json.RawMessage, []richdoc.Asset, error) {
 	context := &inlineContext{}
 	blocks := parseMarkdownBlocks(splitLines(value), context, 0)
 	document := richdoc.Doc(blocks...)
+	richdoc.LiftImages(document)
 	content, err := document.JSON()
 	if err != nil {
 		return nil, nil, err

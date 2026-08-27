@@ -335,7 +335,7 @@ func (s *Server) openPublicDocument(w http.ResponseWriter, r *http.Request) {
 	// Deliberately narrow. No workspace, no owner, no neighbouring documents,
 	// no identity of anyone inside the organisation.
 	writeData(w, 200, map[string]any{
-		"title": title, "content": content, "updatedAt": updatedAt,
+		"title": title, "content": string(liftStoredImages(json.RawMessage(content))), "updatedAt": updatedAt,
 		"role": link.Role, "serviceName": service,
 	})
 }

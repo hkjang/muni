@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -61,7 +62,31 @@ func documentSelect() string {
 }
 
 func scanDocument(row pgx.Row, target *documentItem) error {
-	return row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.PageOrientation, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt)
+	if err := row.Scan(&target.ID, &target.WorkspaceID, &target.FolderID, &target.OwnerID, &target.OwnerName, &target.Title, &target.Status, &target.Visibility, &target.WorkflowStatus, &target.Content, &target.Revision, &target.CRDTGeneration, &target.HeadingNumbering, &target.PageHeader, &target.PageFooter, &target.PageOrientation, &target.Tags, &target.Favorite, &target.CreatedAt, &target.UpdatedAt, &target.DeletedAt); err != nil {
+		return err
+	}
+	target.Content = liftStoredImages(target.Content)
+	return nil
+}
+
+// liftStoredImages repairs documents imported before the importers learned to
+// give a picture a line of its own. Their images sit inside a paragraph, which
+// is a shape the editor refuses outright — the document would not open at all.
+// Documents without a picture pay one substring scan and nothing else.
+func liftStoredImages(content json.RawMessage) json.RawMessage {
+	if !bytes.Contains(content, []byte(`"image"`)) {
+		return content
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return content
+	}
+	richdoc.LiftImages(document)
+	repaired, err := document.JSON()
+	if err != nil {
+		return content
+	}
+	return repaired
 }
 
 func (s *Server) createDocument(w http.ResponseWriter, r *http.Request) {

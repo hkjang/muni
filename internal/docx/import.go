@@ -95,6 +95,9 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	if len(document.Content) == 0 {
 		document.Content = []*richdoc.Node{richdoc.Paragraph()}
 	}
+	// Word keeps a picture inside the run that holds it; the editor gives it
+	// a line of its own.
+	richdoc.LiftImages(document)
 	return document, imp.assets, imp.pageFurniture(files, bodyNode), nil
 }
 

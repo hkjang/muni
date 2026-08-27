@@ -77,10 +77,20 @@ describe("every screen understands what the server sends", () => {
 
   it("has every mark and node the server can produce", () => {
     withEditor((editor) => {
-      const missingMarks = marksTheServerProduces.filter((m) => !(m in editor.schema.marks));
-      const missingNodes = nodesTheServerProduces.filter((n) => !(n in editor.schema.nodes));
-      expect(missingMarks, "marks the server produces and the screen would discard").toEqual([]);
-      expect(missingNodes, "nodes the server produces and the screen would discard").toEqual([]);
+      const missingMarks = marksTheServerProduces.filter(
+        (m) => !(m in editor.schema.marks),
+      );
+      const missingNodes = nodesTheServerProduces.filter(
+        (n) => !(n in editor.schema.nodes),
+      );
+      expect(
+        missingMarks,
+        "marks the server produces and the screen would discard",
+      ).toEqual([]);
+      expect(
+        missingNodes,
+        "nodes the server produces and the screen would discard",
+      ).toEqual([]);
     });
   });
 
@@ -106,6 +116,196 @@ describe("every screen understands what the server sends", () => {
           `paragraph text after loading a ${mark} mark`,
         ).toContain("면적 3m");
       });
+    }
+  });
+});
+
+/**
+ * The attributes the server puts on nodes, and the node each one belongs to.
+ *
+ * ProseMirror treats an unknown attribute more gently than an unknown mark —
+ * it drops the attribute and keeps the content — so this loses formatting
+ * rather than text. Quietly, though: a table cell arrives without its shading,
+ * a paragraph without its line spacing, and nothing anywhere says so.
+ */
+const attributesTheServerProduces: {
+  node: string;
+  attrs: Record<string, unknown>;
+}[] = [
+  {
+    node: "paragraph",
+    attrs: {
+      textAlign: "justify",
+      lineHeight: "1.6",
+      firstLine: true,
+      indent: 2,
+    },
+  },
+  { node: "heading", attrs: { level: 2 } },
+  { node: "orderedList", attrs: { start: 3 } },
+  { node: "codeBlock", attrs: { language: "go" } },
+];
+
+describe("node attributes survive a load", () => {
+  it.each(attributesTheServerProduces)(
+    "$node keeps what the server set",
+    ({ node, attrs }) => {
+      const editor = new Editor({ extensions: documentExtensions() });
+      try {
+        const child =
+          node === "orderedList"
+            ? {
+                type: node,
+                attrs,
+                content: [
+                  {
+                    type: "listItem",
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "항목" }],
+                      },
+                    ],
+                  },
+                ],
+              }
+            : { type: node, attrs, content: [{ type: "text", text: "내용" }] };
+        editor.commands.setContent({ type: "doc", content: [child] });
+
+        const loaded = (editor.getJSON().content ?? [])[0] as
+          { attrs?: Record<string, unknown> } | undefined;
+        for (const [key, value] of Object.entries(attrs)) {
+          expect(loaded?.attrs?.[key], `${node}.${key}`).toBe(value);
+        }
+      } finally {
+        editor.destroy();
+      }
+    },
+  );
+
+  // The editor draws an image as a block of its own, so the server lifts a
+  // picture out of the paragraph that held it before sending the document
+  // (richdoc.LiftImages). A paragraph with an image still inside is not a
+  // document the editor loses formatting from — it is one setContent throws on.
+  it("an image keeps its source, size and description", () => {
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "image",
+            attrs: {
+              src: "/api/v1/attachments/x",
+              alt: "표 이미지",
+              width: 320,
+            },
+          },
+        ],
+      });
+      const json = JSON.stringify(editor.getJSON());
+      for (const expected of ["/api/v1/attachments/x", "표 이미지", "320"]) {
+        expect(json, "image attributes").toContain(expected);
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("refuses a picture left inside a paragraph", () => {
+    // If this ever stops throwing, the editor has learned inline images and
+    // richdoc.LiftImages can go. Until then it is the reason that code exists.
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      expect(() =>
+        editor.commands.setContent({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "사진 앞" },
+                { type: "image", attrs: { src: "/api/v1/attachments/x" } },
+              ],
+            },
+          ],
+        }),
+      ).toThrow();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("a table cell keeps its span and shading", () => {
+    // 병합된 셀과 음영은 한국 공문서 표의 기본이고, 조용히 사라지면
+    // 표가 다른 표가 됩니다.
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableCell",
+                    attrs: {
+                      colspan: 2,
+                      rowspan: 1,
+                      backgroundColor: "#d9e2f3",
+                    },
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "병합" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      const json = JSON.stringify(editor.getJSON());
+      expect(json, "colspan").toContain('"colspan":2');
+      expect(json, "cell shading").toContain("#d9e2f3");
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("a task item remembers whether it was ticked", () => {
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "taskList",
+            content: [
+              {
+                type: "taskItem",
+                attrs: { checked: true },
+                content: [
+                  {
+                    type: "paragraph",
+                    content: [{ type: "text", text: "끝난 일" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(JSON.stringify(editor.getJSON()), "checked").toContain(
+        '"checked":true',
+      );
+    } finally {
+      editor.destroy();
     }
   });
 });

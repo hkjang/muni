@@ -444,3 +444,71 @@ func TestCrossFormatRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// A Markdown or HTML picture is written inside the line of prose that holds
+// it. The editor draws an image as a block, so the importers have to lift it
+// out — otherwise the document arrives in a shape the schema refuses.
+func TestImportedInlineImagesBecomeBlocks(t *testing.T) {
+	// A 1x1 transparent GIF, small enough to write out in full.
+	const pixel = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+	sources := map[string]func() (json.RawMessage, []richdoc.Asset, error){
+		"markdown": func() (json.RawMessage, []richdoc.Asset, error) {
+			return markdownDocument("사진 앞 ![그림](" + pixel + ") 사진 뒤")
+		},
+		"html": func() (json.RawMessage, []richdoc.Asset, error) {
+			return htmlDocument([]byte(`<p>사진 앞 <img src="` + pixel + `" alt="그림"> 사진 뒤</p>`))
+		},
+	}
+	for name, importer := range sources {
+		t.Run(name, func(t *testing.T) {
+			content, assets, err := importer()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(assets) != 1 {
+				t.Fatalf("이미지 자산 1개를 기대했지만 %d개입니다", len(assets))
+			}
+			document := parseImported(t, content)
+			images := 0
+			for _, block := range document.Content {
+				if block.Type == "image" {
+					images++
+				}
+				for _, child := range block.Content {
+					if child != nil && child.Type == "image" {
+						t.Fatalf("이미지가 %s 안에 갇혀 있습니다: %s", block.Type, content)
+					}
+				}
+			}
+			if images != 1 {
+				t.Fatalf("이미지 블록 1개를 기대했지만 %d개입니다: %s", images, content)
+			}
+			if text := document.PlainText(); !strings.Contains(text, "사진 앞") || !strings.Contains(text, "사진 뒤") {
+				t.Fatalf("주변 문장이 사라졌습니다: %q", text)
+			}
+		})
+	}
+}
+
+// Documents imported before the importers learned to lift a picture out of the
+// paragraph holding it are still in the database, and the editor cannot open
+// them. They are repaired as they are read.
+func TestStoredImagesAreLiftedOnRead(t *testing.T) {
+	broken := json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"사진 앞"},{"type":"image","attrs":{"src":"/api/v1/attachments/abc"}}]}]}`)
+	repaired := parseImported(t, liftStoredImages(broken))
+	if len(repaired.Content) != 2 || repaired.Content[1].Type != "image" {
+		t.Fatalf("저장된 이미지가 올라오지 않았습니다: %s", liftStoredImages(broken))
+	}
+
+	// Prose pays nothing: the bytes come back as they were.
+	prose := json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"사진 없음"}]}]}`)
+	if got := liftStoredImages(prose); string(got) != string(prose) {
+		t.Fatalf("이미지 없는 문서가 바뀌었습니다: %s", got)
+	}
+
+	// Invalid JSON is handed back untouched rather than emptied.
+	junk := json.RawMessage(`{"type":"doc","content":[{"type":"image"`)
+	if got := liftStoredImages(junk); string(got) != string(junk) {
+		t.Fatalf("깨진 문서를 덮어썼습니다: %s", got)
+	}
+}

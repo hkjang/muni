@@ -325,3 +325,47 @@ func TestPackageIsInternallyConsistent(t *testing.T) {
 		}
 	}
 }
+
+// TestImportedImageIsItsOwnBlock pins the shape the editor can open. Word
+// writes a picture inside the run that holds it; the editor's image is a block
+// of its own, and a paragraph with one inside is a document it refuses.
+func TestImportedImageIsItsOwnBlock(t *testing.T) {
+	pixel := []byte{
+		0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 'I', 'D', 'A', 'T', 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 'I', 'E', 'N', 'D', 0xae,
+		0x42, 0x60, 0x82,
+	}
+	image := &richdoc.Node{Type: "image"}
+	image.SetAttr("src", "/api/v1/attachments/abc")
+	data := build(t, richdoc.Doc(richdoc.Paragraph(richdoc.Text("사진 앞"), image)), Options{
+		Title: "그림",
+		ResolveImage: func(string) (Image, bool) {
+			return Image{Data: pixel, MediaType: "image/png"}, true
+		},
+	})
+
+	imported, _, _, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, block := range imported.Content {
+		for _, child := range block.Content {
+			if child != nil && child.Type == "image" {
+				encoded, _ := json.Marshal(imported)
+				t.Fatalf("이미지가 %s 안에 갇혀 있습니다: %s", block.Type, encoded)
+			}
+		}
+	}
+	found := false
+	for _, block := range imported.Content {
+		if block.Type == "image" {
+			found = true
+		}
+	}
+	if !found {
+		encoded, _ := json.Marshal(imported)
+		t.Fatalf("이미지 블록이 없습니다: %s", encoded)
+	}
+}
