@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -15,45 +17,18 @@ import (
 // splices them somewhere they do not belong — or loses them. Footnotes did it
 // in all four formats at once, and each was found separately. One document
 // through every path finds the next one in a single run.
-const everyNode = `{"type":"doc","content":[
-	{"type":"tableOfContents"},
-	{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"제목입니다"}]},
-	{"type":"paragraph","content":[
-		{"type":"text","text":"평문과 "},
-		{"type":"text","marks":[{"type":"bold"}],"text":"굵은글씨"},
-		{"type":"text","text":"와 "},
-		{"type":"text","marks":[{"type":"italic"}],"text":"기울임"},
-		{"type":"text","text":"와 "},
-		{"type":"text","marks":[{"type":"underline"}],"text":"밑줄"},
-		{"type":"text","text":"와 "},
-		{"type":"text","marks":[{"type":"strike"}],"text":"취소선"},
-		{"type":"text","text":"와 "},
-		{"type":"text","marks":[{"type":"code"}],"text":"코드조각"},
-		{"type":"text","text":"와 "},
-		{"type":"text","marks":[{"type":"link","attrs":{"href":"https://example.com"}}],"text":"링크글자"},
-		{"type":"text","text":"와 제곱미터"},
-		{"type":"text","marks":[{"type":"superscript"}],"text":"위첨자표시"},
-		{"type":"text","text":"와 화학식"},
-		{"type":"text","marks":[{"type":"subscript"}],"text":"아래첨자표시"},
-		{"type":"footnote","content":[{"type":"text","text":"각주내용입니다"}]},
-		{"type":"text","text":"."},
-		{"type":"hardBreak"},
-		{"type":"text","text":"줄바꿈뒤문장"}]},
-	{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"인용문입니다"}]}]},
-	{"type":"bulletList","content":[
-		{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"글머리항목"}]}]}]},
-	{"type":"orderedList","content":[
-		{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"번호항목"}]}]}]},
-	{"type":"taskList","content":[
-		{"type":"taskItem","attrs":{"checked":true},"content":[{"type":"paragraph","content":[{"type":"text","text":"할일항목"}]}]}]},
-	{"type":"codeBlock","content":[{"type":"text","text":"코드블록내용"}]},
-	{"type":"table","content":[
-		{"type":"tableRow","content":[
-			{"type":"tableHeader","content":[{"type":"paragraph","content":[{"type":"text","text":"표머리글"}]}]},
-			{"type":"tableCell","content":[{"type":"paragraph","content":[{"type":"text","text":"표셀내용"}]}]}]}]},
-	{"type":"horizontalRule"},
-	{"type":"pageBreak"},
-	{"type":"paragraph","content":[{"type":"text","text":"마지막문단"}]}]}`
+//
+// It lives in testdata/every-node.json because the editor's own test reads the
+// same file. Two copies of "every kind of content" drift apart, and the copy
+// that drifts is the one that stops finding things.
+func everyNode(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "every-node.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
 
 // phrases every format has to carry through, whatever it does with the markup
 // around them.
@@ -65,7 +40,7 @@ var carriedPhrases = []string{
 }
 
 func TestEveryExportFormatCarriesEveryKindOfContent(t *testing.T) {
-	raw := json.RawMessage(everyNode)
+	raw := json.RawMessage(everyNode(t))
 	formats := []struct {
 		name   string
 		render func() string
@@ -94,7 +69,7 @@ func TestEveryExportFormatCarriesEveryKindOfContent(t *testing.T) {
 // A footnote is not part of the sentence it annotates. Every format has to put
 // it somewhere else — which is the rule the exporters kept breaking.
 func TestNoFormatPutsTheNoteInsideTheSentence(t *testing.T) {
-	raw := json.RawMessage(everyNode)
+	raw := json.RawMessage(everyNode(t))
 	for _, format := range []struct {
 		name   string
 		render func() string

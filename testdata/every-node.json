@@ -1,0 +1,295 @@
+{
+	"type": "doc",
+	"content": [
+		{
+			"type": "tableOfContents"
+		},
+		{
+			"type": "heading",
+			"attrs": {
+				"level": 1
+			},
+			"content": [
+				{
+					"type": "text",
+					"text": "제목입니다"
+				}
+			]
+		},
+		{
+			"type": "paragraph",
+			"content": [
+				{
+					"type": "text",
+					"text": "평문과 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "bold"
+						}
+					],
+					"text": "굵은글씨"
+				},
+				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "italic"
+						}
+					],
+					"text": "기울임"
+				},
+				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "underline"
+						}
+					],
+					"text": "밑줄"
+				},
+				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "strike"
+						}
+					],
+					"text": "취소선"
+				},
+				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "code"
+						}
+					],
+					"text": "코드조각"
+				},
+				{
+					"type": "text",
+					"text": "와 "
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "link",
+							"attrs": {
+								"href": "https://example.com"
+							}
+						}
+					],
+					"text": "링크글자"
+				},
+				{
+					"type": "text",
+					"text": "와 제곱미터"
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "superscript"
+						}
+					],
+					"text": "위첨자표시"
+				},
+				{
+					"type": "text",
+					"text": "와 화학식"
+				},
+				{
+					"type": "text",
+					"marks": [
+						{
+							"type": "subscript"
+						}
+					],
+					"text": "아래첨자표시"
+				},
+				{
+					"type": "footnote",
+					"content": [
+						{
+							"type": "text",
+							"text": "각주내용입니다"
+						}
+					]
+				},
+				{
+					"type": "text",
+					"text": "."
+				},
+				{
+					"type": "hardBreak"
+				},
+				{
+					"type": "text",
+					"text": "줄바꿈뒤문장"
+				}
+			]
+		},
+		{
+			"type": "blockquote",
+			"content": [
+				{
+					"type": "paragraph",
+					"content": [
+						{
+							"type": "text",
+							"text": "인용문입니다"
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "bulletList",
+			"content": [
+				{
+					"type": "listItem",
+					"content": [
+						{
+							"type": "paragraph",
+							"content": [
+								{
+									"type": "text",
+									"text": "글머리항목"
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "orderedList",
+			"content": [
+				{
+					"type": "listItem",
+					"content": [
+						{
+							"type": "paragraph",
+							"content": [
+								{
+									"type": "text",
+									"text": "번호항목"
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "taskList",
+			"content": [
+				{
+					"type": "taskItem",
+					"attrs": {
+						"checked": true
+					},
+					"content": [
+						{
+							"type": "paragraph",
+							"content": [
+								{
+									"type": "text",
+									"text": "할일항목"
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "codeBlock",
+			"content": [
+				{
+					"type": "text",
+					"text": "코드블록내용"
+				}
+			]
+		},
+		{
+			"type": "table",
+			"content": [
+				{
+					"type": "tableRow",
+					"content": [
+						{
+							"type": "tableHeader",
+							"content": [
+								{
+									"type": "paragraph",
+									"content": [
+										{
+											"type": "text",
+											"text": "표머리글"
+										}
+									]
+								}
+							]
+						},
+						{
+							"type": "tableCell",
+							"content": [
+								{
+									"type": "paragraph",
+									"content": [
+										{
+											"type": "text",
+											"text": "표셀내용"
+										}
+									]
+								}
+							]
+						}
+					]
+				}
+			]
+		},
+		{
+			"type": "horizontalRule"
+		},
+		{
+			"type": "pageBreak"
+		},
+		{
+			"type": "image",
+			"attrs": {
+				"src": "/api/v1/attachments/00000000-0000-0000-0000-000000000001",
+				"alt": "그림설명"
+			}
+		},
+		{
+			"type": "paragraph",
+			"content": [
+				{
+					"type": "text",
+					"text": "마지막문단"
+				}
+			]
+		}
+	]
+}

@@ -1,0 +1,100 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { Editor } from "@tiptap/core";
+import { describe, expect, it } from "vitest";
+import { documentExtensions } from "./features/editor/documentExtensions";
+
+/**
+ * The server's own coverage fixture, loaded into the editor that has to open
+ * it. testdata/every-node.json is the same file internal/httpapi and
+ * internal/docx read; keeping one copy is the point, because the copy that
+ * drifts is the one that stops finding things.
+ *
+ * editorSchema.test.ts checks vocabulary — every mark, node and attribute the
+ * server can name. This checks something vocabulary cannot: whether the
+ * *shape* is one the schema can hold. A picture left inside the paragraph that
+ * held it used only known nodes and known attributes, carried every phrase
+ * through every export, and still threw the moment the editor opened it.
+ */
+/** Walk up to the repository root, wherever vitest was started from. */
+function fixturePath(): string {
+  let directory = process.cwd();
+  for (;;) {
+    const candidate = resolve(directory, "testdata", "every-node.json");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory) {
+      throw new Error("testdata/every-node.json 을 찾지 못했습니다");
+    }
+    directory = parent;
+  }
+}
+
+const everyNode = JSON.parse(readFileSync(fixturePath(), "utf8"));
+
+/** The phrases the Go tests follow through each export format. */
+const carriedPhrases = [
+  "제목입니다",
+  "평문과",
+  "굵은글씨",
+  "기울임",
+  "밑줄",
+  "취소선",
+  "코드조각",
+  "링크글자",
+  "위첨자표시",
+  "아래첨자표시",
+  "각주내용입니다",
+  "줄바꿈뒤문장",
+  "인용문입니다",
+  "글머리항목",
+  "번호항목",
+  "할일항목",
+  "코드블록내용",
+  "표머리글",
+  "표셀내용",
+  "마지막문단",
+];
+
+describe("the editor opens what the server sends", () => {
+  it("loads every kind of content without refusing the document", () => {
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      // A shape the schema cannot hold throws here rather than degrading, so
+      // the document does not open at all.
+      expect(() => editor.commands.setContent(everyNode)).not.toThrow();
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps every phrase the export formats carry", () => {
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent(everyNode);
+      const loaded = JSON.stringify(editor.getJSON());
+      for (const phrase of carriedPhrases) {
+        expect(loaded, `${phrase} 가 편집기에서 사라졌습니다`).toContain(
+          phrase,
+        );
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps every kind of block the fixture names", () => {
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent(everyNode);
+      const loaded = JSON.stringify(editor.getJSON());
+      for (const block of everyNode.content as { type: string }[]) {
+        expect(loaded, `${block.type} 블록이 사라졌습니다`).toContain(
+          `"${block.type}"`,
+        );
+      }
+    } finally {
+      editor.destroy();
+    }
+  });
+});
