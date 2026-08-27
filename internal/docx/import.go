@@ -540,12 +540,35 @@ func (imp *importer) loadNotes(file *zip.File, local string) {
 		if id == "" || id == "0" || id == "1" {
 			continue
 		}
-		text := collapseSpaces(child.allText())
-		if text == "" {
+		content := noteContent(child)
+		if len(content) == 0 {
 			continue
 		}
 		// The two files number themselves separately, so a footnote 2 and an
 		// endnote 2 would collide.
-		imp.footnotes[local+":"+id] = []*richdoc.Node{richdoc.Text(text)}
+		imp.footnotes[local+":"+id] = content
 	}
+}
+
+// noteContent reads a note as the lines it was written in.
+//
+// A note is often more than one paragraph — a citation and then a remark about
+// it — and reading the whole part as one string ran them together:
+// "첫째 줄입니다둘째 줄입니다". The words are all there and the sentence is gone.
+func noteContent(note *xnode) []*richdoc.Node {
+	out := []*richdoc.Node{}
+	for _, child := range note.Children {
+		if !child.is("w", "p") {
+			continue
+		}
+		text := collapseSpaces(child.allText())
+		if text == "" {
+			continue
+		}
+		if len(out) > 0 {
+			out = append(out, &richdoc.Node{Type: "hardBreak"})
+		}
+		out = append(out, richdoc.Text(text))
+	}
+	return out
 }

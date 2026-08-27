@@ -159,3 +159,62 @@ func TestAFootnoteAndAnEndnoteWithTheSameNumberStayApart(t *testing.T) {
 		t.Errorf("둘째 주석 = %q", got)
 	}
 }
+
+// A note is often more than one paragraph — a citation and then a remark about
+// it. Reading the whole part as one string ran them together, so all the words
+// were there and the sentence was gone.
+func TestANoteKeepsItsLines(t *testing.T) {
+	body := `<w:p><w:r><w:t>문장</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r></w:p>`
+	notes := `<w:footnote w:id="2">` +
+		`<w:p><w:r><w:t>기획조정실(2026)</w:t></w:r></w:p>` +
+		`<w:p><w:r><w:t>같은 자료 12쪽</w:t></w:r></w:p></w:footnote>`
+	document, _, _, err := Parse(wordPackageWithNotes(t, body, notes, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := richdoc.Footnotes(document)
+	if len(found) != 1 {
+		t.Fatalf("주석 = %d개", len(found))
+	}
+	breaks := 0
+	for _, child := range found[0].Content {
+		if child.Type == "hardBreak" {
+			breaks++
+		}
+	}
+	if breaks != 1 {
+		t.Errorf("줄바꿈 = %d개: %q", breaks, richdoc.FootnoteText(found[0]))
+	}
+	// And the two lines have not run into each other.
+	if text := richdoc.FootnoteText(found[0]); strings.Contains(text, ")같은") {
+		t.Errorf("두 줄이 붙었습니다: %q", text)
+	}
+}
+
+// And the two lines survive a round trip through Word, which writes the break
+// as w:br and reads it back the same way.
+func TestATwoLineNoteSurvivesTheRoundTrip(t *testing.T) {
+	source := `{"type":"doc","content":[{"type":"paragraph","content":[
+		{"type":"text","text":"문장"},
+		{"type":"footnote","content":[{"type":"text","text":"기획조정실(2026)"},{"type":"hardBreak"},{"type":"text","text":"같은 자료 12쪽"}]},
+		{"type":"text","text":"."}]}]}`
+	node, err := richdoc.Parse(json.RawMessage(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	built, err := Build(node, Options{Title: "두 줄 주석"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	back, _, _, err := Parse(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := richdoc.Footnotes(back)
+	if len(found) != 1 {
+		t.Fatalf("주석 = %d개", len(found))
+	}
+	if text := richdoc.FootnoteText(found[0]); strings.Contains(text, ")같은") {
+		t.Errorf("왕복에서 두 줄이 붙었습니다: %q", text)
+	}
+}

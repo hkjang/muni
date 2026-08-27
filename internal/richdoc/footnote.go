@@ -46,11 +46,11 @@ func Footnotes(doc *Node) []Footnote {
 // the foot of the page. A note is a sentence or two of prose; anything that
 // would need paragraphs of its own belongs in the document.
 func FootnoteText(note Footnote) string {
-	joined := ""
-	for _, child := range note.Content {
-		joined += child.PlainText()
-	}
-	return collapse(joined)
+	// Walked as one node rather than child by child: a note written as two
+	// lines has a hardBreak between them, and PlainText trims a break that is
+	// all a node contains — so asking each child separately loses exactly the
+	// thing that keeps the lines apart.
+	return collapse((&Node{Type: FootnoteType, Content: note.Content}).PlainText())
 }
 
 // FootnoteMarker is what the reader sees in the sentence.

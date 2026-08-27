@@ -174,6 +174,11 @@ func (n *Node) PlainText() string {
 		switch node.Type {
 		case "paragraph", "heading", "listItem", "taskItem", "codeBlock", "tableRow", "blockquote":
 			out.WriteString("\n")
+		case "hardBreak":
+			// A line break is a line break. Without this the lines either side
+			// of one run together — in the search index, in a preview, and in
+			// a footnote written as two lines.
+			out.WriteString("\n")
 		}
 	}
 	walk(n)
