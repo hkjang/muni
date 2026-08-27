@@ -9,10 +9,9 @@ import (
 
 // table reads an <hp:tbl>.
 //
-// HWPX puts each cell's position in the cell rather than in the row: a cell
-// names its own row and column, and a merged cell names how far it reaches.
-// Rows are therefore built from where the cells say they are, not from the
-// order they appear in.
+// The rows are the <hp:tr> the file wrote, read in order. A cell also carries
+// its own address, which a file could disagree with; nothing seen so far
+// does, and trusting the order keeps a merged cell where its row put it.
 func (imp *importer) table(current *node) *richdoc.Node {
 	rows := []*richdoc.Node{}
 	headerRows := headerRowCount(current)
@@ -44,9 +43,6 @@ func headerRowCount(table *node) int {
 		if strings.EqualFold(value, "true") || value == "1" {
 			return 1
 		}
-	}
-	if inside := table.child("inMargin"); inside != nil {
-		_ = inside
 	}
 	return 0
 }

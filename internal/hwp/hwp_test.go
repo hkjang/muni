@@ -332,13 +332,15 @@ func TestAPictureKeepsItsBytes(t *testing.T) {
 		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 'I', 'E', 'N', 'D', 0xae,
 		0x42, 0x60, 0x82,
 	}
-	// A picture control naming BinData id 1, with a shape record beneath it.
+	// A picture control with the picture's own record beneath it, carrying the
+	// BinData id where the format puts it — after the border, the four
+	// corners, the crop and the margins.
 	control := []byte{'c', 'i', 'p', '$'} // "$pic" back to front
 	control = append(control, make([]byte, 8)...)
 	body := append(recordHeader(tagCtrlHeader, 1, len(control)), control...)
-	shape := make([]byte, 4)
-	binary.LittleEndian.PutUint16(shape, 1) // BinData id
-	body = append(body, recordHeader(tagListHeader, 2, len(shape))...)
+	shape := make([]byte, pictureBinIDOffset+8)
+	binary.LittleEndian.PutUint16(shape[pictureBinIDOffset:], 1)
+	body = append(body, recordHeader(tagShapePicture, 2, len(shape))...)
 	body = append(body, shape...)
 
 	streams := []streamSpec{
@@ -424,5 +426,36 @@ func TestAHeadingDoesNotTakeAParagraphsIndent(t *testing.T) {
 	}
 	if heading.AttrInt("indent", 0) != 0 || heading.AttrString("textAlign") != "" {
 		t.Errorf("제목이 문단 서식을 가져갔습니다: %v", heading.Attrs)
+	}
+}
+
+// A tab occupies eight positions like any other control mark. Counting it as
+// one puts every shape after it seven positions early, so the words after a
+// tab wear the wrong formatting.
+func TestShapePositionsCountATabAsEight(t *testing.T) {
+	docInfo := append(charShapeRecord(false, false, false), charShapeRecord(true, false, false)...)
+
+	code := make([]uint16, 0, 24)
+	code = append(code, units("앞말")...) // positions 0-1
+	code = append(code, 9)              // a tab: positions 2-9
+	for filler := 0; filler < 6; filler++ {
+		code = append(code, 0x4E00)
+	}
+	code = append(code, 9)
+	code = append(code, units("뒷말")...) // positions 10-11
+
+	body := paragraphRecords(code, charRun{at: 0, shape: 0}, charRun{at: 10, shape: 1})
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, docInfo, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(document.PlainText(), "앞말\t뒷말") {
+		t.Errorf("탭이 자리를 지키지 않았습니다: %q", document.PlainText())
+	}
+	if marks := markedText(t, document, "앞말"); has(marks, "bold") {
+		t.Errorf("앞말에 굵기가 잘못 붙었습니다: %v", marks)
+	}
+	if marks := markedText(t, document, "뒷말"); !has(marks, "bold") {
+		t.Errorf("탭 뒤의 굵기가 어긋났습니다: %v", marks)
 	}
 }

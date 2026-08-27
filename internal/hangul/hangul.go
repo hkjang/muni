@@ -77,7 +77,12 @@ func OutlineLevel(names ...string) int {
 				continue
 			}
 			rest := strings.TrimSpace(trimmed[len(prefix):])
-			if level, err := strconv.Atoi(rest); err == nil && level >= 1 && level <= 6 {
+			// Hangul goes to 개요 7 and muni's heading goes to 6, so the
+			// seventh becomes the sixth rather than becoming body text.
+			if level, err := strconv.Atoi(rest); err == nil && level >= 1 && level <= 7 {
+				if level > 6 {
+					level = 6
+				}
 				return level
 			}
 		}

@@ -107,18 +107,22 @@ func readParagraphText(raw []byte) paragraphText {
 		if extendedControl(code) {
 			// Eight WCHAR including this one — the erratum that costs a reader
 			// the rest of the paragraph if it is read as eight bytes.
-			if replacement, ok := inlineControls[code]; ok {
-				if len(units) == 0 && current.Len() == 0 {
-					pieceAt = position
-				}
-				flushUnits()
-				current.WriteString(replacement)
+			//
+			// The piece ends here either way. A tab keeps its character, but
+			// the eight positions it occupies cannot be counted from inside a
+			// piece — the shape lookup walks a piece one code unit per rune,
+			// so everything after a tab would be looked up seven positions
+			// early and wear the wrong shape.
+			replacement, keep := inlineControls[code]
+			flushPiece()
+			if keep {
+				out.pieces = append(out.pieces, textPiece{at: position, text: replacement})
 			} else {
-				flushPiece()
 				out.controls++
 			}
 			offset += controlWidth * 2
 			position += controlWidth
+			pieceAt = position
 			continue
 		}
 		// A character control that says nothing muni can keep.

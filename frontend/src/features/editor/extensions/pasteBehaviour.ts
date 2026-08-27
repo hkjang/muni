@@ -81,8 +81,18 @@ export const PasteBehaviour = Extension.create({
 
             // Markdown before links: an address on its own is not Markdown,
             // so the two never both match.
+            //
+            // Only when the clipboard has nothing richer. Copying a bulleted
+            // list out of Word or a browser puts both flavours on the
+            // clipboard, and the plain one looks like Markdown — reading that
+            // instead would throw away the colours, fonts, tables and images
+            // the HTML carried, to recover formatting it already had.
+            const carriesHTML = Boolean(
+              event.clipboardData?.types?.includes("text/html"),
+            );
             if (
               text &&
+              !carriesHTML &&
               looksLikeMarkdown(text) &&
               !insideVerbatim(view.state) &&
               editor

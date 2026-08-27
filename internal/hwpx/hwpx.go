@@ -37,10 +37,12 @@ type importer struct {
 	charShapes map[string]charShape
 	paraShapes map[string]paraShape
 	styles     map[string]styleInfo
-	// binary is the bytes of each BinData part, by the id a picture refers to.
-	binary    map[string][]byte
-	assets    []richdoc.Asset
-	assetByID map[string]string
+	// binaryParts is where each picture is; binary is the bytes of the ones
+	// something actually asked for.
+	binaryParts map[string]*zip.File
+	binary      map[string][]byte
+	assets      []richdoc.Asset
+	assetByID   map[string]string
 }
 
 type charShape struct {
@@ -80,11 +82,12 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	}
 
 	imp := &importer{
-		charShapes: map[string]charShape{},
-		paraShapes: map[string]paraShape{},
-		styles:     map[string]styleInfo{},
-		binary:     map[string][]byte{},
-		assetByID:  map[string]string{},
+		charShapes:  map[string]charShape{},
+		paraShapes:  map[string]paraShape{},
+		styles:      map[string]styleInfo{},
+		binaryParts: map[string]*zip.File{},
+		binary:      map[string][]byte{},
+		assetByID:   map[string]string{},
 	}
 	imp.loadHeader(files)
 	imp.loadBinData(files)

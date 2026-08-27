@@ -266,7 +266,11 @@ func paragraphRecords(text []uint16, shapes ...charRun) []byte {
 // charShapeRecord writes one CHAR_SHAPE into DocInfo, with the switches muni
 // reads set as asked.
 func charShapeRecord(bold, italic, underline bool) []byte {
-	const propertyOffset = 7*2 + 7 + 7 + 7*2 + 7 + 4
+	// Laid out from the format, not from the reader's own constant: a fixture
+	// that shares the reader's arithmetic cannot catch the reader getting it
+	// wrong, which is exactly what happened here.
+	const faceNames, ratios, spacings, relativeSizes, offsets, baseSize = 7 * 2, 7, 7, 7, 7, 4
+	propertyOffset := faceNames + ratios + spacings + relativeSizes + offsets + baseSize
 	data := make([]byte, propertyOffset+8)
 	bits := uint32(0)
 	if italic {

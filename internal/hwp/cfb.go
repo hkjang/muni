@@ -120,7 +120,15 @@ func (c *compound) readFAT() error {
 }
 
 // chain reads a stream by following its sectors through a table.
+//
+// The size comes out of the file's own directory, which is to say out of
+// whatever somebody uploaded. A stream cannot be longer than the file that
+// holds it, and believing a declared length of 2^62 is a panic in makeslice
+// before a single byte is read.
 func (c *compound) chain(table []uint32, start uint32, size uint64, read func(uint32) []byte) []byte {
+	if size > uint64(len(c.data)) {
+		size = uint64(len(c.data))
+	}
 	out := make([]byte, 0, size)
 	index := start
 	for guard := 0; index < uint32(len(table)) && guard < maxSectors; guard++ {

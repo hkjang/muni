@@ -2,6 +2,7 @@ package hwpx
 
 import (
 	"encoding/xml"
+	"errors"
 	"io"
 	"strings"
 )
@@ -21,6 +22,20 @@ type node struct {
 	text     string
 }
 
+// textName is the name given to a run of characters, so that characters and
+// elements keep the order they were written in.
+//
+// Holding a node's characters in one field instead loses where they sat: for
+// <hp:t>가나<hp:tab/>다라</hp:t> it gives "가나다라" and a tab afterwards,
+// rather than a tab between the two halves.
+const textName = "#text"
+
+// maxDepth bounds how deep a part may nest. Walking a tree recursively is the
+// natural way to read one, and a file nested ten million deep would overflow
+// the stack — which in Go is a fatal error that takes the server with it, not
+// a panic one request can recover from.
+const maxDepth = 512
+
 func parse(reader io.Reader) (*node, error) {
 	decoder := xml.NewDecoder(reader)
 	decoder.Strict = false
@@ -36,6 +51,9 @@ func parse(reader io.Reader) (*node, error) {
 		}
 		switch typed := token.(type) {
 		case xml.StartElement:
+			if len(stack) >= maxDepth {
+				return nil, errors.New("HWPX 파일이 너무 깊게 중첩되어 있습니다")
+			}
 			current := &node{name: typed.Name.Local, attrs: map[string]string{}}
 			for _, attribute := range typed.Attr {
 				// The local name again: a writer may call the same attribute
@@ -55,7 +73,10 @@ func parse(reader io.Reader) (*node, error) {
 			}
 		case xml.CharData:
 			if len(stack) > 0 {
-				stack[len(stack)-1].text += string(typed)
+				parent := stack[len(stack)-1]
+				parent.text += string(typed)
+				parent.children = append(parent.children,
+					&node{name: textName, text: string(typed)})
 			}
 		}
 	}
@@ -124,8 +145,9 @@ func (n *node) allText() string {
 	var out strings.Builder
 	var walk func(*node)
 	walk = func(current *node) {
-		if current.is("t") {
+		if current.is(textName) {
 			out.WriteString(current.text)
+			return
 		}
 		for _, child := range current.children {
 			walk(child)

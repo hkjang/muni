@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hkjang/muni/internal/richdoc"
 )
 
 // everyNode is one document carrying every kind of block and inline the editor
@@ -199,5 +201,37 @@ func TestADocumentWithNoDiagramCarriesNoDrawingLibrary(t *testing.T) {
 	page := fullHTMLWithDrawing("문서", false, plain, htmlHasDiagram(plain))
 	if strings.Contains(page, "muniDiagramsReady") {
 		t.Error("그림이 없는데 그리기 준비 코드가 들어갔습니다")
+	}
+}
+
+// muni's HTML import is built to read muni's HTML export back. A diagram
+// exported without its language returns as a code block that is no longer a
+// diagram.
+func TestADiagramSurvivesItsOwnHTMLExport(t *testing.T) {
+	rendered := renderHTML(json.RawMessage(everyNode(t)))
+	content, _, err := htmlDocument([]byte(rendered))
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	var walk func(*richdoc.Node)
+	walk = func(node *richdoc.Node) {
+		if node == nil {
+			return
+		}
+		if isDiagram(node) {
+			found = true
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(document)
+	if !found {
+		t.Errorf("내보낸 HTML 을 다시 읽으니 도형이 아닙니다: %s", content)
 	}
 }

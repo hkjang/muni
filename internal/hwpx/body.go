@@ -10,23 +10,43 @@ import (
 )
 
 // loadBinData keeps the bytes of every picture, by the id a run refers to.
+// loadBinData notes where each picture is, without reading any of it.
+//
+// Decompressing every part up front turns a small zip with a few hundred
+// highly compressible entries into gigabytes in memory before a single
+// picture has been asked for. A document usually refers to fewer pictures
+// than it carries, and one it never refers to is never read.
 func (imp *importer) loadBinData(files map[string]*zip.File) {
 	for name, file := range files {
 		if !strings.HasPrefix(strings.ToLower(name), "bindata/") {
 			continue
 		}
-		data, err := readBytes(file)
-		if err != nil || len(data) == 0 {
-			continue
-		}
 		base := name[len("BinData/"):]
 		// A picture refers to the name with and without its extension,
 		// depending on which part of the file is doing the referring.
-		imp.binary[strings.ToLower(base)] = data
+		imp.binaryParts[strings.ToLower(base)] = file
 		if dot := strings.LastIndex(base, "."); dot > 0 {
-			imp.binary[strings.ToLower(base[:dot])] = data
+			imp.binaryParts[strings.ToLower(base[:dot])] = file
 		}
 	}
+}
+
+// binaryFor reads one picture, once.
+func (imp *importer) binaryFor(id string) ([]byte, bool) {
+	key := strings.ToLower(id)
+	if data, seen := imp.binary[key]; seen {
+		return data, len(data) > 0
+	}
+	file, ok := imp.binaryParts[key]
+	if !ok {
+		return nil, false
+	}
+	data, err := readBytes(file)
+	if err != nil {
+		data = nil
+	}
+	imp.binary[key] = data
+	return data, len(data) > 0
 }
 
 // sectionIsLandscape reads the paper the section asks for.
@@ -77,12 +97,15 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 	// A table is a block of its own in muni. In HWPX it lives inside the
 	// paragraph that positions it, so it comes out and the paragraph keeps
 	// whatever text was beside it.
+	// Only the tables this paragraph holds, not every table below it: a table
+	// inside a cell is built by the cell that holds it, and finding it again
+	// here would put it in the document twice.
 	lifted := []*richdoc.Node{}
-	current.each("tbl", func(table *node) {
+	for _, table := range tablesIn(current) {
 		if built := imp.table(table); built != nil {
 			lifted = append(lifted, built)
 		}
-	})
+	}
 
 	inline := imp.runs(current)
 	style := imp.styles[current.attr("styleIDRef")]
@@ -116,6 +139,27 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 		}
 	}
 	return append([]*richdoc.Node{block}, lifted...)
+}
+
+// tablesIn finds the tables a paragraph positions, stopping at a cell — what
+// is inside one belongs to that cell.
+func tablesIn(current *node) []*node {
+	out := []*node{}
+	var walk func(*node)
+	walk = func(at *node) {
+		for _, child := range at.children {
+			switch {
+			case child.is("tbl"):
+				out = append(out, child)
+			case child.is("tc"), child.is("subList"):
+				// Someone else's.
+			default:
+				walk(child)
+			}
+		}
+	}
+	walk(current)
+	return out
 }
 
 // runs reads the inline content of a paragraph.
@@ -154,9 +198,12 @@ func (imp *importer) text(current *node, marks []richdoc.Mark) []*richdoc.Node {
 			out = append(out, richdoc.Text(value, marks...))
 		}
 	}
-	add(current.text)
+	// In order: a tab written between two halves of a sentence belongs
+	// between them, not after both.
 	for _, child := range current.children {
 		switch {
+		case child.is(textName):
+			add(child.text)
 		case child.is("tab"):
 			add("\t")
 		case child.is("lineBreak"):
@@ -164,7 +211,6 @@ func (imp *importer) text(current *node, marks []richdoc.Mark) []*richdoc.Node {
 		default:
 			add(child.allText())
 		}
-		add(child.text)
 	}
 	return out
 }
@@ -209,8 +255,8 @@ func (imp *importer) picture(current *node) *richdoc.Node {
 	if id == "" {
 		return nil
 	}
-	data, ok := imp.binary[strings.ToLower(id)]
-	if !ok || len(data) == 0 {
+	data, ok := imp.binaryFor(id)
+	if !ok {
 		return nil
 	}
 	placeholder, seen := imp.assetByID[id]

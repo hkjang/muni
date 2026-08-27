@@ -39,6 +39,9 @@ const (
 	tagCtrlHeader         = 0x047
 	tagListHeader         = 0x048
 	tagTable              = 0x04C
+	// HWPTAG_BEGIN + 75. The picture's own record, where the id of the stream
+	// holding its bytes is written.
+	tagShapePicture = 0x05B
 )
 
 func readRecords(raw []byte) []record {

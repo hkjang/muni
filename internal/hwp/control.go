@@ -3,6 +3,7 @@ package hwp
 import (
 	"encoding/binary"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/hkjang/muni/internal/richdoc"
@@ -78,36 +79,35 @@ func (imp *importer) table(node *recordNode) *richdoc.Node {
 	if len(placedCells) == 0 {
 		return nil
 	}
-	rows := make([]*richdoc.Node, rowCount)
-	for index := range rows {
-		rows[index] = &richdoc.Node{Type: "tableRow"}
+	// Indexed by where each cell says it is, rather than scanned for. The
+	// scan was rows × 1024 columns × cells, which a five-thousand-cell table
+	// turns into billions of comparisons and a crafted one into far more.
+	byPlace := map[[2]uint16][]*richdoc.Node{}
+	columns := map[uint16][]uint16{}
+	for _, cell := range placedCells {
+		key := [2]uint16{cell.row, cell.column}
+		if _, seen := byPlace[key]; !seen {
+			columns[cell.row] = append(columns[cell.row], cell.column)
+		}
+		byPlace[key] = append(byPlace[key], cell.node)
 	}
-	// Sort within a row by column, so a file that wrote its cells out of order
-	// still reads left to right.
+	rows := make([]*richdoc.Node, 0, rowCount)
 	for rowIndex := 0; rowIndex < rowCount; rowIndex++ {
-		for column := 0; column < 1<<10; column++ {
-			placedAny := false
-			for _, cell := range placedCells {
-				if int(cell.row) == rowIndex && int(cell.column) == column {
-					rows[rowIndex].Content = append(rows[rowIndex].Content, cell.node)
-					placedAny = true
-				}
-			}
-			if !placedAny && column > len(placedCells) {
-				break
-			}
+		at := columns[uint16(rowIndex)]
+		if len(at) == 0 {
+			continue
 		}
-	}
-	kept := rows[:0]
-	for _, row := range rows {
-		if len(row.Content) > 0 {
-			kept = append(kept, row)
+		sort.Slice(at, func(a, b int) bool { return at[a] < at[b] })
+		row := &richdoc.Node{Type: "tableRow"}
+		for _, column := range at {
+			row.Content = append(row.Content, byPlace[[2]uint16{uint16(rowIndex), column}]...)
 		}
+		rows = append(rows, row)
 	}
-	if len(kept) == 0 {
+	if len(rows) == 0 {
 		return nil
 	}
-	return &richdoc.Node{Type: "table", Content: kept}
+	return &richdoc.Node{Type: "table", Content: rows}
 }
 
 // cellAddress is where a cell sits and how far it reaches.
@@ -179,35 +179,52 @@ func (imp *importer) pictureFrom(node *recordNode) *richdoc.Node {
 
 // pictureStreamID finds the BinData id a picture refers to.
 //
-// It sits in the shape's own record rather than in the control header, so the
-// records beneath the control are searched for the first one that names a
-// stream this file actually has.
+// It is written in the picture's own record, after the border, the four
+// corners, the crop and the margins. Hunting for it instead — taking any
+// two-byte value that happens to name a stream this file has — finds a count
+// or a flag first, so in a document with several pictures they all resolve to
+// whichever one had the lowest number.
+const pictureBinIDOffset = 4 + 4 + 4 + 32 + 16 + 8
+
 func (imp *importer) pictureStreamID(node *recordNode) string {
-	found := ""
-	var walk func(*recordNode)
-	walk = func(current *recordNode) {
-		if found != "" {
-			return
-		}
-		for offset := 0; offset+2 <= len(current.data); offset += 2 {
-			id := binary.LittleEndian.Uint16(current.data[offset:])
-			if id == 0 {
-				continue
+	picture := findRecord(node, tagShapePicture)
+	if picture == nil {
+		return ""
+	}
+	if len(picture.data) >= pictureBinIDOffset+2 {
+		id := binary.LittleEndian.Uint16(picture.data[pictureBinIDOffset:])
+		if id != 0 {
+			if name := binaryName(id); imp.hasBinary(name) {
+				return name
 			}
-			name := binaryName(id)
-			if _, _, ok := imp.binaryStream(name); ok {
-				found = name
-				return
-			}
-		}
-		for _, child := range current.children {
-			walk(child)
 		}
 	}
+	// The offset moved between versions of the format. Searching the
+	// picture's own record is a guess, but a far narrower one than searching
+	// everything beneath the control.
+	for offset := 0; offset+2 <= len(picture.data); offset += 2 {
+		id := binary.LittleEndian.Uint16(picture.data[offset:])
+		if id == 0 {
+			continue
+		}
+		if name := binaryName(id); imp.hasBinary(name) {
+			return name
+		}
+	}
+	return ""
+}
+
+// findRecord looks for a tag anywhere beneath a node.
+func findRecord(node *recordNode, tag uint16) *recordNode {
 	for _, child := range node.children {
-		walk(child)
+		if child.tag == tag {
+			return child
+		}
+		if found := findRecord(child, tag); found != nil {
+			return found
+		}
 	}
-	return found
+	return nil
 }
 
 // binaryName is the stream name a BinData id gives: BIN followed by the id in
@@ -219,18 +236,38 @@ func binaryName(id uint16) string {
 	})
 }
 
-// binaryStream finds a picture's bytes. The stream carries the picture's own
-// extension, so the name is matched by its start.
-func (imp *importer) binaryStream(id string) ([]byte, string, bool) {
+// hasBinary reports whether a stream of that name exists, without reading it.
+// Asking by reading meant inflating a picture in full to answer a question
+// about its name, once per candidate.
+func (imp *importer) hasBinary(id string) bool {
+	_, ok := imp.binaryName(id)
+	return ok
+}
+
+// binaryName finds the stream whose name starts with an id. The stream carries
+// the picture's own extension, so the match is on the start.
+func (imp *importer) binaryName(id string) (string, bool) {
 	for _, name := range imp.file.names("BinData") {
-		if !strings.HasPrefix(strings.ToUpper(name), strings.ToUpper(id)) {
-			continue
+		if strings.HasPrefix(strings.ToUpper(name), strings.ToUpper(id)) {
+			return name, true
 		}
-		raw, ok := imp.stream("BinData/" + name)
-		if !ok || len(raw) == 0 {
-			continue
-		}
-		return raw, name, true
 	}
-	return nil, "", false
+	return "", false
+}
+
+// binaryStream reads a picture's bytes, once.
+func (imp *importer) binaryStream(id string) ([]byte, string, bool) {
+	name, ok := imp.binaryName(id)
+	if !ok {
+		return nil, "", false
+	}
+	if cached, seen := imp.binaryCache[name]; seen {
+		return cached, name, len(cached) > 0
+	}
+	raw, ok := imp.stream("BinData/" + name)
+	if !ok {
+		raw = nil
+	}
+	imp.binaryCache[name] = raw
+	return raw, name, len(raw) > 0
 }

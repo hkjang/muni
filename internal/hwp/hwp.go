@@ -28,6 +28,15 @@ type fileHeader struct {
 	encrypted  bool
 }
 
+// charShapePropertyOffset is where a CHAR_SHAPE's switches begin: UINT16[7]
+// face names, UINT8[7] ratios, INT8[7] spacings, UINT8[7] relative sizes,
+// INT8[7] offsets, INT32 base size.
+//
+// Counting the relative sizes as two bytes each puts this seven bytes too far
+// and reads the switches out of the base size, which is formatting arrived at
+// by accident.
+const charShapePropertyOffset = 7*2 + 7 + 7 + 7 + 7 + 4
+
 type charShape struct {
 	bold      bool
 	italic    bool
@@ -42,8 +51,10 @@ type importer struct {
 	paraShapes []paraShape
 	styles     []styleInfo
 	assets     []richdoc.Asset
-	// assetByID keeps a picture used twice from being stored twice.
-	assetByID map[string]string
+	// assetByID keeps a picture used twice from being stored twice, and
+	// binaryCache keeps it from being decompressed twice.
+	assetByID   map[string]string
+	binaryCache map[string][]byte
 }
 
 // Parse reads a .hwp into muni's document model.
@@ -52,7 +63,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	if err != nil {
 		return nil, nil, Meta{}, err
 	}
-	imp := &importer{file: file, assetByID: map[string]string{}}
+	imp := &importer{file: file, assetByID: map[string]string{}, binaryCache: map[string][]byte{}}
 	if err := imp.readFileHeader(); err != nil {
 		return nil, nil, Meta{}, err
 	}
@@ -158,10 +169,11 @@ func (imp *importer) readDocInfo() {
 // readCharShape reads the italic/bold/underline/strike switches out of one
 // CHAR_SHAPE record.
 //
-// The record begins with seven font ids, then seven of each of four more
-// arrays — the per-language tables — before the size and the property bits.
+// The record opens with five per-language tables of seven entries each — the
+// font ids two bytes wide, the other four one byte — and then the base size,
+// before the word the switches live in.
 func readCharShape(raw []byte) charShape {
-	const propertyOffset = 7*2 + 7 + 7 + 7*2 + 7 + 4 // fonts, ratios, spacings, sizes, positions, size
+	const propertyOffset = charShapePropertyOffset
 	if len(raw) < propertyOffset+4 {
 		return charShape{}
 	}

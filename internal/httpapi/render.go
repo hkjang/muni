@@ -116,8 +116,13 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 			// The browser draws this one. The text is still the content —
 			// what a diagram is, is what it says — so a reader without the
 			// drawing library sees the description rather than nothing.
-			out.WriteString(`<pre class="mermaid"` + blockIDAttribute(node) + ">" +
-				html.EscapeString(codeText(node)) + "</pre>")
+			// The inner <code> carries the language, which is how muni reads
+			// its own HTML export back: without it the block returns as a
+			// code block with no language and stops being a diagram. The
+			// drawing library reads the text either way.
+			out.WriteString(`<pre class="mermaid"` + blockIDAttribute(node) +
+				`><code class="language-mermaid">` +
+				html.EscapeString(codeText(node)) + "</code></pre>")
 			return
 		}
 		out.WriteString("<pre" + blockIDAttribute(node) + "><code")
@@ -294,23 +299,6 @@ func isDiagram(node *richdoc.Node) bool {
 // thing that answers it.
 func htmlHasDiagram(rendered string) bool {
 	return strings.Contains(rendered, `<pre class="mermaid"`)
-}
-
-// documentHasDiagram reports whether anything in the document needs drawing,
-// so the drawing library is only carried by the exports that use it.
-func documentHasDiagram(node *richdoc.Node) bool {
-	if node == nil {
-		return false
-	}
-	if isDiagram(node) {
-		return true
-	}
-	for _, child := range node.Content {
-		if documentHasDiagram(child) {
-			return true
-		}
-	}
-	return false
 }
 
 // cellShade accepts only a plain hex colour, so nothing an author or an
