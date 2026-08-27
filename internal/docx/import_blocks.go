@@ -579,11 +579,16 @@ func (imp *importer) table(node *xnode) *richdoc.Node {
 	}
 	rows := make([]*richdoc.Node, 0, 8)
 	open := map[int]*pending{}
+	// Which w:tr this is, not how many rows have been kept: a first row that
+	// yields no cells is skipped without being counted, and the header would
+	// land on the row after it.
+	rowIndex := -1
 	for _, rowNode := range node.Children {
 		if !rowNode.is("w", "tr") {
 			continue
 		}
-		header := firstRowIsHeader && len(rows) == 0
+		rowIndex++
+		header := firstRowIsHeader && rowIndex == 0
 		if properties := rowNode.child("w", "trPr"); properties != nil && properties.child("w", "tblHeader") != nil {
 			header = true
 		}

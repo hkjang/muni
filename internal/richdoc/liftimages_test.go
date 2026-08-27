@@ -128,3 +128,31 @@ func TestLiftImagesKeepsAListItemOpeningWithAParagraph(t *testing.T) {
 		t.Fatalf("목록 항목이 문단으로 시작하지 않습니다: %s", dump(t, doc))
 	}
 }
+
+// A heading is one entry in the outline, the contents list and the numbering.
+// Splitting it around a picture made two of them where the author wrote one.
+func TestLiftImagesDoesNotSplitAHeadingInTwo(t *testing.T) {
+	image := &Node{Type: "image"}
+	image.SetAttr("src", "/api/v1/attachments/abc")
+	heading := &Node{Type: "heading", Content: []*Node{Text("제목 앞"), image, Text("제목 뒤")}}
+	heading.SetAttr("level", 2)
+	doc := Doc(heading)
+
+	LiftImages(doc)
+
+	headings := 0
+	for _, block := range doc.Content {
+		if block.Type == "heading" {
+			headings++
+		}
+	}
+	if headings != 1 {
+		t.Fatalf("제목이 %d개가 되었습니다: %s", headings, dump(t, doc))
+	}
+	if doc.Content[0].PlainText() != "제목 앞제목 뒤" {
+		t.Errorf("제목의 글자가 바뀌었습니다: %s", dump(t, doc))
+	}
+	if len(doc.Content) != 2 || doc.Content[1].Type != "image" {
+		t.Errorf("그림이 제목 뒤에 오지 않았습니다: %s", dump(t, doc))
+	}
+}

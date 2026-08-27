@@ -54,10 +54,26 @@ func splitAroundImages(block *Node) []*Node {
 	if block == nil {
 		return nil
 	}
-	if block.Type != "paragraph" && block.Type != "heading" {
+	if !holdsImage(block) {
 		return []*Node{block}
 	}
-	if !holdsImage(block) {
+	if block.Type == "heading" {
+		// A heading is one entry in the outline, the contents list and the
+		// numbering. Splitting it around a picture would make two of them
+		// where the author wrote one, so the picture goes after it instead.
+		kept := block.Content[:0]
+		pictures := []*Node{}
+		for _, child := range block.Content {
+			if child != nil && child.Type == "image" {
+				pictures = append(pictures, child)
+				continue
+			}
+			kept = append(kept, child)
+		}
+		block.Content = kept
+		return append([]*Node{block}, pictures...)
+	}
+	if block.Type != "paragraph" {
 		return []*Node{block}
 	}
 	out := make([]*Node, 0, len(block.Content)+1)

@@ -382,36 +382,102 @@ type Meta struct {
 	Landscape bool
 }
 
-// furnitureText reads a header or footer as the words it carries, stopping at
-// the first field.
+// furnitureText reads a header or footer as the words it carries, leaving out
+// the fields and the punctuation that only held them together.
 //
 // muni's model has one string per header and footer — there is nowhere to put
-// a page counter. A footer laid out the way muni and Word both lay it out puts
-// the words first and "PAGE / NUMPAGES" last, so everything before the first
-// field is the part muni can hold. Reading further would take whatever number
-// was stored the last time the file was written: "내부 열람용" would come back
-// as "내부 열람용1 / 1", and every round trip would add another number.
+// a page counter. Reading a field's result would take whatever number was
+// stored the last time the file was written, so "내부 열람용" would come back as
+// "내부 열람용1 / 1", a little longer after every round trip.
+//
+// Dropping the result is not enough on its own. A footer laid out the way muni
+// lays it out is "내부 열람용 [PAGE] / [NUMPAGES]", and the slash between the two
+// fields is an ordinary run; a Word header is often "[STYLEREF] · 대외비", where
+// the middle dot is one too. Both are punctuation that exists to separate a
+// field from something, so a piece of text that is only separators and sits
+// next to a field goes with the field. A middle dot the author typed, with
+// words on both sides, stays.
 func furnitureText(root *xnode) string {
-	var out strings.Builder
-	done := false
+	pieces := []furniturePiece{}
+	addText := func(value string) {
+		if len(pieces) > 0 && !pieces[len(pieces)-1].field {
+			pieces[len(pieces)-1].text += value
+			return
+		}
+		pieces = append(pieces, furniturePiece{text: value})
+	}
+	fields, inResult := 0, false
 	var walk func(*xnode)
 	walk = func(node *xnode) {
-		if node == nil || done {
+		if node == nil {
 			return
 		}
 		switch {
-		case node.is("w", "fldChar"), node.is("w", "fldSimple"), node.is("w", "instrText"):
-			done = true
+		case node.is("w", "fldChar"):
+			switch strings.ToLower(node.attr("w:fldCharType")) {
+			case "begin":
+				if fields == 0 {
+					pieces = append(pieces, furniturePiece{field: true})
+				}
+				fields++
+			case "separate":
+				inResult = true
+			case "end":
+				if fields > 0 {
+					fields--
+				}
+				if fields == 0 {
+					inResult = false
+				}
+			}
 			return
-		case node.is("w", "t"), node.is("w", "delText"):
-			out.WriteString(node.Text)
+		case node.is("w", "instrText"):
+			return
+		case node.is("w", "fldSimple"):
+			pieces = append(pieces, furniturePiece{field: true})
+			return
+		case !inResult && (node.is("w", "t") || node.is("w", "delText")):
+			addText(node.Text)
 		}
 		for _, child := range node.Children {
 			walk(child)
 		}
 	}
 	walk(root)
+
+	var out strings.Builder
+	for index, current := range pieces {
+		if current.field {
+			continue
+		}
+		text := current.text
+		if index > 0 && pieces[index-1].field {
+			text = strings.TrimLeftFunc(text, isFieldJoiner)
+		}
+		if index+1 < len(pieces) && pieces[index+1].field {
+			text = strings.TrimRightFunc(text, isFieldJoiner)
+		}
+		out.WriteString(text)
+	}
 	return out.String()
+}
+
+// isFieldJoiner reports whether a rune is the sort of punctuation that sits
+// between a field and its neighbour rather than saying anything itself. Only
+// the marks that join: a comma or a full stop belongs to whoever typed it.
+func isFieldJoiner(r rune) bool {
+	switch r {
+	case ' ', '\t', '\u00a0', '/', '-', '~', '·', '|', '(', ')', '[', ']':
+		return true
+	}
+	return false
+}
+
+// furniturePiece is a run of a header or footer: either its words, or the
+// place a field stood.
+type furniturePiece struct {
+	text  string
+	field bool
 }
 
 // pageFurniture pulls the default header and footer text out of the package.

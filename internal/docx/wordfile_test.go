@@ -3,6 +3,7 @@ package docx
 import (
 	"archive/zip"
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -141,4 +142,15 @@ func wordPackageWithNotes(t *testing.T, body, footnotes, endnotes string) []byte
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+// mustParseXML reads a fragment as a part root, for testing readers that take
+// one.
+func mustParseXML(t *testing.T, fragment string) *xnode {
+	t.Helper()
+	root, err := parseXML(strings.NewReader(xmlHeader + `<w:hdr` + documentNamespaces + `>` + fragment + `</w:hdr>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
 }

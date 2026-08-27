@@ -245,3 +245,36 @@ func TestTheFooterNumbersThePages(t *testing.T) {
 		t.Errorf("필드 시작 %d개, 끝 %d개", begins, ends)
 	}
 }
+
+// A Word header is often a field and then something else — "[STYLEREF] · 대외비".
+// Stopping at the field took the classification away with the counter, and
+// losing "대외비" is not a loss of formatting.
+func TestAHeaderKeepsTheWordsAroundItsFields(t *testing.T) {
+	header := `<w:p>` +
+		`<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+		`<w:r><w:instrText xml:space="preserve"> STYLEREF 1 </w:instrText></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+		`<w:r><w:t>지난 계산값</w:t></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="end"/></w:r>` +
+		`<w:r><w:t> · 대외비</w:t></w:r></w:p>`
+	got := collapseSpaces(furnitureText(mustParseXML(t, header)))
+	if !strings.Contains(got, "대외비") {
+		t.Errorf("머리글 = %q, 대외비 를 기대했습니다", got)
+	}
+	// What the field last calculated is not the header's text.
+	if strings.Contains(got, "지난 계산값") {
+		t.Errorf("머리글에 필드 계산값이 섞였습니다: %q", got)
+	}
+	// And the dot that only separated the field from the words goes with it.
+	if strings.HasPrefix(strings.TrimSpace(got), "·") {
+		t.Errorf("필드를 붙이던 구분점이 남았습니다: %q", got)
+	}
+}
+
+// A separator the author typed, with words on both sides, is theirs.
+func TestAHeaderKeepsPunctuationBetweenItsOwnWords(t *testing.T) {
+	header := `<w:p><w:r><w:t>기획조정실 · 대외비</w:t></w:r></w:p>`
+	if got := collapseSpaces(furnitureText(mustParseXML(t, header))); got != "기획조정실 · 대외비" {
+		t.Errorf("머리글 = %q", got)
+	}
+}

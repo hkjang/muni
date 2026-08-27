@@ -131,3 +131,18 @@ func TestARepeatingRowIsStillAHeader(t *testing.T) {
 		t.Fatalf("칸 = %v", got)
 	}
 }
+
+// A first w:tr that yields no cells is skipped. Keying the header off how many
+// rows have been kept rather than which w:tr this is put the header on the row
+// after it — a data row drawn as the heading, and the heading gone.
+func TestAnEmptyFirstRowDoesNotMoveTheHeader(t *testing.T) {
+	body := `<w:tbl><w:tblPr><w:tblStyle w:val="Shaded"/><w:tblLook w:firstRow="1"/></w:tblPr>` +
+		`<w:tr></w:tr>` +
+		`<w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>진짜값</w:t></w:r></w:p></w:tc></w:tr>` +
+		`<w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>또값</w:t></w:r></w:p></w:tc></w:tr></w:tbl>`
+	for _, cell := range importTable(t, body) {
+		if cell == "tableHeader" {
+			t.Fatalf("빈 첫 행 뒤의 자료 행이 머리글이 되었습니다: %v", importTable(t, body))
+		}
+	}
+}
