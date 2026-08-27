@@ -80,9 +80,10 @@ func TestTheAlignmentSurvivesTheRoundTrip(t *testing.T) {
 	}
 }
 
-// A table muni wrote itself says nothing about alignment, and every muni table
-// has always looked centred. It must not move because this changed.
-func TestAMuniTableStillCentres(t *testing.T) {
+// A table muni wrote itself says nothing about alignment, and muni has always
+// shown it at the top: the editor's stylesheet and the one the PDF is printed
+// from both say so. The Word export was the only thing that centred it.
+func TestAMuniTableExportsTheWayItLooks(t *testing.T) {
 	source := `{"type":"doc","content":[{"type":"table","content":[{"type":"tableRow","content":[
 		{"type":"tableCell","attrs":{"colspan":1,"rowspan":1},"content":[{"type":"paragraph","content":[{"type":"text","text":"칸"}]}]}]}]}]}`
 	node, err := richdoc.Parse(json.RawMessage(source))
@@ -93,7 +94,7 @@ func TestAMuniTableStillCentres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body := documentXMLOf(t, built); !contains(body, `<w:vAlign w:val="center"/>`) {
-		t.Error("muni 표의 칸이 더 이상 가운데가 아닙니다")
+	if body := documentXMLOf(t, built); !contains(body, `<w:vAlign w:val="top"/>`) {
+		t.Error("화면에서는 위, 워드에서는 가운데입니다")
 	}
 }

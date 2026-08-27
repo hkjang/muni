@@ -269,18 +269,21 @@ func (b *builder) tableCell(cell placedCell, widths []int, ctx blockContext) {
 
 // cellVAlignValue is the w:vAlign a cell asks for, in Word's vocabulary.
 //
-// muni wrote "center" on every cell it exported, whatever the document said.
-// A table that came from Word with its 비고 column left at the top came back
-// centred — not a loss of the alignment so much as a replacement of it. A cell
-// that says nothing still centres, because that is what every muni table has
-// looked like and a document should not move because this changed.
+// muni wrote "center" on every cell it exported, whatever the document said,
+// so a table that came from Word with its 비고 column left at the top came back
+// centred — not a loss of the alignment so much as a replacement of it.
+//
+// A cell that says nothing gets the top, which is what muni has always shown:
+// the editor's stylesheet and the one the PDF is printed from both set
+// vertical-align:top. Only the Word export disagreed, so a table built in muni
+// looked one way on the screen and another way in Word.
 func cellVAlignValue(cell *richdoc.Node) string {
 	switch cell.AttrString("verticalAlign") {
-	case "top":
-		return "top"
+	case "middle":
+		return "center"
 	case "bottom":
 		return "bottom"
 	default:
-		return "center"
+		return "top"
 	}
 }

@@ -536,8 +536,12 @@ func (imp *importer) loadNotes(file *zip.File, local string) {
 		case "separator", "continuationSeparator", "continuationNotice":
 			continue
 		}
+		// Only the type says what a separator is. Word numbers its separators
+		// -1 and 0 and its first real note 1; muni's own writer numbers them
+		// 0 and 1 and starts at 2. A guard on the number was tuned to muni's
+		// output and threw away the first footnote of every Word file.
 		id := child.attr("w:id")
-		if id == "" || id == "0" || id == "1" {
+		if id == "" {
 			continue
 		}
 		content := noteContent(child)
@@ -550,25 +554,36 @@ func (imp *importer) loadNotes(file *zip.File, local string) {
 	}
 }
 
-// noteContent reads a note as the lines it was written in.
+// noteContent reads a note as the lines it was written in, joined by a space.
 //
 // A note is often more than one paragraph — a citation and then a remark about
 // it — and reading the whole part as one string ran them together:
-// "첫째 줄입니다둘째 줄입니다". The words are all there and the sentence is gone.
+// "첫째 줄입니다둘째 줄입니다". The words were all there and the sentence was gone.
+//
+// The join is a space rather than a hardBreak because muni's note holds text
+// and nothing else: `content: "text*"`. A break inside one is a shape the
+// schema cannot represent, and ProseMirror does not complain when the document
+// is loaded — it throws on the first edit that touches the note, which is
+// worse than not loading at all.
 func noteContent(note *xnode) []*richdoc.Node {
-	out := []*richdoc.Node{}
+	lines := []string{}
 	for _, child := range note.Children {
 		if !child.is("w", "p") {
 			continue
 		}
-		text := collapseSpaces(child.allText())
-		if text == "" {
-			continue
+		if text := collapseSpaces(child.allText()); text != "" {
+			lines = append(lines, text)
 		}
-		if len(out) > 0 {
-			out = append(out, &richdoc.Node{Type: "hardBreak"})
-		}
-		out = append(out, richdoc.Text(text))
 	}
-	return out
+	if len(lines) == 0 {
+		// A note Word wrapped in a content control, or one holding a table,
+		// has no paragraph of its own to read. Its words are still words.
+		if text := collapseSpaces(note.allText()); text != "" {
+			lines = append(lines, text)
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return []*richdoc.Node{richdoc.Text(strings.Join(lines, " "))}
 }

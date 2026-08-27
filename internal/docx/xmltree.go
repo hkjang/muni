@@ -112,6 +112,29 @@ func (n *xnode) child(prefix, local string) *xnode {
 	return nil
 }
 
+// descendants finds every matching node below n, in document order. Where
+// descendant answers "is there one", this answers "how many, and which".
+func descendants(n *xnode, prefix, local string) []*xnode {
+	var out []*xnode
+	var walk func(*xnode)
+	walk = func(node *xnode) {
+		if node == nil {
+			return
+		}
+		if node.is(prefix, local) {
+			out = append(out, node)
+			// A box inside a box is the same box's content; do not read it
+			// twice.
+			return
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(n)
+	return out
+}
+
 // children is Children read through a possibly-nil node, so a style with no
 // properties of its own reads as having none rather than needing a guard.
 func (n *xnode) children() []*xnode {

@@ -176,27 +176,74 @@ func TestANoteKeepsItsLines(t *testing.T) {
 	if len(found) != 1 {
 		t.Fatalf("주석 = %d개", len(found))
 	}
-	breaks := 0
-	for _, child := range found[0].Content {
-		if child.Type == "hardBreak" {
-			breaks++
-		}
-	}
-	if breaks != 1 {
-		t.Errorf("줄바꿈 = %d개: %q", breaks, richdoc.FootnoteText(found[0]))
-	}
-	// And the two lines have not run into each other.
 	if text := richdoc.FootnoteText(found[0]); strings.Contains(text, ")같은") {
 		t.Errorf("두 줄이 붙었습니다: %q", text)
 	}
+	// And nothing but text is in there. muni's note holds `content: "text*"`,
+	// and a break inside one is a shape the editor throws on the first time
+	// somebody types near it — having loaded it without complaint.
+	for _, child := range found[0].Content {
+		if child.Type != "text" {
+			t.Errorf("주석 안에 %q 가 있습니다 — 편집기가 담을 수 없는 모양입니다", child.Type)
+		}
+	}
 }
 
-// And the two lines survive a round trip through Word, which writes the break
-// as w:br and reads it back the same way.
-func TestATwoLineNoteSurvivesTheRoundTrip(t *testing.T) {
+// A note Word wrapped in a content control has no paragraph of its own to
+// read. Its words are still words.
+func TestANoteWrappedInAControlIsStillRead(t *testing.T) {
+	body := `<w:p><w:r><w:t>문장</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r></w:p>`
+	notes := `<w:footnote w:id="2"><w:sdt><w:sdtContent>` +
+		`<w:p><w:r><w:t>감싸인 주석</w:t></w:r></w:p>` +
+		`</w:sdtContent></w:sdt></w:footnote>`
+	document, _, _, err := Parse(wordPackageWithNotes(t, body, notes, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := richdoc.Footnotes(document)
+	if len(found) != 1 {
+		t.Fatalf("주석 = %d개", len(found))
+	}
+	if text := richdoc.FootnoteText(found[0]); text != "감싸인 주석" {
+		t.Errorf("주석 내용 = %q", text)
+	}
+}
+
+// Word numbers its separators -1 and 0 and its first real note 1. muni's own
+// writer numbers the separators 0 and 1 and starts at 2, and the reader used
+// to skip 0 and 1 by number — which threw away the first footnote of every
+// file Word wrote.
+func TestWordsFirstFootnoteIsNotMistakenForASeparator(t *testing.T) {
+	body := `<w:p><w:r><w:t>문장</w:t></w:r><w:r><w:footnoteReference w:id="1"/></w:r>` +
+		`<w:r><w:t> 그리고</w:t></w:r><w:r><w:footnoteReference w:id="2"/></w:r></w:p>`
+	notes := `<w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote>` +
+		`<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>` +
+		`<w:footnote w:id="1"><w:p><w:r><w:t>첫 주석</w:t></w:r></w:p></w:footnote>` +
+		`<w:footnote w:id="2"><w:p><w:r><w:t>둘째 주석</w:t></w:r></w:p></w:footnote>`
+	document, _, _, err := Parse(wordPackageWithNotes(t, body, notes, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := richdoc.Footnotes(document)
+	if len(found) != 2 {
+		t.Fatalf("주석 = %d개, 둘을 기대했습니다: %s", len(found), document.PlainText())
+	}
+	if got := richdoc.FootnoteText(found[0]); got != "첫 주석" {
+		t.Errorf("첫 주석 = %q", got)
+	}
+	// And the separators are still not notes.
+	if got := richdoc.FootnoteText(found[1]); got != "둘째 주석" {
+		t.Errorf("둘째 주석 = %q", got)
+	}
+}
+
+// And a note written as two lines does not come back as one word. muni's note
+// is one line of text by design, so the lines are joined by a space rather
+// than kept apart — what must not happen is them butting together.
+func TestATwoLineNoteDoesNotRunTogether(t *testing.T) {
 	source := `{"type":"doc","content":[{"type":"paragraph","content":[
 		{"type":"text","text":"문장"},
-		{"type":"footnote","content":[{"type":"text","text":"기획조정실(2026)"},{"type":"hardBreak"},{"type":"text","text":"같은 자료 12쪽"}]},
+		{"type":"footnote","content":[{"type":"text","text":"기획조정실(2026) 같은 자료 12쪽"}]},
 		{"type":"text","text":"."}]}]}`
 	node, err := richdoc.Parse(json.RawMessage(source))
 	if err != nil {

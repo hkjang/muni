@@ -439,7 +439,10 @@ func sameMarks(left, right []richdoc.Mark) bool {
 // understand some extension, and an mc:Fallback for the rest. muni is one of
 // the rest. Reading both would put every shape's words in the document twice.
 func alternateContent(node *xnode) []*xnode {
-	if fallback := node.child("mc", "Fallback"); fallback != nil {
+	// Fallback first, but only if there is anything in it. Some producers
+	// write <mc:Fallback/> empty, and preferring nothing over the Choice
+	// throws away the only copy of the shape's words.
+	if fallback := node.child("mc", "Fallback"); len(fallback.children()) > 0 {
 		return fallback.Children
 	}
 	if choice := node.child("mc", "Choice"); choice != nil {
@@ -478,23 +481,23 @@ func (imp *importer) shapes(nodes []*xnode, marks []richdoc.Mark) []*richdoc.Nod
 // The words come across as words. A box holding several paragraphs keeps its
 // lines, because a two-line stamp read as one line is a different stamp.
 func textBoxWords(node *xnode, marks []richdoc.Mark) []*richdoc.Node {
-	content := node.descendant("w", "txbxContent")
-	if content == nil {
-		return nil
-	}
 	out := []*richdoc.Node{}
-	for _, child := range content.Children {
-		if !child.is("w", "p") {
-			continue
+	// Every box, not the first. A 직인 grouped with a 붙임 label is one drawing
+	// holding two of them, and keeping one is keeping half the stamp.
+	for _, content := range descendants(node, "w", "txbxContent") {
+		for _, child := range content.Children {
+			if !child.is("w", "p") {
+				continue
+			}
+			text := collapseSpaces(child.allText())
+			if text == "" {
+				continue
+			}
+			if len(out) > 0 {
+				out = append(out, &richdoc.Node{Type: "hardBreak"})
+			}
+			out = append(out, richdoc.Text(text, marks...))
 		}
-		text := collapseSpaces(child.allText())
-		if text == "" {
-			continue
-		}
-		if len(out) > 0 {
-			out = append(out, &richdoc.Node{Type: "hardBreak"})
-		}
-		out = append(out, richdoc.Text(text, marks...))
 	}
 	return out
 }

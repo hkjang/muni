@@ -90,3 +90,46 @@ func TestAPictureIsStillAPicture(t *testing.T) {
 		t.Errorf("그림에서 글자가 나왔습니다: %q", text)
 	}
 }
+
+// Some producers write <mc:Fallback/> empty. Preferring nothing over the
+// Choice throws away the only copy of the shape's words.
+func TestAnEmptyFallbackFallsThroughToTheChoice(t *testing.T) {
+	body := `<w:p><w:r><mc:AlternateContent>` +
+		`<mc:Choice Requires="wps"><w:drawing><wps:wsp><wps:txbx><w:txbxContent>` +
+		`<w:p><w:r><w:t>선택지 안 글자</w:t></w:r></w:p>` +
+		`</w:txbxContent></wps:txbx></wps:wsp></w:drawing></mc:Choice>` +
+		`<mc:Fallback/></mc:AlternateContent></w:r></w:p>`
+	if text := importedText(t, body); !strings.Contains(text, "선택지 안 글자") {
+		t.Errorf("빈 Fallback 때문에 글자가 사라졌습니다: %q", text)
+	}
+}
+
+// A 직인 grouped with a 붙임 label is one drawing holding two boxes. Keeping
+// the first is keeping half the stamp.
+func TestEveryBoxInAGroupIsRead(t *testing.T) {
+	body := `<w:p><w:r><w:pict><v:group>` +
+		`<v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>붙임 제1호</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape>` +
+		`<v:shape><v:textbox><w:txbxContent><w:p><w:r><w:t>기획조정실장</w:t></w:r></w:p></w:txbxContent></v:textbox></v:shape>` +
+		`</v:group></w:pict></w:r></w:p>`
+	text := importedText(t, body)
+	for _, want := range []string{"붙임 제1호", "기획조정실장"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("%q 가 사라졌습니다: %q", want, text)
+		}
+	}
+}
+
+// A shape at block level rather than inside a run carries words too.
+func TestABlockLevelTextBoxKeepsItsWords(t *testing.T) {
+	body := `<w:p><w:r><w:t>본문앞</w:t></w:r></w:p>` +
+		`<mc:AlternateContent><mc:Fallback><w:pict><v:shape><v:textbox><w:txbxContent>` +
+		`<w:p><w:r><w:t>블록 상자 글자</w:t></w:r></w:p>` +
+		`</w:txbxContent></v:textbox></v:shape></w:pict></mc:Fallback></mc:AlternateContent>` +
+		`<w:p><w:r><w:t>본문뒤</w:t></w:r></w:p>`
+	text := importedText(t, body)
+	for _, want := range []string{"본문앞", "블록 상자 글자", "본문뒤"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("%q 가 사라졌습니다: %q", want, text)
+		}
+	}
+}

@@ -61,8 +61,12 @@ func (imp *importer) blocks(nodes []*xnode) []block {
 				out = append(out, imp.blocks(content.Children)...)
 			}
 		case node.is("mc", "AlternateContent"):
-			if fallback := node.child("mc", "Fallback"); fallback != nil {
-				out = append(out, imp.blocks(fallback.Children)...)
+			branch := alternateContent(node)
+			out = append(out, imp.blocks(branch)...)
+			// A shape sitting at block level carries words too, and the block
+			// walker only knows paragraphs and tables.
+			if words := imp.shapes(branch, nil); len(words) > 0 {
+				out = append(out, block{node: richdoc.Paragraph(words...)})
 			}
 		}
 	}

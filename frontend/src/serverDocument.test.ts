@@ -75,6 +75,20 @@ describe("the editor opens what the server sends", () => {
     }
   });
 
+  it("holds a document the schema calls valid", () => {
+    // setContent does not validate: ProseMirror builds the node from JSON and
+    // only complains later, on the first edit that touches the bad part. A
+    // document can therefore load, save, and be unusable — which is what a
+    // hardBreak inside a footnote did.
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent(everyNode);
+      expect(() => editor.state.doc.check()).not.toThrow();
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("keeps every kind of block the fixture names", () => {
     const editor = new Editor({ extensions: documentExtensions() });
     try {
