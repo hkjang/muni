@@ -70,3 +70,41 @@ func TestRenderingTwiceGivesTheSameNumbers(t *testing.T) {
 		t.Error("같은 문서를 두 번 렌더링했는데 결과가 다릅니다")
 	}
 }
+
+// Every export path had to be taught what a footnote is. The one that had not
+// been spliced the note's words into the middle of the sentence it annotated —
+// "집행률은 92%였다기획조정실 집계.." — which is what an exporter does with a
+// node it does not recognise.
+func TestEveryFormatKeepsTheNoteOutOfTheSentence(t *testing.T) {
+	raw := json.RawMessage(footnoteDocument)
+	for _, format := range []struct {
+		name   string
+		render func() string
+		marker string
+	}{
+		{"markdown", func() string { return renderMarkdown("각주 문서", raw) }, "[^1]"},
+		{"plain text", func() string { return renderPlainText("각주 문서", raw) }, "[1]"},
+	} {
+		t.Run(format.name, func(t *testing.T) {
+			out := format.render()
+			if !strings.Contains(out, "집행률은 92%였다"+format.marker) {
+				t.Errorf("참조가 문장 뒤에 붙지 않았습니다:\n%s", out)
+			}
+			// The note's words appear once, after the body, not inside it.
+			body := out[:strings.Index(out, format.marker)]
+			if strings.Contains(body, "기획조정실 집계") {
+				t.Errorf("각주 내용이 본문에 섞였습니다:\n%s", out)
+			}
+			if !strings.Contains(out, "기획조정실 집계") {
+				t.Errorf("각주 내용이 어디에도 없습니다:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestMarkdownUsesTheFormOtherReadersUnderstand(t *testing.T) {
+	out := renderMarkdown("각주 문서", json.RawMessage(footnoteDocument))
+	if !strings.Contains(out, "\n[^1]: 기획조정실 집계.") {
+		t.Errorf("GFM 각주 정의 형식이 아닙니다:\n%s", out)
+	}
+}

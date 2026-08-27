@@ -461,13 +461,30 @@ func renderMarkdown(title string, raw json.RawMessage) string {
 	// The contents list is generated at export time so it can never disagree
 	// with the headings above it.
 	document = richdoc.WithTableOfContents(document)
+	document = richdoc.WithFootnoteNumbers(document)
 	var out strings.Builder
 	if strings.TrimSpace(title) != "" {
 		out.WriteString("# " + escapeMarkdown(title) + "\n\n")
 	}
 	writer := &markdownWriter{out: &out}
 	writer.blocks(document.Content, "")
+	writeMarkdownFootnotes(&out, richdoc.Footnotes(document))
 	return strings.TrimRight(out.String(), "\n") + "\n"
+}
+
+// writeMarkdownFootnotes lists the notes in the form GitHub-flavoured Markdown
+// and most readers understand. Without it the notes would still be in the
+// file — spliced into the middle of the sentences they annotate, which is what
+// an exporter that has not been taught about footnotes does with them.
+func writeMarkdownFootnotes(out *strings.Builder, notes []richdoc.Footnote) {
+	if len(notes) == 0 {
+		return
+	}
+	out.WriteString("\n")
+	for _, note := range notes {
+		marker := richdoc.FootnoteMarker(note.Number)
+		out.WriteString("[^" + marker + "]: " + escapeMarkdown(richdoc.FootnoteText(note)) + "\n")
+	}
 }
 
 type markdownWriter struct {
@@ -626,6 +643,8 @@ func (w *markdownWriter) inline(nodes []*richdoc.Node) string {
 			out.WriteString(markdownMarks(escapeMarkdown(node.Text), node.Marks))
 		case "hardBreak":
 			out.WriteString("  \n")
+		case richdoc.FootnoteType:
+			out.WriteString("[^" + richdoc.FootnoteMarker(node.AttrInt("number", 0)) + "]")
 		case "image":
 			src := node.AttrString("src")
 			if !safeImageSource(src) {
@@ -680,6 +699,7 @@ func renderPlainText(title string, raw json.RawMessage) string {
 	// The contents list is generated at export time so it can never disagree
 	// with the headings above it.
 	document = richdoc.WithTableOfContents(document)
+	document = richdoc.WithFootnoteNumbers(document)
 	var out strings.Builder
 	if strings.TrimSpace(title) != "" {
 		out.WriteString(title + "\n\n")
@@ -697,6 +717,11 @@ func renderPlainText(title string, raw json.RawMessage) string {
 				text.WriteString(current.Text)
 			case "hardBreak":
 				text.WriteString("\n")
+			case richdoc.FootnoteType:
+				// The marker only. Walking into the note would put its words
+				// in the middle of the sentence they annotate.
+				text.WriteString("[" + richdoc.FootnoteMarker(current.AttrInt("number", 0)) + "]")
+				return
 			}
 			for _, child := range current.Content {
 				collect(child)
@@ -770,6 +795,14 @@ func renderPlainText(title string, raw json.RawMessage) string {
 		}
 	}
 	walk(document.Content, "")
+	// The notes go at the end. Plain text has no page to put them at the foot
+	// of, and leaving them out would lose what the document says.
+	if notes := richdoc.Footnotes(document); len(notes) > 0 {
+		out.WriteString("\n주석\n")
+		for _, note := range notes {
+			out.WriteString("[" + richdoc.FootnoteMarker(note.Number) + "] " + richdoc.FootnoteText(note) + "\n")
+		}
+	}
 	return strings.TrimSpace(out.String()) + "\n"
 }
 
