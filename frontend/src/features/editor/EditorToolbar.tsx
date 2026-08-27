@@ -41,6 +41,8 @@ import {
   InsertLink,
   Redo,
   StrikethroughS,
+  Superscript as SuperscriptIcon,
+  Subscript as SubscriptIcon,
   TableChartOutlined,
   TaskAlt,
   Undo,
@@ -77,6 +79,8 @@ export function EditorToolbar({
       italic: current.isActive("italic"),
       underline: current.isActive("underline"),
       strike: current.isActive("strike"),
+      superscript: current.isActive("superscript"),
+      subscript: current.isActive("subscript"),
       bullet: current.isActive("bulletList"),
       ordered: current.isActive("orderedList"),
       quote: current.isActive("blockquote"),
@@ -280,6 +284,24 @@ export function EditorToolbar({
           onClick={() => editor.chain().focus().toggleStrike().run()}
         >
           <StrikethroughS />
+        </ToggleButton>
+        {/* 제곱미터, 화학식, 각주 번호 — the marks muni could already read from
+            a Word file and had no way to make. */}
+        <ToggleButton
+          value="superscript"
+          aria-label="위 첨자"
+          selected={state.superscript}
+          onClick={() => editor.chain().focus().toggleSuperscript().run()}
+        >
+          <SuperscriptIcon />
+        </ToggleButton>
+        <ToggleButton
+          value="subscript"
+          aria-label="아래 첨자"
+          selected={state.subscript}
+          onClick={() => editor.chain().focus().toggleSubscript().run()}
+        >
+          <SubscriptIcon />
         </ToggleButton>
       </ToggleButtonGroup>
       <ToggleButtonGroup

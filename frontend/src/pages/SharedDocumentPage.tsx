@@ -7,6 +7,8 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import TextAlign from "@tiptap/extension-text-align";
 import { TextStyleKit } from "@tiptap/extension-text-style";
+import Superscript from "@tiptap/extension-superscript";
+import Subscript from "@tiptap/extension-subscript";
 import {
   Alert,
   Box,
@@ -110,6 +112,13 @@ export function SharedDocumentPage({ token }: { token: string }) {
       TaskItem.configure({ nested: true }),
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       TextStyleKit,
+      // Without these the schema does not know the marks, and ProseMirror
+      // discards the whole paragraph a single one appears in — not just the
+      // mark. A Word document with m², H₂O or a footnote number lost the
+      // paragraph carrying it the moment it was opened, and the next autosave
+      // made that permanent.
+      Superscript,
+      Subscript,
       BlockId,
       CellBackground,
       LineHeight,
