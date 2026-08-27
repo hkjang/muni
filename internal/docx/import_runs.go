@@ -93,6 +93,12 @@ func (imp *importer) run(node *xnode, link richdoc.Mark) []*richdoc.Node {
 			out = append(out, &richdoc.Node{Type: "hardBreak"})
 		case child.is("w", "noBreakHyphen"):
 			out = append(out, richdoc.Text("-", marks...))
+		case child.is("w", "footnoteReference"):
+			// The little number in the sentence. What it points at lives in
+			// word/footnotes.xml, which was read before the body was walked.
+			if note := imp.footnotes[child.attr("w:id")]; len(note) > 0 {
+				out = append(out, &richdoc.Node{Type: richdoc.FootnoteType, Content: note})
+			}
 		case child.is("w", "softHyphen"):
 			// Rendering hint only; it carries no textual content.
 		case child.is("w", "sym"):

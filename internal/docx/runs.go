@@ -189,6 +189,8 @@ func (b *builder) inlineNode(node *richdoc.Node, base runStyle) string {
 		return `<w:r><w:br/></w:r>`
 	case "image":
 		return b.imageRun(node)
+	case richdoc.FootnoteType:
+		return b.footnoteRun(node)
 	default:
 		if len(node.Content) > 0 {
 			return b.inline(node.Content, base.merge(node.Marks))
@@ -334,4 +336,50 @@ func DecodeDataURI(value string) (Image, bool) {
 		return Image{}, false
 	}
 	return Image{Data: data, MediaType: mediaType}, true
+}
+
+// footnoteRun writes the little number in the sentence and files the note
+// itself away to be written into word/footnotes.xml.
+//
+// Without this the default branch below would walk into the note and splice
+// its text into the middle of the sentence it annotates, which is how a
+// footnote reads when nobody has taught the exporter what one is.
+func (b *builder) footnoteRun(node *richdoc.Node) string {
+	// Word reserves 0 and 1 for the separator lines it draws above the notes.
+	id := len(b.footnotes) + 2
+	b.footnotes = append(b.footnotes, footnoteEntry{
+		id:   id,
+		text: richdoc.FootnoteText(richdoc.Footnote{Content: node.Content}),
+	})
+	// The reference is a superscript run. muni's styles.xml has no
+	// FootnoteReference style, and pointing at a style that is not there is
+	// the kind of thing Word tolerates until it does not.
+	return `<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr>` +
+		`<w:footnoteReference` + intAttr("w:id", id) + `/></w:r>`
+}
+
+// footnoteEntry is one note waiting to be written.
+type footnoteEntry struct {
+	id   int
+	text string
+}
+
+// footnotesPart builds word/footnotes.xml.
+//
+// The first two entries are the separator and continuation separator: Word
+// draws the rule above the notes from them, and a file without them shows the
+// notes with nothing dividing them from the body.
+func (b *builder) footnotesPart() string {
+	var out strings.Builder
+	out.WriteString(xmlHeader + `<w:footnotes` + documentNamespaces + `>`)
+	out.WriteString(`<w:footnote w:type="separator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:separator/></w:r></w:p></w:footnote>`)
+	out.WriteString(`<w:footnote w:type="continuationSeparator" w:id="1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>`)
+	for _, note := range b.footnotes {
+		out.WriteString(`<w:footnote` + intAttr("w:id", note.id) + `><w:p>` +
+			`<w:r><w:rPr><w:vertAlign w:val="superscript"/></w:rPr><w:footnoteRef/></w:r>` +
+			b.textRun(" "+note.text, runStyle{}) +
+			`</w:p></w:footnote>`)
+	}
+	out.WriteString(`</w:footnotes>`)
+	return out.String()
 }

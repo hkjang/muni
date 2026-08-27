@@ -40,6 +40,7 @@ const nodesTheServerProduces = [
   "blockquote",
   "bulletList",
   "codeBlock",
+  "footnote",
   "hardBreak",
   "heading",
   "horizontalRule",

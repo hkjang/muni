@@ -62,6 +62,7 @@ type builder struct {
 	extensions  []string
 	nums        []numInstance
 	furniture   []furniturePart
+	footnotes   []footnoteEntry
 	nextRelID   int
 	nextDocPrID int
 	nextNumID   int
@@ -146,6 +147,11 @@ func Build(doc *richdoc.Node, opts Options) ([]byte, error) {
 		b.body.WriteString(`<w:p/>`)
 	}
 	b.body.WriteString(b.sectionProperties())
+	// The notes are collected while the body is written, so the relationship
+	// can only be registered now that it is.
+	if len(b.footnotes) > 0 {
+		b.relationship("http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes", "footnotes.xml", "")
+	}
 
 	return b.pack()
 }
@@ -244,7 +250,7 @@ func (b *builder) pack() ([]byte, error) {
 		name string
 		data []byte
 	}{
-		{"[Content_Types].xml", []byte(contentTypes(b.extensions, b.furniture))},
+		{"[Content_Types].xml", []byte(contentTypes(b.extensions, b.furniture, len(b.footnotes) > 0))},
 		{"_rels/.rels", []byte(packageRels())},
 		{"docProps/core.xml", []byte(coreProperties(b.opts.Title, b.opts.Author, b.opts.Created.Format(time.RFC3339)))},
 		{"docProps/app.xml", []byte(appProperties(b.opts.Generator))},
@@ -258,6 +264,11 @@ func (b *builder) pack() ([]byte, error) {
 	}
 	for _, part := range parts {
 		if err := write(part.name, part.data); err != nil {
+			return nil, err
+		}
+	}
+	if len(b.footnotes) > 0 {
+		if err := write("word/footnotes.xml", []byte(b.footnotesPart())); err != nil {
 			return nil, err
 		}
 	}

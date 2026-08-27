@@ -39,6 +39,7 @@ import {
   InsertPageBreakOutlined,
   MoreHoriz,
   InsertLink,
+  NoteAddOutlined,
   Redo,
   StrikethroughS,
   Superscript as SuperscriptIcon,
@@ -404,6 +405,17 @@ export function EditorToolbar({
           }
         >
           <TableChartOutlined />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="각주 (Word로 내보내면 페이지 하단, PDF에서는 문서 끝)">
+        <IconButton
+          aria-label="각주"
+          onClick={() => {
+            const text = window.prompt("각주 내용을 입력하세요.", "");
+            if (text?.trim()) editor.chain().focus().setFootnote(text.trim()).run();
+          }}
+        >
+          <NoteAddOutlined />
         </IconButton>
       </Tooltip>
       <Tooltip title="페이지 나누기 (Ctrl+Enter)">

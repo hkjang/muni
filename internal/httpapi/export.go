@@ -292,6 +292,12 @@ func fullHTML(title string, landscape bool, body string) string {
 const exportStylesheet = `
 *{box-sizing:border-box}
 body{font-family:"Noto Sans CJK KR","Noto Sans KR","Malgun Gothic",sans-serif;font-size:11pt;line-height:1.65;color:#202124;max-width:190mm;margin:auto}
+.muni-footnote-ref{font-size:0.75em;line-height:0}
+.muni-footnote-ref a{text-decoration:none;color:#1a56c4}
+.muni-footnote-rule{margin:24pt 0 8pt;border:none;border-top:1px solid #c8ccd8;width:33%}
+.muni-footnotes{font-size:9pt;color:#3c4043;line-height:1.5;padding-left:18pt}
+.muni-footnotes li{margin:0 0 4pt}
+.muni-footnote-back{text-decoration:none;color:#9aa0a6}
 h1{font-size:24pt;margin:0 0 12pt}h2{font-size:19pt;margin:18pt 0 8pt}h3{font-size:16pt;margin:16pt 0 6pt}
 h4{font-size:13pt;margin:14pt 0 6pt}h5,h6{font-size:11.5pt;margin:12pt 0 6pt}
 h1,h2,h3,h4,h5,h6{page-break-after:avoid;color:#14142b}

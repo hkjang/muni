@@ -33,6 +33,7 @@ type importer struct {
 	rels      map[string]relTarget
 	media     map[string][]byte
 	styles    map[string]styleInfo
+	footnotes map[string][]*richdoc.Node
 	listKinds map[string]string // "numId:ilvl" -> bullet|ordered
 	assets    []richdoc.Asset
 	assetByID map[string]string
@@ -68,12 +69,14 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		rels:      map[string]relTarget{},
 		media:     map[string][]byte{},
 		styles:    map[string]styleInfo{},
+		footnotes: map[string][]*richdoc.Node{},
 		listKinds: map[string]string{},
 		assetByID: map[string]string{},
 	}
 	imp.loadRelationships(files["word/_rels/document.xml.rels"])
 	imp.loadStyles(files["word/styles.xml"])
 	imp.loadNumbering(files["word/numbering.xml"])
+	imp.loadFootnotes(files["word/footnotes.xml"])
 	imp.loadMedia(files)
 
 	root, err := readXML(documentPart)
@@ -440,4 +443,36 @@ func truncateRunes(value string, max int) string {
 		return value
 	}
 	return string(runes[:max])
+}
+
+// loadFootnotes reads the notes so the body walk can attach each one where its
+// reference sits.
+//
+// Ids 0 and 1 are the separator lines Word draws above the notes, not notes.
+// The reference mark at the head of a note is dropped: muni numbers notes by
+// their order in the document, so a number carried in from the file would be
+// the old document's number.
+func (imp *importer) loadFootnotes(file *zip.File) {
+	root, err := readXML(file)
+	if err != nil || root == nil {
+		return
+	}
+	for _, child := range root.Children {
+		if child.Local != "footnote" {
+			continue
+		}
+		switch child.attr("w:type") {
+		case "separator", "continuationSeparator", "continuationNotice":
+			continue
+		}
+		id := child.attr("w:id")
+		if id == "" || id == "0" || id == "1" {
+			continue
+		}
+		text := collapseSpaces(child.allText())
+		if text == "" {
+			continue
+		}
+		imp.footnotes[id] = []*richdoc.Node{richdoc.Text(text)}
+	}
 }

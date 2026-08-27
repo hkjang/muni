@@ -16,6 +16,7 @@ import { PageBreak } from "./extensions/pageBreak";
 import { ParagraphIndent } from "./extensions/paragraphIndent";
 import { HeadingNumbers } from "./extensions/headingNumbers";
 import { TableOfContentsNode } from "./extensions/tableOfContents";
+import { Footnote } from "./extensions/footnote";
 
 /**
  * Everything that decides what a muni document *is*.
@@ -55,5 +56,6 @@ export function documentExtensions(): Extensions {
     ParagraphIndent,
     HeadingNumbers,
     TableOfContentsNode,
+    Footnote,
   ];
 }

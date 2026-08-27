@@ -21,9 +21,33 @@ func renderHTML(raw json.RawMessage) string {
 	// The contents list is generated at export time so it can never disagree
 	// with the headings above it.
 	document = richdoc.WithTableOfContents(document)
+	document = richdoc.WithFootnoteNumbers(document)
 	var out strings.Builder
 	renderHTMLBlocks(&out, document.Content)
+	renderFootnoteList(&out, richdoc.Footnotes(document))
 	return out.String()
+}
+
+// renderFootnoteList puts the notes at the end of the document.
+//
+// Word puts them at the foot of each page. This is a print of one long HTML
+// page, and the browser muni prints with does not implement the CSS that would
+// place a note on the page its reference landed on — so they are collected at
+// the end, with a rule above them and a link back to the sentence each one
+// came from. A .docx export gets real per-page footnotes; this is the honest
+// version of the same notes in a format that cannot hold them.
+func renderFootnoteList(out *strings.Builder, notes []richdoc.Footnote) {
+	if len(notes) == 0 {
+		return
+	}
+	out.WriteString(`<hr class="muni-footnote-rule"><ol class="muni-footnotes">`)
+	for _, note := range notes {
+		marker := richdoc.FootnoteMarker(note.Number)
+		out.WriteString(`<li id="muni-note-` + marker + `">`)
+		renderHTMLInline(out, note.Content)
+		out.WriteString(` <a href="#muni-note-ref-` + marker + `" class="muni-footnote-back">↩</a></li>`)
+	}
+	out.WriteString(`</ol>`)
 }
 
 func renderHTMLBlocks(out *strings.Builder, nodes []*richdoc.Node) {
@@ -350,6 +374,12 @@ func renderHTMLInline(out *strings.Builder, nodes []*richdoc.Node) {
 			out.WriteString(imageHTML(node))
 		case "text":
 			out.WriteString(applyMarks(html.EscapeString(node.Text), node.Marks))
+		case richdoc.FootnoteType:
+			// Stamped by WithFootnoteNumbers before anything rendered, so this
+			// stays stateless and two exports at once cannot share a counter.
+			marker := richdoc.FootnoteMarker(node.AttrInt("number", 0))
+			out.WriteString(`<sup id="muni-note-ref-` + marker + `" class="muni-footnote-ref">` +
+				`<a href="#muni-note-` + marker + `">` + marker + `</a></sup>`)
 		default:
 			renderHTMLBlock(out, node)
 		}

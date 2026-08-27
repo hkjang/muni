@@ -28,7 +28,7 @@ const (
 	monoEastAsia = "D2Coding"
 )
 
-func contentTypes(mediaExtensions []string, furniture []furniturePart) string {
+func contentTypes(mediaExtensions []string, furniture []furniturePart, footnotes bool) string {
 	var defaults strings.Builder
 	seen := map[string]bool{"rels": true, "xml": true}
 	defaults.WriteString(`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>`)
@@ -51,6 +51,7 @@ func contentTypes(mediaExtensions []string, furniture []furniturePart) string {
 		`<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>` +
 		`<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>` +
 		furnitureOverrides(furniture) +
+		footnotesOverride(footnotes) +
 		`</Types>`
 }
 
@@ -324,4 +325,12 @@ func furnitureOverrides(furniture []furniturePart) string {
 			attr("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml."+part.local+"+xml") + `/>`)
 	}
 	return out.String()
+}
+
+// footnotesOverride declares word/footnotes.xml when the document has notes.
+func footnotesOverride(present bool) string {
+	if !present {
+		return ""
+	}
+	return `<Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/>`
 }

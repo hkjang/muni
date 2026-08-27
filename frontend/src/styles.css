@@ -282,3 +282,24 @@ a {
   color: inherit;
   user-select: none;
 }
+
+/* 각주. The editor has no page to put a note at the foot of, so it shows
+   where it was written — the author needs to read what they wrote, and a bare
+   number leading nowhere would be worse than the words. */
+.tiptap .muni-footnote {
+  font-size: 0.82em;
+  color: #5f6368;
+  background: #f1f3f9;
+  border: 1px solid #d8dae5;
+  border-radius: 3px;
+  padding: 0 4px;
+  margin: 0 2px;
+  white-space: normal;
+}
+
+.tiptap .muni-footnote::before {
+  content: "주";
+  font-size: 0.85em;
+  color: #9aa0a6;
+  margin-right: 3px;
+}
