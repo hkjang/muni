@@ -50,7 +50,8 @@ export function NewDocumentDialog({
   });
   const { data: templates = [] } = useQuery({
     queryKey: ["templates", workspaceId],
-    queryFn: () => api<Template[]>(`/api/v1/workspaces/${workspaceId}/templates`),
+    queryFn: () =>
+      api<Template[]>(`/api/v1/workspaces/${workspaceId}/templates`),
     enabled: Boolean(workspaceId),
   });
   useEffect(() => {
@@ -184,11 +185,13 @@ export function NewDocumentDialog({
           variant="outlined"
           startIcon={<UploadFileOutlined />}
         >
-          {file ? file.name : "PDF · DOCX · Markdown · TXT · HTML 가져오기"}
+          {file
+            ? file.name
+            : "PDF · DOCX · HWPX · Markdown · TXT · HTML 가져오기"}
           <input
             hidden
             type="file"
-            accept=".pdf,.docx,.md,.markdown,.txt,.html,.htm"
+            accept=".pdf,.docx,.hwpx,.md,.markdown,.txt,.html,.htm"
             onChange={(event) => setFile(event.target.files?.[0] ?? null)}
           />
         </Button>

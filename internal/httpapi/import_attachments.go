@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -17,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/database"
 	"github.com/hkjang/muni/internal/docx"
+	"github.com/hkjang/muni/internal/hwpx"
 	"github.com/hkjang/muni/internal/pdfx"
 	"github.com/hkjang/muni/internal/richdoc"
 	"github.com/jackc/pgx/v5"
@@ -90,6 +92,8 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		content, assets, err = htmlDocument(body)
 	case ".docx":
 		content, assets, furniture, err = docxImport(body)
+	case ".hwpx":
+		content, assets, furniture, err = hwpxImport(body)
 	case ".pdf":
 		// PDF interpretation is CPU bound; bound it so one upload cannot hold
 		// a worker for the whole request timeout.
@@ -97,7 +101,7 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		content, assets, embeddedTitle, err = pdfImport(parseCtx, body)
 		cancelParse()
 	default:
-		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 PDF, DOCX, Markdown, TXT, HTML입니다.")
+		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 PDF, DOCX, HWPX, Markdown, TXT, HTML입니다.")
 		return
 	}
 	if err != nil {
@@ -176,6 +180,23 @@ func docxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error
 		return nil, nil, docx.Meta{}, err
 	}
 	return content, assets, meta, nil
+}
+
+// hwpxImport converts a Hangul Office file, keeping headings, tables, inline
+// formatting and embedded pictures.
+//
+// The furniture it reports is only the paper: HWPX keeps a header and footer
+// per section in a shape muni has nowhere to put yet.
+func hwpxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error) {
+	document, assets, meta, err := hwpx.Parse(body)
+	if err != nil {
+		return nil, nil, docx.Meta{}, err
+	}
+	content, err := document.JSON()
+	if err != nil {
+		return nil, nil, docx.Meta{}, err
+	}
+	return content, assets, docx.Meta{Landscape: meta.Landscape}, nil
 }
 
 // pdfImport reconstructs paragraphs, headings, lists, tables and images from
@@ -269,6 +290,8 @@ func extensionFromMediaType(mediaType string, body []byte) string {
 		return ".pdf"
 	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
 		return ".docx"
+	case "application/hwp+zip", "application/vnd.hancom.hwpx", "application/haansofthwpx":
+		return ".hwpx"
 	case "text/markdown":
 		return ".md"
 	case "text/html":
@@ -280,9 +303,33 @@ func extensionFromMediaType(mediaType string, body []byte) string {
 	case bytes.HasPrefix(body, []byte("%PDF-")):
 		return ".pdf"
 	case bytes.HasPrefix(body, []byte("PK\x03\x04")):
-		return ".docx"
+		// Both formats are zips. Which one it is is written inside it.
+		return zipKind(body)
 	}
 	return ""
+}
+
+// zipKind tells a Hangul file from a Word one by what the archive holds.
+//
+// An upload that arrives without a usable name or media type is common enough
+// — a browser that guesses application/octet-stream, a proxy that strips the
+// name — and calling every zip a .docx made a .hwpx fail with an error about
+// word/document.xml being missing, which is true and useless.
+func zipKind(body []byte) string {
+	archive, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		return ".docx"
+	}
+	for _, file := range archive.File {
+		name := strings.ToLower(strings.TrimPrefix(file.Name, "/"))
+		switch {
+		case strings.HasPrefix(name, "contents/section"), name == "contents/content.hpf":
+			return ".hwpx"
+		case name == "word/document.xml":
+			return ".docx"
+		}
+	}
+	return ".docx"
 }
 
 func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {

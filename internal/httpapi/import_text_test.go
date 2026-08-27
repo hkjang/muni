@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -510,5 +512,49 @@ func TestStoredImagesAreLiftedOnRead(t *testing.T) {
 	junk := json.RawMessage(`{"type":"doc","content":[{"type":"image"`)
 	if got := liftStoredImages(junk); string(got) != string(junk) {
 		t.Fatalf("깨진 문서를 덮어썼습니다: %s", got)
+	}
+}
+
+// A .hwpx and a .docx are both zips. An upload that arrives without a usable
+// name or media type — a browser guessing application/octet-stream, a proxy
+// stripping the name — used to be called a .docx whatever it held, and a
+// Hangul file then failed with an error about word/document.xml being missing,
+// which is true and useless.
+func TestAHangulFileIsNotMistakenForAWordFile(t *testing.T) {
+	var hangul bytes.Buffer
+	archive := zip.NewWriter(&hangul)
+	for _, part := range []struct{ name, content string }{
+		{"mimetype", "application/hwp+zip"},
+		{"Contents/section0.xml", `<hs:sec xmlns:hs="http://www.hancom.co.kr/hwpml/2011/section"/>`},
+	} {
+		writer, err := archive.Create(part.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(part.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := extensionFromMediaType("application/octet-stream", hangul.Bytes()); got != ".hwpx" {
+		t.Errorf("한글 파일을 %q 로 봤습니다", got)
+	}
+
+	var word bytes.Buffer
+	wordArchive := zip.NewWriter(&word)
+	writer, err := wordArchive.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte(`<w:document/>`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := wordArchive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := extensionFromMediaType("application/octet-stream", word.Bytes()); got != ".docx" {
+		t.Errorf("워드 파일을 %q 로 봤습니다", got)
 	}
 }
