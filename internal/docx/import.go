@@ -32,6 +32,9 @@ type styleInfo struct {
 	// the style says so, and a reader that only looks at the run sees plain
 	// text.
 	runProperties *xnode
+	// paragraphProperties is the style's own w:pPr, which is where an office
+	// template keeps the indentation and the line spacing of its body text.
+	paragraphProperties *xnode
 }
 
 type importer struct {
@@ -154,10 +157,11 @@ func (imp *importer) loadStyles(file *zip.File) {
 			continue
 		}
 		info := styleInfo{
-			name:          child.child("w", "name").val(),
-			basedOn:       child.child("w", "basedOn").val(),
-			kind:          child.attr("w:type"),
-			runProperties: child.child("w", "rPr"),
+			name:                child.child("w", "name").val(),
+			basedOn:             child.child("w", "basedOn").val(),
+			kind:                child.attr("w:type"),
+			runProperties:       child.child("w", "rPr"),
+			paragraphProperties: child.child("w", "pPr"),
 		}
 		// Word attaches list numbering to the style itself for the built-in
 		// "List Bullet" and "List Number" families.

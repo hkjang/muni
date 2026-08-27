@@ -115,8 +115,51 @@ func tocFieldInstruction(instruction string) bool {
 	return len(fields) > 0 && strings.EqualFold(fields[0], "TOC")
 }
 
+// styledParagraphProperties returns a paragraph's properties with the ones its
+// style supplies filled in underneath.
+//
+// An office template keeps the shape of its body text in a style: 들여쓰기 and
+// 줄간격 are set once in "본문" and every paragraph just names it. muni read the
+// paragraph alone, so a document written the way templates are written arrived
+// with none of its layout.
+//
+// The paragraph wins, and the two properties that are read elsewhere are left
+// out: w:pStyle is the reference rather than a property, and w:numPr already
+// has its own path through styleNumbering.
+func (imp *importer) styledParagraphProperties(properties *xnode, styleID string) *xnode {
+	if styleID == "" {
+		return properties
+	}
+	merged := &xnode{Space: "w", Local: "pPr"}
+	present := map[string]bool{"w:pStyle": true, "w:numPr": true}
+	if properties != nil {
+		merged.Space, merged.Local, merged.Attrs = properties.Space, properties.Local, properties.Attrs
+		merged.Children = append(merged.Children, properties.Children...)
+		for _, child := range properties.Children {
+			present[child.Space+":"+child.Local] = true
+		}
+	}
+	for depth := 0; styleID != "" && depth < 16; depth++ {
+		style, ok := imp.styles[styleID]
+		if !ok {
+			break
+		}
+		for _, child := range style.paragraphProperties.children() {
+			key := child.Space + ":" + child.Local
+			if present[key] {
+				continue
+			}
+			present[key] = true
+			merged.Children = append(merged.Children, child)
+		}
+		styleID = style.basedOn
+	}
+	return merged
+}
+
 func (imp *importer) paragraph(node *xnode) []block {
-	properties := node.child("w", "pPr")
+	own := node.child("w", "pPr")
+	properties := imp.styledParagraphProperties(own, own.child("w", "pStyle").val())
 	styleKey := imp.styleKey(properties.child("w", "pStyle").val())
 	align := alignmentFromJc(properties.child("w", "jc").val())
 
