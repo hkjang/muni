@@ -61,35 +61,50 @@ const nodesTheServerProduces = [
 describe("every screen understands what the server sends", () => {
   const extensions = documentExtensions();
 
+  // A Tiptap editor keeps a ProseMirror view with a timer on it. Left alive,
+  // it fires after the test environment is gone and takes the run down with
+  // "document is not defined" — every assertion passing and the process
+  // exiting 1.
+  function withEditor(use: (editor: Editor) => void) {
+    const editor = new Editor({ extensions });
+    try {
+      use(editor);
+    } finally {
+      editor.destroy();
+    }
+  }
+
   it("has every mark and node the server can produce", () => {
-    const schema = new Editor({ extensions }).schema;
-    const missingMarks = marksTheServerProduces.filter((m) => !(m in schema.marks));
-    const missingNodes = nodesTheServerProduces.filter((n) => !(n in schema.nodes));
-    expect(missingMarks, "marks the server produces and the screen would discard").toEqual([]);
-    expect(missingNodes, "nodes the server produces and the screen would discard").toEqual([]);
+    withEditor((editor) => {
+      const missingMarks = marksTheServerProduces.filter((m) => !(m in editor.schema.marks));
+      const missingNodes = nodesTheServerProduces.filter((n) => !(n in editor.schema.nodes));
+      expect(missingMarks, "marks the server produces and the screen would discard").toEqual([]);
+      expect(missingNodes, "nodes the server produces and the screen would discard").toEqual([]);
+    });
   });
 
   it("keeps the paragraph when each mark arrives", () => {
     // The failure was never subtle once you looked: the text went too, not
     // just its formatting.
     for (const mark of marksTheServerProduces) {
-      const editor = new Editor({ extensions });
-      editor.commands.setContent({
-        type: "doc",
-        content: [
-          {
-            type: "paragraph",
-            content: [
-              { type: "text", text: "면적 3m" },
-              { type: "text", marks: [{ type: mark }], text: "2" },
-            ],
-          },
-        ],
+      withEditor((editor) => {
+        editor.commands.setContent({
+          type: "doc",
+          content: [
+            {
+              type: "paragraph",
+              content: [
+                { type: "text", text: "면적 3m" },
+                { type: "text", marks: [{ type: mark }], text: "2" },
+              ],
+            },
+          ],
+        });
+        expect(
+          JSON.stringify(editor.getJSON()),
+          `paragraph text after loading a ${mark} mark`,
+        ).toContain("면적 3m");
       });
-      expect(
-        JSON.stringify(editor.getJSON()),
-        `paragraph text after loading a ${mark} mark`,
-      ).toContain("면적 3m");
     }
   });
 });
