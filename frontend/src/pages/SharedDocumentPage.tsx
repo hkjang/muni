@@ -1,14 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Highlight from "@tiptap/extension-highlight";
-import { TableKit } from "@tiptap/extension-table";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import TextAlign from "@tiptap/extension-text-align";
-import { TextStyleKit } from "@tiptap/extension-text-style";
-import Superscript from "@tiptap/extension-superscript";
-import Subscript from "@tiptap/extension-subscript";
 import {
   Alert,
   Box,
@@ -20,13 +11,7 @@ import {
   Typography,
 } from "@mui/material";
 import { LockOutlined } from "@mui/icons-material";
-import { SizedImage } from "../features/editor/extensions/imageAttributes";
-import { BlockId } from "../features/editor/extensions/blockId";
-import { CellBackground } from "../features/editor/extensions/cellBackground";
-import { LineHeight } from "../features/editor/extensions/lineHeight";
-import { PageBreak } from "../features/editor/extensions/pageBreak";
-import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
-import { HeadingNumbers } from "../features/editor/extensions/headingNumbers";
+import { documentExtensions } from "../features/editor/documentExtensions";
 import { LoadingScreen } from "../components/LoadingScreen";
 import { ApiError, formatDate } from "../lib/api";
 
@@ -102,32 +87,7 @@ export function SharedDocumentPage({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const extensions = useMemo(
-    () => [
-      StarterKit.configure({ undoRedo: false }),
-      Highlight.configure({ multicolor: true }),
-      SizedImage.configure({ allowBase64: true, inline: false }),
-      TableKit.configure({ table: { resizable: false } }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      TextStyleKit,
-      // Without these the schema does not know the marks, and ProseMirror
-      // discards the whole paragraph a single one appears in — not just the
-      // mark. A Word document with m², H₂O or a footnote number lost the
-      // paragraph carrying it the moment it was opened, and the next autosave
-      // made that permanent.
-      Superscript,
-      Subscript,
-      BlockId,
-      CellBackground,
-      LineHeight,
-      PageBreak,
-      ParagraphIndent,
-      HeadingNumbers,
-    ],
-    [],
-  );
+  const extensions = useMemo(() => documentExtensions(), []);
 
   const editor = useEditor(
     { extensions, editable: false, content: parseContent(shared?.content) },

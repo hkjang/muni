@@ -1,19 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import Placeholder from "@tiptap/extension-placeholder";
-import Highlight from "@tiptap/extension-highlight";
-import { SizedImage } from "../features/editor/extensions/imageAttributes";
-import { TableKit } from "@tiptap/extension-table";
-import TaskList from "@tiptap/extension-task-list";
-import TaskItem from "@tiptap/extension-task-item";
-import TextAlign from "@tiptap/extension-text-align";
-import { TextStyleKit } from "@tiptap/extension-text-style";
-import Superscript from "@tiptap/extension-superscript";
-import Subscript from "@tiptap/extension-subscript";
 import { EditorSidebar } from "../features/editor/EditorSidebar";
 import { EditorStatus } from "../features/editor/EditorStatus";
 import { EditorToolbar } from "../features/editor/EditorToolbar";
@@ -27,20 +17,14 @@ import { MoveDocumentDialog } from "../features/editor/MoveDocumentDialog";
 import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
+import { documentExtensions } from "../features/editor/documentExtensions";
 import { PageFurnitureDialog } from "../features/editor/PageFurnitureDialog";
 import { ShortcutsDialog } from "../features/editor/ShortcutsDialog";
 import { TableTools } from "../features/editor/TableTools";
 import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
 import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
-import { BlockId } from "../features/editor/extensions/blockId";
-import { LineHeight } from "../features/editor/extensions/lineHeight";
-import { CellBackground } from "../features/editor/extensions/cellBackground";
-import { PageBreak } from "../features/editor/extensions/pageBreak";
 import { PasteBehaviour } from "../features/editor/extensions/pasteBehaviour";
-import { TableOfContentsNode } from "../features/editor/extensions/tableOfContents";
-import { HeadingNumbers } from "../features/editor/extensions/headingNumbers";
 import { validScheme, type NumberingScheme } from "../features/editor/outline/numbering";
-import { ParagraphIndent } from "../features/editor/extensions/paragraphIndent";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
 import { PresentationDialog } from "../features/editor/presentations/PresentationDialog";
@@ -154,7 +138,7 @@ export function EditorPage() {
   );
   const extensions = useMemo(
     () => [
-      StarterKit.configure({ undoRedo: false }),
+      ...documentExtensions(),
       Collaboration.configure({ document: collaboration.ydoc }),
       CollaborationCaret.configure({
         provider: collaboration.provider,
@@ -167,28 +151,7 @@ export function EditorPage() {
       Placeholder.configure({
         placeholder: "내용을 입력하거나 /ai로 AI 도우미를 시작하세요.",
       }),
-      Highlight.configure({ multicolor: true }),
-      SizedImage.configure({ allowBase64: true, inline: false }),
-      TableKit.configure({ table: { resizable: true } }),
-      TaskList,
-      TaskItem.configure({ nested: true }),
-      TextAlign.configure({ types: ["heading", "paragraph"] }),
-      TextStyleKit,
-      // Without these the schema does not know the marks, and ProseMirror
-      // discards the whole paragraph a single one appears in — not just the
-      // mark. A Word document with m², H₂O or a footnote number lost the
-      // paragraph carrying it the moment it was opened, and the next autosave
-      // made that permanent.
-      Superscript,
-      Subscript,
-      BlockId,
-      CellBackground,
-      LineHeight,
-      PageBreak,
       PasteBehaviour,
-      ParagraphIndent,
-      HeadingNumbers,
-      TableOfContentsNode,
       SearchHighlight,
     ],
     [collaboration.provider, collaboration.ydoc, user?.displayName, user?.id],
