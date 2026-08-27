@@ -304,6 +304,18 @@
 			]
 		},
 		{
+			"type": "codeBlock",
+			"attrs": {
+				"language": "mermaid"
+			},
+			"content": [
+				{
+					"type": "text",
+					"text": "graph TD\n  가[시작] --> 나[끝]"
+				}
+			]
+		},
+		{
 			"type": "table",
 			"content": [
 				{

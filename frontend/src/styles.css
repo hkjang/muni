@@ -303,3 +303,24 @@ a {
   color: #9aa0a6;
   margin-right: 3px;
 }
+
+/* A mermaid block is the text that describes a diagram with the diagram under
+   it. Both, so the text stays editable and what it draws is visible as it is
+   typed. */
+.muni-mermaid-drawing {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 4px;
+  overflow-x: auto;
+}
+.muni-mermaid-drawing svg {
+  max-width: 100%;
+  height: auto;
+}
+.muni-mermaid-problem {
+  padding: 6px 10px;
+  font-size: 0.85em;
+  color: #8a6d3b;
+  background: #fef7e0;
+  border-radius: 4px;
+}

@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/copy-mermaid.mjs && tsc -b && vite build",
     "lint": "tsc -b --pretty false",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "prepare-assets": "node scripts/copy-mermaid.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -34,6 +35,7 @@
     "@tiptap/react": "^3.30.2",
     "@tiptap/starter-kit": "^3.30.2",
     "dompurify": "^3.2.7",
+    "mermaid": "^11.17.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",

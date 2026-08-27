@@ -110,6 +110,12 @@ func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath st
 	if err := session.waitForLoad(); err != nil {
 		return nil, err
 	}
+	if furniture.Draws {
+		// The page draws its diagrams after it loads. Printing before they are
+		// finished leaves the picture out of the file rather than wrong in it,
+		// and nothing about the PDF says anything went missing.
+		session.waitForDiagrams()
+	}
 
 	paperWidth, paperHeight := furniture.paper()
 	result, err := session.call("Page.printToPDF", map[string]any{
@@ -144,6 +150,9 @@ func printToPDFWithDevtools(parent context.Context, binary, tempDir, htmlPath st
 // pdfFurniture is what prints on every page around the document itself.
 type pdfFurniture struct {
 	Title string
+	// Draws says the page has diagrams to draw, so the printer waits for it
+	// to finish before taking the picture.
+	Draws bool
 	// Header is the document's own header line — where a Korean office
 	// document carries 대외비 and the department. The header band used to be
 	// switched on and left empty, so the space was reserved and nothing was
@@ -200,6 +209,33 @@ func (f pdfFurniture) footerTemplate() string {
 		`<span style="` + ellipsis + `max-width:70%;">` + html.EscapeString(truncate(left, 80)) + `</span>` +
 		`<span><span class="pageNumber"></span> / <span class="totalPages"></span></span>` +
 		`</div>`
+}
+
+// waitForDiagrams waits for the page to say it has finished drawing.
+//
+// The page sets a flag when the drawing library is done, or immediately if it
+// is not there at all. The bound is what stops one unparseable diagram from
+// holding a worker for the whole request timeout — the page is printed as it
+// stands, which is the text of the diagram rather than nothing.
+func (s *devtoolsSession) waitForDiagrams() {
+	const attempts = 100
+	for attempt := 0; attempt < attempts; attempt++ {
+		raw, err := s.call("Runtime.evaluate", map[string]any{
+			"expression":    "window.muniDiagramsReady === true",
+			"returnByValue": true,
+		})
+		if err == nil {
+			var answer struct {
+				Result struct {
+					Value bool `json:"value"`
+				} `json:"result"`
+			}
+			if json.Unmarshal(raw, &answer) == nil && answer.Result.Value {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // waitForDevtools reads the endpoint Chromium prints when it is ready.

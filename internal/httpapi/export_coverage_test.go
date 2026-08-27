@@ -38,7 +38,7 @@ var carriedPhrases = []string{
 	"링크글자", "위첨자표시", "아래첨자표시", "형광펜표시", "글자서식표시",
 	"각주내용입니다", "줄바꿈뒤문장",
 	"인용문입니다", "글머리항목", "하위항목", "셋째항목", "번호항목",
-	"할일항목", "코드블록내용",
+	"할일항목", "코드블록내용", "graph TD",
 	"표머리글", "표셀내용", "마지막문단",
 }
 
@@ -155,5 +155,49 @@ func TestCellAlignmentReachesTheHTML(t *testing.T) {
 		{"type":"tableCell","attrs":{"verticalAlign":"expression(alert(1))"},"content":[{"type":"paragraph"}]}]}]}]}`)
 	if out := renderHTML(odd); strings.Contains(out, "expression") {
 		t.Errorf("정체 모를 값이 스타일에 들어갔습니다: %s", out)
+	}
+}
+
+// A diagram is an ordinary code block whose language says mermaid, which is
+// what lets it survive every path muni already has. In HTML it is marked for
+// the browser to draw; everywhere else it stays the text it is, because what a
+// diagram says is what it is.
+func TestADiagramIsMarkedForDrawingInHTMLAndStaysTextElsewhere(t *testing.T) {
+	raw := json.RawMessage(everyNode(t))
+
+	rendered := renderHTML(raw)
+	if !strings.Contains(rendered, `<pre class="mermaid"`) {
+		t.Error("HTML 에 그릴 표시가 없습니다")
+	}
+	if !htmlHasDiagram(rendered) {
+		t.Error("그릴 것이 있는지 묻는 검사가 자기가 쓴 표시를 못 찾습니다")
+	}
+	// The description survives as text, so a reader without the drawing
+	// library sees what the diagram says rather than nothing.
+	if !strings.Contains(rendered, "graph TD") {
+		t.Error("그림의 설명이 사라졌습니다")
+	}
+
+	for name, out := range map[string]string{
+		"Markdown":   renderMarkdown("문서 제목", raw),
+		"plain text": renderPlainText("문서 제목", raw),
+	} {
+		if !strings.Contains(out, "graph TD") {
+			t.Errorf("%s 에서 그림의 설명이 사라졌습니다", name)
+		}
+	}
+}
+
+// A document with nothing to draw must not carry three and a half megabytes of
+// drawing library.
+func TestADocumentWithNoDiagramCarriesNoDrawingLibrary(t *testing.T) {
+	plain := renderHTML(json.RawMessage(
+		`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"그림 없음"}]}]}`))
+	if htmlHasDiagram(plain) {
+		t.Error("그림이 없는 문서를 그릴 것이 있다고 봤습니다")
+	}
+	page := fullHTMLWithDrawing("문서", false, plain, htmlHasDiagram(plain))
+	if strings.Contains(page, "muniDiagramsReady") {
+		t.Error("그림이 없는데 그리기 준비 코드가 들어갔습니다")
 	}
 }

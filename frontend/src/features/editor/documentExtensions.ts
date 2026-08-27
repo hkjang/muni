@@ -18,6 +18,7 @@ import { ParagraphIndent } from "./extensions/paragraphIndent";
 import { HeadingNumbers } from "./extensions/headingNumbers";
 import { TableOfContentsNode } from "./extensions/tableOfContents";
 import { Footnote } from "./extensions/footnote";
+import { MermaidCodeBlock } from "./extensions/mermaidBlock";
 
 /**
  * Everything that decides what a muni document *is*.
@@ -38,7 +39,10 @@ import { Footnote } from "./extensions/footnote";
  */
 export function documentExtensions(): Extensions {
   return [
-    StarterKit.configure({ undoRedo: false }),
+    // The code block comes from the mermaid extension instead: it is the
+    // same node, drawn as a diagram when its language says so.
+    StarterKit.configure({ undoRedo: false, codeBlock: false }),
+    MermaidCodeBlock,
     Highlight.configure({ multicolor: true }),
     SizedImage.configure({ allowBase64: true, inline: false }),
     TableKit.configure({ table: { resizable: true } }),

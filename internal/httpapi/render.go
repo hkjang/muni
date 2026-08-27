@@ -112,6 +112,14 @@ func renderHTMLBlock(out *strings.Builder, node *richdoc.Node) {
 		out.WriteString("</blockquote>")
 	case "codeBlock":
 		language := node.AttrString("language")
+		if isDiagram(node) {
+			// The browser draws this one. The text is still the content —
+			// what a diagram is, is what it says — so a reader without the
+			// drawing library sees the description rather than nothing.
+			out.WriteString(`<pre class="mermaid"` + blockIDAttribute(node) + ">" +
+				html.EscapeString(codeText(node)) + "</pre>")
+			return
+		}
 		out.WriteString("<pre" + blockIDAttribute(node) + "><code")
 		if language != "" && isSafeToken(language) {
 			out.WriteString(` class="language-` + html.EscapeString(language) + `"`)
@@ -268,6 +276,41 @@ func lineHeightValue(node *richdoc.Node) string {
 		return ""
 	}
 	return strconv.FormatFloat(value, 'f', -1, 64)
+}
+
+// isDiagram reports whether a code block asks to be drawn rather than printed.
+//
+// A diagram is an ordinary code block whose language says mermaid, which is
+// what lets it survive every path muni already has — the editor schema, the
+// .docx export, a Markdown fence, the plain-text export all carry a code block
+// and its language without being taught anything.
+func isDiagram(node *richdoc.Node) bool {
+	return node.Type == "codeBlock" &&
+		strings.EqualFold(strings.TrimSpace(node.AttrString("language")), "mermaid")
+}
+
+// htmlHasDiagram reports whether rendered HTML has anything to draw. The mark
+// is the one renderHTMLBlocks writes, so the question is asked of the same
+// thing that answers it.
+func htmlHasDiagram(rendered string) bool {
+	return strings.Contains(rendered, `<pre class="mermaid"`)
+}
+
+// documentHasDiagram reports whether anything in the document needs drawing,
+// so the drawing library is only carried by the exports that use it.
+func documentHasDiagram(node *richdoc.Node) bool {
+	if node == nil {
+		return false
+	}
+	if isDiagram(node) {
+		return true
+	}
+	for _, child := range node.Content {
+		if documentHasDiagram(child) {
+			return true
+		}
+	}
+	return false
 }
 
 // cellShade accepts only a plain hex colour, so nothing an author or an

@@ -50,7 +50,7 @@ func TestTheWordFileCarriesEveryKindOfContent(t *testing.T) {
 		"링크글자", "위첨자표시", "아래첨자표시", "형광펜표시", "글자서식표시",
 		"줄바꿈뒤문장",
 		"인용문입니다", "글머리항목", "하위항목", "셋째항목", "번호항목",
-		"할일항목", "코드블록내용", "표머리글", "표셀내용", "마지막문단",
+		"할일항목", "코드블록내용", "graph TD", "표머리글", "표셀내용", "마지막문단",
 	} {
 		if !strings.Contains(body, phrase) {
 			t.Errorf("%q 가 .docx 본문에서 사라졌습니다", phrase)
@@ -85,7 +85,7 @@ func TestEverythingComesBackWhenTheWordFileIsReadAgain(t *testing.T) {
 		"위첨자표시", "아래첨자표시", "형광펜표시", "글자서식표시",
 		"각주내용입니다", "줄바꿈뒤문장",
 		"인용문입니다", "글머리항목", "하위항목", "셋째항목", "번호항목",
-		"할일항목", "코드블록내용", "표머리글", "표셀내용", "마지막문단",
+		"할일항목", "코드블록내용", "graph TD", "표머리글", "표셀내용", "마지막문단",
 	} {
 		if !strings.Contains(text, phrase) {
 			t.Errorf("%q 가 왕복에서 사라졌습니다", phrase)

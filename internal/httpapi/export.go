@@ -67,7 +67,8 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		body = []byte(renderMarkdown(title, content))
 		contentType = "text/markdown; charset=utf-8"
 	case "html":
-		body = []byte(fullHTML(title, landscape, s.renderHTMLWithAttachments(r.Context(), id, content)))
+		rendered := s.renderHTMLWithAttachments(r.Context(), id, content)
+		body = []byte(fullHTMLWithDrawing(title, landscape, rendered, htmlHasDiagram(rendered)))
 		contentType = "text/html; charset=utf-8"
 	case "docx":
 		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter, landscape)
@@ -184,7 +185,8 @@ func makePDF(parent context.Context, title, pageHeader, pageFooter string, lands
 	defer os.RemoveAll(tempDir)
 	htmlPath := filepath.Join(tempDir, "document.html")
 	pdfPath := filepath.Join(tempDir, "document.pdf")
-	if err = os.WriteFile(htmlPath, []byte(fullHTML(title, landscape, renderedHTML)), 0600); err != nil {
+	draws := htmlHasDiagram(renderedHTML)
+	if err = os.WriteFile(htmlPath, []byte(fullHTMLWithDrawing(title, landscape, renderedHTML, draws)), 0600); err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(parent, 120*time.Second)
@@ -196,7 +198,7 @@ func makePDF(parent context.Context, title, pageHeader, pageFooter string, lands
 	// The protocol path is what puts page numbers at the bottom; the command
 	// line cannot. It has more ways to fail than running a program does, so a
 	// failure falls back rather than losing the export.
-	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFurniture{Title: title, Header: pageHeader, Footer: pageFooter, Landscape: landscape}); devErr == nil {
+	if body, devErr := printToPDFWithDevtools(ctx, binary, tempDir, htmlPath, pdfFurniture{Title: title, Header: pageHeader, Footer: pageFooter, Landscape: landscape, Draws: draws}); devErr == nil {
 		return body, nil
 	} else {
 		pdfLogger.Warn("devtools pdf failed, falling back to the command line", "error", devErr)
@@ -277,6 +279,15 @@ func intFrom(value any, fallback int) int {
 }
 
 func fullHTML(title string, landscape bool, body string) string {
+	return fullHTMLWithDrawing(title, landscape, body, false)
+}
+
+// fullHTMLWithDrawing is fullHTML with the drawing library carried inside it.
+//
+// Only when the document has something to draw: the library is three and a
+// half megabytes, and an exported report with no diagram in it should not be
+// three and a half megabytes larger than the report.
+func fullHTMLWithDrawing(title string, landscape bool, body string, draw bool) string {
 	// A turned page needs both the sheet and the text column to change; the
 	// stylesheet caps the column at the portrait width, which would leave a
 	// landscape print with the same narrow text and wide empty margins.
@@ -286,7 +297,17 @@ func fullHTML(title string, landscape bool, body string) string {
 		page = `@page{size:A4 landscape;margin:20mm}`
 		column = `body{max-width:257mm}`
 	}
-	return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>` + html.EscapeString(title) + `</title><style>` + page + exportStylesheet + column + `</style></head><body><h1 class="doc-title">` + html.EscapeString(title) + `</h1>` + body + `</body></html>`
+	drawing := ""
+	if draw {
+		if library := drawingLibrary(); len(library) > 0 {
+			// Inlined rather than linked: an exported file is one file, and it
+			// has to draw the same on a machine with no network.
+			drawing = `<script>` + string(library) + `</script><script>` + diagramBootScript + `</script>`
+		}
+	}
+	return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>` + html.EscapeString(title) +
+		`</title><style>` + page + exportStylesheet + diagramStyle + column + `</style></head><body><h1 class="doc-title">` +
+		html.EscapeString(title) + `</h1>` + body + drawing + `</body></html>`
 }
 
 const exportStylesheet = `
