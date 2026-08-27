@@ -37,7 +37,8 @@ var carriedPhrases = []string{
 	"제목입니다", "평문과", "굵은글씨", "기울임", "밑줄", "취소선", "코드조각",
 	"링크글자", "위첨자표시", "아래첨자표시", "형광펜표시", "글자서식표시",
 	"각주내용입니다", "줄바꿈뒤문장",
-	"인용문입니다", "글머리항목", "번호항목", "할일항목", "코드블록내용",
+	"인용문입니다", "글머리항목", "하위항목", "셋째항목", "번호항목",
+	"할일항목", "코드블록내용",
 	"표머리글", "표셀내용", "마지막문단",
 }
 
@@ -95,4 +96,45 @@ func TestNoFormatPutsTheNoteInsideTheSentence(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Carrying the words of a nested list is not the same as carrying the list. A
+// format that flattened three levels into one would pass every phrase check
+// above and still turn an outline into a heap.
+func TestNestedListsKeepTheirLevels(t *testing.T) {
+	raw := json.RawMessage(everyNode(t))
+	for _, format := range []struct {
+		name   string
+		render func() string
+	}{
+		{"Markdown", func() string { return renderMarkdown("문서 제목", raw) }},
+		{"plain text", func() string { return renderPlainText("문서 제목", raw) }},
+	} {
+		t.Run(format.name, func(t *testing.T) {
+			out := format.render()
+			outer, inner, third := listIndent(out, "글머리항목"), listIndent(out, "하위항목"), listIndent(out, "셋째항목")
+			if outer < 0 || inner < 0 || third < 0 {
+				t.Fatalf("항목을 찾지 못했습니다: %d %d %d", outer, inner, third)
+			}
+			if !(outer < inner && inner < third) {
+				t.Errorf("들여쓰기가 깊어지지 않습니다: %d, %d, %d", outer, inner, third)
+			}
+		})
+	}
+	// HTML says it with structure rather than spaces: a list inside a list.
+	if html := renderHTML(raw); !strings.Contains(html, "<ul>") || strings.Count(html, "<ul>") < 3 {
+		t.Errorf("HTML 목록이 평평해졌습니다: <ul> %d개", strings.Count(html, "<ul>"))
+	}
+}
+
+// listIndent reports how far in the line carrying a phrase is set, or -1 if
+// no line carries it. The counting is the Markdown importer's own, so the two
+// sides of the round trip agree on what a level of indentation is.
+func listIndent(rendered, phrase string) int {
+	for _, line := range strings.Split(rendered, "\n") {
+		if strings.Contains(line, phrase) {
+			return indentOf(line)
+		}
+	}
+	return -1
 }
