@@ -1,7 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { Editor } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
+import everyNodeFixture from "../../testdata/every-node.json";
 import { documentExtensions } from "./features/editor/documentExtensions";
 
 /**
@@ -16,21 +15,10 @@ import { documentExtensions } from "./features/editor/documentExtensions";
  * held it used only known nodes and known attributes, carried every phrase
  * through every export, and still threw the moment the editor opened it.
  */
-/** Walk up to the repository root, wherever vitest was started from. */
-function fixturePath(): string {
-  let directory = process.cwd();
-  for (;;) {
-    const candidate = resolve(directory, "testdata", "every-node.json");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(directory);
-    if (parent === directory) {
-      throw new Error("testdata/every-node.json 을 찾지 못했습니다");
-    }
-    directory = parent;
-  }
-}
-
-const everyNode = JSON.parse(readFileSync(fixturePath(), "utf8"));
+const everyNode = everyNodeFixture as {
+  type: string;
+  content: { type: string }[];
+};
 
 /** The phrases the Go tests follow through each export format. */
 const carriedPhrases = [
