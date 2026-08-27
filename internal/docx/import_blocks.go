@@ -468,6 +468,8 @@ func (imp *importer) table(node *xnode) *richdoc.Node {
 		}
 	}
 
+	firstRowIsHeader := imp.tableLeadsWithAHeader(node.child("w", "tblPr"))
+
 	type pending struct {
 		cell   *richdoc.Node
 		column int
@@ -479,9 +481,9 @@ func (imp *importer) table(node *xnode) *richdoc.Node {
 		if !rowNode.is("w", "tr") {
 			continue
 		}
-		header := false
-		if properties := rowNode.child("w", "trPr"); properties != nil {
-			header = properties.child("w", "tblHeader") != nil
+		header := firstRowIsHeader && len(rows) == 0
+		if properties := rowNode.child("w", "trPr"); properties != nil && properties.child("w", "tblHeader") != nil {
+			header = true
 		}
 		row := &richdoc.Node{Type: "tableRow"}
 		column := 0
@@ -724,4 +726,51 @@ func applyParagraphSpacing(paragraph *richdoc.Node, properties *xnode, inList bo
 		return
 	}
 	paragraph.SetAttr("lineHeight", strconv.FormatFloat(rounded, 'f', -1, 64))
+}
+
+// tableLeadsWithAHeader reports whether a table's first row is its header.
+//
+// Word almost never says so on the row. w:tblHeader means "repeat this row at
+// the top of every page", which is a printing instruction that most tables
+// leave off; what a header row actually is, is the table style's firstRow
+// formatting switched on by w:tblLook. Reading the cells finds nothing either,
+// because the bold and the shading are in the style rather than on them.
+//
+// Both halves are needed. w:tblLook says to apply the style's first-row
+// formatting, and Word writes it on nearly every table — including ones using
+// Table Grid, which draws every row alike. Marking a header there would invent
+// one the document does not have.
+func (imp *importer) tableLeadsWithAHeader(properties *xnode) bool {
+	if properties == nil {
+		return false
+	}
+	look := properties.child("w", "tblLook")
+	if look == nil || !looksAtFirstRow(look) {
+		return false
+	}
+	styleID := properties.child("w", "tblStyle").val()
+	for depth := 0; styleID != "" && depth < 16; depth++ {
+		style, ok := imp.styles[styleID]
+		if !ok {
+			return false
+		}
+		if style.firstRowFormatting {
+			return true
+		}
+		styleID = style.basedOn
+	}
+	return false
+}
+
+// looksAtFirstRow reads w:tblLook, which Word writes twice over: as named
+// attributes, and as the hex bitmask older files carry.
+func looksAtFirstRow(look *xnode) bool {
+	switch strings.TrimSpace(look.attr("w:firstRow")) {
+	case "1", "true", "on":
+		return true
+	case "0", "false", "off":
+		return false
+	}
+	value, err := strconv.ParseUint(strings.TrimSpace(look.attr("w:val")), 16, 32)
+	return err == nil && value&0x0020 != 0
 }

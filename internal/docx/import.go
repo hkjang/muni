@@ -35,6 +35,10 @@ type styleInfo struct {
 	// paragraphProperties is the style's own w:pPr, which is where an office
 	// template keeps the indentation and the line spacing of its body text.
 	paragraphProperties *xnode
+	// firstRowFormatting says the style draws the first row differently from
+	// the rest — a w:tblStylePr of type firstRow. That, and not the cells, is
+	// where a Word table keeps its header.
+	firstRowFormatting bool
 }
 
 type importer struct {
@@ -162,6 +166,11 @@ func (imp *importer) loadStyles(file *zip.File) {
 			kind:                child.attr("w:type"),
 			runProperties:       child.child("w", "rPr"),
 			paragraphProperties: child.child("w", "pPr"),
+		}
+		for _, conditional := range child.Children {
+			if conditional.is("w", "tblStylePr") && conditional.attr("w:type") == "firstRow" {
+				info.firstRowFormatting = len(conditional.Children) > 0
+			}
 		}
 		// Word attaches list numbering to the style itself for the built-in
 		// "List Bullet" and "List Number" families.
