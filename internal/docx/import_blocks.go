@@ -20,9 +20,37 @@ type block struct {
 
 func (imp *importer) blocks(nodes []*xnode) []block {
 	out := make([]block, 0, len(nodes))
+	// Where a Word table of contents is open, and how deep the fields were
+	// when it opened. See tocFieldInstruction.
+	depth, tocOpenedAt, insideTOC := 0, 0, false
 	for _, node := range nodes {
 		switch {
 		case node.is("w", "p"):
+			delta, instructions := fieldMoves(node)
+			opensTOC := false
+			for _, instruction := range instructions {
+				if tocFieldInstruction(instruction) {
+					opensTOC = true
+				}
+			}
+			before := depth
+			if depth += delta; depth < 0 {
+				depth = 0
+			}
+			if insideTOC {
+				// The cached entries, and the paragraph that closes the field.
+				if depth <= tocOpenedAt {
+					insideTOC = false
+				}
+				continue
+			}
+			if opensTOC {
+				out = append(out, block{node: &richdoc.Node{Type: richdoc.TableOfContentsType}})
+				if depth > before {
+					insideTOC, tocOpenedAt = true, before
+				}
+				continue
+			}
 			out = append(out, imp.paragraph(node)...)
 		case node.is("w", "tbl"):
 			if table := imp.table(node); table != nil {
@@ -39,6 +67,52 @@ func (imp *importer) blocks(nodes []*xnode) []block {
 		}
 	}
 	return out
+}
+
+// Word writes a table of contents as a field wrapped around the entries it
+// last calculated: a paragraph opens the field, one paragraph per entry
+// follows carrying a heading and the page it was on, and a paragraph closes
+// it. Those entries are a cache — Word rebuilds them on demand — and in muni
+// they are neither rebuilt nor meaningful, because muni has no pages until a
+// document is printed. Importing them as prose gives a document a frozen list
+// of page numbers that will never be right again.
+//
+// muni's own contents node is generated from the headings, so the field
+// becomes that node and the cache is dropped.
+
+// fieldMoves reports what a paragraph does to the number of open fields, and
+// what instructions it carries.
+func fieldMoves(paragraph *xnode) (delta int, instructions []string) {
+	var walk func(*xnode)
+	walk = func(node *xnode) {
+		switch {
+		case node.is("w", "fldChar"):
+			switch strings.ToLower(node.attr("w:fldCharType")) {
+			case "begin":
+				delta++
+			case "end":
+				delta--
+			}
+		case node.is("w", "instrText"):
+			instructions = append(instructions, node.Text)
+		case node.is("w", "fldSimple"):
+			// The one-element form, which opens and closes at once.
+			instructions = append(instructions, node.attr("w:instr"))
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(paragraph)
+	return delta, instructions
+}
+
+// tocFieldInstruction reports whether a field instruction asks for a table of
+// contents. Word writes ` TOC \o "1-3" \h \z \u `; the switches after the
+// name say which headings and how to link them, and muni decides both itself.
+func tocFieldInstruction(instruction string) bool {
+	fields := strings.Fields(instruction)
+	return len(fields) > 0 && strings.EqualFold(fields[0], "TOC")
 }
 
 func (imp *importer) paragraph(node *xnode) []block {
