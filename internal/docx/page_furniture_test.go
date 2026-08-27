@@ -57,17 +57,35 @@ func TestNoHeaderMeansNoHeaderPart(t *testing.T) {
 		t.Fatal(err)
 	}
 	xml := documentXMLOf(t, built)
-	if contains(xml, "headerReference") || contains(xml, "footerReference") {
+	if contains(xml, "headerReference") {
 		t.Error("빈 머리글에 참조가 남았습니다")
 	}
-	for _, name := range []string{"word/header1.xml", "word/footer1.xml"} {
-		if packageHas(t, built, name) {
-			t.Errorf("%s 가 쓰였습니다", name)
-		}
+	if packageHas(t, built, "word/header1.xml") {
+		t.Error("word/header1.xml 가 쓰였습니다")
 	}
-	// And it still opens.
+	// And it still opens, with an empty header rather than a missing one.
 	if _, _, meta, err := Parse(built); err != nil || meta.Header != "" {
 		t.Errorf("다시 읽기 실패: %v %q", err, meta.Header)
+	}
+}
+
+// The footer is the exception: it is written even when it is empty, because it
+// carries the page number.
+func TestNoFooterTextStillNumbersThePages(t *testing.T) {
+	built, err := Build(plainDoc(t), Options{Title: "바닥글 없는 문서"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(documentXMLOf(t, built), "footerReference") {
+		t.Fatal("바닥글 참조가 없습니다")
+	}
+	footer := partOf(t, built, "word/footer1.xml")
+	if !strings.Contains(footer, "PAGE") || !strings.Contains(footer, "NUMPAGES") {
+		t.Errorf("쪽 번호가 없습니다:\n%s", footer)
+	}
+	// Reading it back must not invent footer text out of the counter.
+	if _, _, meta, err := Parse(built); err != nil || meta.Footer != "" {
+		t.Errorf("바닥글 = %q (%v)", meta.Footer, err)
 	}
 }
 
@@ -206,4 +224,24 @@ func widthOfGrid(t *testing.T, xml string) int {
 		t.Fatalf("표의 열 너비를 찾지 못했습니다: %.300s", xml)
 	}
 	return total
+}
+
+// muni's PDF export has always numbered the pages in the footer. The .docx
+// export did not, so printing a document and exporting it to Word disagreed
+// about whether it was paginated at all.
+func TestTheFooterNumbersThePages(t *testing.T) {
+	built, err := Build(plainDoc(t), Options{Title: "상반기 보고", Footer: "내부 열람용"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	footer := partOf(t, built, "word/footer1.xml")
+	for _, want := range []string{"내부 열람용", "PAGE", "NUMPAGES", `w:fldCharType="begin"`, `w:fldCharType="end"`} {
+		if !strings.Contains(footer, want) {
+			t.Errorf("%q 가 바닥글에 없습니다:\n%s", want, footer)
+		}
+	}
+	// Word counts these itself; an unbalanced pair is a file it calls corrupt.
+	if begins, ends := strings.Count(footer, `w:fldCharType="begin"`), strings.Count(footer, `w:fldCharType="end"`); begins != ends {
+		t.Errorf("필드 시작 %d개, 끝 %d개", begins, ends)
+	}
 }

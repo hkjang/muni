@@ -160,18 +160,22 @@ func Build(doc *richdoc.Node, opts Options) ([]byte, error) {
 // references the section has to carry. A part with no reference is ignored by
 // Word, and a reference with no part makes the file unopenable, so the two are
 // created together or not at all.
+//
+// The footer is always written, even with nothing to say: it carries the page
+// number, which is the page's rather than the document's. muni's PDF export
+// has always numbered the pages, and a document that is paginated when printed
+// and unpaginated when opened in Word is the same document twice.
 func (b *builder) pageFurniture() string {
 	var refs strings.Builder
 	add := func(text, local, kind, name string) {
-		if strings.TrimSpace(text) == "" {
-			return
-		}
 		id := b.relationship("http://schemas.openxmlformats.org/officeDocument/2006/relationships/"+kind, name, "")
 		b.furniture = append(b.furniture, furniturePart{name: name, local: local, text: text})
 		refs.WriteString(`<w:` + local + `Reference w:type="default" r:id="` + id + `"/>`)
 	}
-	add(b.opts.Header, "header", "header", "header1.xml")
-	add(b.opts.Footer, "footer", "footer", "footer1.xml")
+	if strings.TrimSpace(b.opts.Header) != "" {
+		add(b.opts.Header, "header", "header", "header1.xml")
+	}
+	add(strings.TrimSpace(b.opts.Footer), "footer", "footer", "footer1.xml")
 	return refs.String()
 }
 
@@ -216,16 +220,49 @@ type furniturePart struct {
 }
 
 func (b *builder) furnitureXML(part furniturePart) string {
-	root := "w:hdr"
-	if part.local == "footer" {
-		root = "w:ftr"
-	}
 	// No pStyle: muni's styles.xml has no Header or Footer style, and pointing
 	// at one that is not there is the kind of thing Word tolerates until it
 	// does not. The small grey line is set inline instead.
-	return xmlHeader + `<` + root + documentNamespaces + `>` +
+	if part.local == "footer" {
+		return xmlHeader + `<w:ftr` + documentNamespaces + `>` +
+			b.footerParagraph(part.text) + `</w:ftr>`
+	}
+	return xmlHeader + `<w:hdr` + documentNamespaces + `>` +
 		`<w:p><w:pPr><w:jc w:val="right"/></w:pPr>` +
-		b.textRun(part.text, runStyle{}) + `</w:p></` + root + `>`
+		b.textRun(part.text, runStyle{}) + `</w:p></w:hdr>`
+}
+
+// footerParagraph puts the footer text on the left and the page number on the
+// right, which is where a Korean office document carries it and where muni's
+// own PDF export already puts it. Printing a document and exporting it to Word
+// used to disagree about whether the pages were numbered at all.
+func (b *builder) footerParagraph(text string) string {
+	width := b.contentWidth()
+	var out strings.Builder
+	out.WriteString(`<w:p><w:pPr><w:tabs>` +
+		`<w:tab w:val="right"` + intAttr("w:pos", width) + `/>` +
+		`</w:tabs></w:pPr>`)
+	out.WriteString(b.textRun(text, runStyle{}))
+	// The tab carries the number to the right margin whether or not there is
+	// any text to its left.
+	out.WriteString(`<w:r><w:tab/></w:r>`)
+	out.WriteString(pageField("PAGE"))
+	out.WriteString(`<w:r><w:t xml:space="preserve"> / </w:t></w:r>`)
+	out.WriteString(pageField("NUMPAGES"))
+	out.WriteString(`</w:p>`)
+	return out.String()
+}
+
+// pageField writes one of Word's own counters. The value between separate and
+// end is what a reader sees before Word recalculates the field, so it has to
+// be something rather than nothing — a viewer that does not recalculate shows
+// exactly this.
+func pageField(name string) string {
+	return `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+		`<w:r><w:instrText xml:space="preserve"> ` + name + ` </w:instrText></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="separate"/></w:r>` +
+		`<w:r><w:t>1</w:t></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="end"/></w:r>`
 }
 
 func (b *builder) relationship(kind, target, mode string) string {

@@ -362,6 +362,38 @@ type Meta struct {
 	Landscape bool
 }
 
+// furnitureText reads a header or footer as the words it carries, stopping at
+// the first field.
+//
+// muni's model has one string per header and footer — there is nowhere to put
+// a page counter. A footer laid out the way muni and Word both lay it out puts
+// the words first and "PAGE / NUMPAGES" last, so everything before the first
+// field is the part muni can hold. Reading further would take whatever number
+// was stored the last time the file was written: "내부 열람용" would come back
+// as "내부 열람용1 / 1", and every round trip would add another number.
+func furnitureText(root *xnode) string {
+	var out strings.Builder
+	done := false
+	var walk func(*xnode)
+	walk = func(node *xnode) {
+		if node == nil || done {
+			return
+		}
+		switch {
+		case node.is("w", "fldChar"), node.is("w", "fldSimple"), node.is("w", "instrText"):
+			done = true
+			return
+		case node.is("w", "t"), node.is("w", "delText"):
+			out.WriteString(node.Text)
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(root)
+	return out.String()
+}
+
 // pageFurniture pulls the default header and footer text out of the package.
 //
 // Word can hold three of each (first page, even pages, odd pages). muni has
@@ -401,7 +433,7 @@ func (imp *importer) pageFurniture(files map[string]*zip.File, body *xnode) Meta
 			if err != nil || root == nil {
 				continue
 			}
-			text := collapseSpaces(root.allText())
+			text := collapseSpaces(furnitureText(root))
 			if text == "" {
 				continue
 			}
