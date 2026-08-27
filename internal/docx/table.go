@@ -247,7 +247,7 @@ func (b *builder) tableCell(cell placedCell, widths []int, ctx blockContext) {
 	if shade != "" {
 		properties.WriteString(`<w:shd w:val="clear" w:color="auto"` + attr("w:fill", shade) + `/>`)
 	}
-	properties.WriteString(`<w:vAlign w:val="center"/>`)
+	properties.WriteString(`<w:vAlign` + attr("w:val", cellVAlignValue(cell.node)) + `/>`)
 
 	b.body.WriteString(`<w:tc><w:tcPr>` + properties.String() + `</w:tcPr>`)
 	before := b.body.Len()
@@ -265,4 +265,22 @@ func (b *builder) tableCell(cell placedCell, widths []int, ctx blockContext) {
 		b.body.WriteString(`<w:p/>`)
 	}
 	b.body.WriteString(`</w:tc>`)
+}
+
+// cellVAlignValue is the w:vAlign a cell asks for, in Word's vocabulary.
+//
+// muni wrote "center" on every cell it exported, whatever the document said.
+// A table that came from Word with its 비고 column left at the top came back
+// centred — not a loss of the alignment so much as a replacement of it. A cell
+// that says nothing still centres, because that is what every muni table has
+// looked like and a document should not move because this changed.
+func cellVAlignValue(cell *richdoc.Node) string {
+	switch cell.AttrString("verticalAlign") {
+	case "top":
+		return "top"
+	case "bottom":
+		return "bottom"
+	default:
+		return "center"
+	}
 }

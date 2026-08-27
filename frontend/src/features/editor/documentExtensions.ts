@@ -11,6 +11,7 @@ import Subscript from "@tiptap/extension-subscript";
 import { SizedImage } from "./extensions/imageAttributes";
 import { BlockId } from "./extensions/blockId";
 import { CellBackground } from "./extensions/cellBackground";
+import { CellVerticalAlign } from "./extensions/cellAlign";
 import { LineHeight } from "./extensions/lineHeight";
 import { PageBreak } from "./extensions/pageBreak";
 import { ParagraphIndent } from "./extensions/paragraphIndent";
@@ -51,6 +52,7 @@ export function documentExtensions(): Extensions {
     Subscript,
     BlockId,
     CellBackground,
+    CellVerticalAlign,
     LineHeight,
     PageBreak,
     ParagraphIndent,

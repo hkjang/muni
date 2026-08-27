@@ -236,6 +236,45 @@ describe("node attributes survive a load", () => {
     }
   });
 
+  it("a table cell keeps where its text sits", () => {
+    // muni reads this out of Word files and writes it back. Without it in the
+    // schema the attribute is dropped on load without a word, and the next
+    // save makes that final.
+    const editor = new Editor({ extensions: documentExtensions() });
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [
+          {
+            type: "table",
+            content: [
+              {
+                type: "tableRow",
+                content: [
+                  {
+                    type: "tableCell",
+                    attrs: { colspan: 1, rowspan: 1, verticalAlign: "top" },
+                    content: [
+                      {
+                        type: "paragraph",
+                        content: [{ type: "text", text: "위칸" }],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      });
+      expect(JSON.stringify(editor.getJSON()), "verticalAlign").toContain(
+        "top",
+      );
+    } finally {
+      editor.destroy();
+    }
+  });
+
   it("a table cell keeps its span and shading", () => {
     // 병합된 셀과 음영은 한국 공문서 표의 기본이고, 조용히 사라지면
     // 표가 다른 표가 됩니다.

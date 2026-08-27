@@ -321,7 +321,10 @@
 										}
 									]
 								}
-							]
+							],
+							"attrs": {
+								"verticalAlign": "top"
+							}
 						},
 						{
 							"type": "tableCell",
@@ -335,7 +338,10 @@
 										}
 									]
 								}
-							]
+							],
+							"attrs": {
+								"verticalAlign": "bottom"
+							}
 						}
 					]
 				}

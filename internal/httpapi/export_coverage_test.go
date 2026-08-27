@@ -138,3 +138,22 @@ func listIndent(rendered, phrase string) int {
 	}
 	return -1
 }
+
+// A cell's vertical alignment is read out of Word files and written back, so
+// the HTML the browser prints to PDF has to carry it too — otherwise the
+// document muni shows and the document muni prints disagree.
+func TestCellAlignmentReachesTheHTML(t *testing.T) {
+	raw := json.RawMessage(everyNode(t))
+	html := renderHTML(raw)
+	for _, want := range []string{"vertical-align:top", "vertical-align:bottom"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("%q 가 HTML 에 없습니다", want)
+		}
+	}
+	// And nothing an imported file made up reaches the stylesheet.
+	odd := json.RawMessage(`{"type":"doc","content":[{"type":"table","content":[{"type":"tableRow","content":[
+		{"type":"tableCell","attrs":{"verticalAlign":"expression(alert(1))"},"content":[{"type":"paragraph"}]}]}]}]}`)
+	if out := renderHTML(odd); strings.Contains(out, "expression") {
+		t.Errorf("정체 모를 값이 스타일에 들어갔습니다: %s", out)
+	}
+}

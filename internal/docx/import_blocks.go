@@ -519,6 +519,10 @@ func (imp *importer) table(node *xnode) *richdoc.Node {
 			if shade := cellShade(properties); shade != "" && cellType != "tableHeader" {
 				cell.SetAttr("backgroundColor", shade)
 			}
+			// Word's default is the top, and saying nothing means the top.
+			// muni draws a cell centred unless told otherwise, so an imported
+			// cell has to say where its text sat or it moves.
+			cell.SetAttr("verticalAlign", cellVerticalAlign(properties))
 			if columnWidths := widthsFor(widths, column, span); len(columnWidths) > 0 {
 				cell.SetAttr("colwidth", columnWidths)
 			}
@@ -773,4 +777,18 @@ func looksAtFirstRow(look *xnode) bool {
 	}
 	value, err := strconv.ParseUint(strings.TrimSpace(look.attr("w:val")), 16, 32)
 	return err == nil && value&0x0020 != 0
+}
+
+// cellVerticalAlign reads where a cell's text sits between the top and the
+// bottom of its row. Word writes "top", "center" or "bottom", and a cell that
+// says nothing means the top.
+func cellVerticalAlign(properties *xnode) string {
+	switch strings.ToLower(strings.TrimSpace(properties.child("w", "vAlign").val())) {
+	case "center":
+		return "middle"
+	case "bottom":
+		return "bottom"
+	default:
+		return "top"
+	}
 }

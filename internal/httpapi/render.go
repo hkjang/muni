@@ -285,6 +285,16 @@ func cellShade(node *richdoc.Node) string {
 	return value
 }
 
+// cellVerticalAlign accepts only the three words muni can draw, so nothing an
+// imported file supplied reaches the stylesheet as something else.
+func cellVerticalAlign(node *richdoc.Node) string {
+	switch node.AttrString("verticalAlign") {
+	case "top", "middle", "bottom":
+		return node.AttrString("verticalAlign")
+	}
+	return ""
+}
+
 func cellAttributes(node *richdoc.Node) string {
 	var out strings.Builder
 	if colspan := node.AttrInt("colspan", 1); colspan > 1 {
@@ -308,6 +318,9 @@ func cellAttributes(node *richdoc.Node) string {
 	}
 	if shade := cellShade(node); shade != "" {
 		rules = append(rules, "background-color:"+shade)
+	}
+	if alignment := cellVerticalAlign(node); alignment != "" {
+		rules = append(rules, "vertical-align:"+alignment)
 	}
 	if len(rules) > 0 {
 		out.WriteString(` style="` + strings.Join(rules, ";") + `"`)
