@@ -76,3 +76,63 @@ func inflate(raw []byte) ([]byte, error) {
 	// A document that decompresses to more than this is not a document.
 	return io.ReadAll(io.LimitReader(reader, 256<<20))
 }
+
+// A stream's records are a flat list carrying a depth each, and what a record
+// belongs to is whatever came before it at one level up. A paragraph's text,
+// the shapes applied to it and the controls it holds are all its children; a
+// table's cells are children of the control that holds the table, and the
+// paragraphs inside a cell are children of the cell.
+//
+// Reading the list flat — which is all muni did — finds the text and nothing
+// about where it sits.
+type recordNode struct {
+	record
+	children []*recordNode
+}
+
+// tree groups a flat record list by the depth each record carries.
+func tree(records []record) []*recordNode {
+	roots := []*recordNode{}
+	// stack[depth] is the node most recently opened at that depth.
+	var stack []*recordNode
+	for _, item := range records {
+		node := &recordNode{record: item}
+		depth := int(item.level)
+		if depth > len(stack) {
+			// A depth that skips a level: treat it as one deeper than the
+			// last, rather than dropping the record.
+			depth = len(stack)
+		}
+		if depth == 0 {
+			roots = append(roots, node)
+			stack = []*recordNode{node}
+			continue
+		}
+		parent := stack[depth-1]
+		parent.children = append(parent.children, node)
+		stack = append(stack[:depth], node)
+	}
+	return roots
+}
+
+// find returns the first child with a tag, which is how a paragraph's text or
+// a control's table is reached.
+func (n *recordNode) find(tag uint16) *recordNode {
+	for _, child := range n.children {
+		if child.tag == tag {
+			return child
+		}
+	}
+	return nil
+}
+
+// all returns every child with a tag, in order.
+func (n *recordNode) all(tag uint16) []*recordNode {
+	out := []*recordNode{}
+	for _, child := range n.children {
+		if child.tag == tag {
+			out = append(out, child)
+		}
+	}
+	return out
+}

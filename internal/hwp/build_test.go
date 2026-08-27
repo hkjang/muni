@@ -200,15 +200,6 @@ func hwpFileHeader(compressed, encrypted bool) []byte {
 	return raw
 }
 
-// paraTextRecord wraps UTF-16 code units in a PARA_TEXT record.
-func paraTextRecord(units []uint16) []byte {
-	payload := make([]byte, len(units)*2)
-	for index, unit := range units {
-		binary.LittleEndian.PutUint16(payload[index*2:], unit)
-	}
-	return append(recordHeader(tagParaText, 1, len(payload)), payload...)
-}
-
 func recordHeader(tag uint16, level uint16, size int) []byte {
 	raw := make([]byte, 4)
 	if size >= sizeInHeader {
@@ -240,3 +231,122 @@ func deflateRaw(t *testing.T, raw []byte) []byte {
 }
 
 func units(text string) []uint16 { return utf16.Encode([]rune(text)) }
+
+// paragraphRecords writes a paragraph the way a real file writes one: a
+// PARA_HEADER with its text and its character shapes beneath it.
+//
+// The reader groups records by the depth each carries, so a fixture that emits
+// a bare PARA_TEXT is not a file Hangul would ever write and proves nothing
+// about reading one.
+func paragraphRecords(text []uint16, shapes ...charRun) []byte {
+	header := make([]byte, 22)
+	binary.LittleEndian.PutUint32(header[0:], uint32(len(text)))
+	binary.LittleEndian.PutUint16(header[10:], uint16(len(shapes)))
+	out := append(recordHeader(tagParaHeader, 0, len(header)), header...)
+
+	payload := make([]byte, len(text)*2)
+	for index, unit := range text {
+		binary.LittleEndian.PutUint16(payload[index*2:], unit)
+	}
+	out = append(out, recordHeader(tagParaText, 1, len(payload))...)
+	out = append(out, payload...)
+
+	if len(shapes) > 0 {
+		shapeData := make([]byte, len(shapes)*8)
+		for index, run := range shapes {
+			binary.LittleEndian.PutUint32(shapeData[index*8:], run.at)
+			binary.LittleEndian.PutUint32(shapeData[index*8+4:], run.shape)
+		}
+		out = append(out, recordHeader(tagParaCharShape, 1, len(shapeData))...)
+		out = append(out, shapeData...)
+	}
+	return out
+}
+
+// charShapeRecord writes one CHAR_SHAPE into DocInfo, with the switches muni
+// reads set as asked.
+func charShapeRecord(bold, italic, underline bool) []byte {
+	const propertyOffset = 7*2 + 7 + 7 + 7*2 + 7 + 4
+	data := make([]byte, propertyOffset+8)
+	bits := uint32(0)
+	if italic {
+		bits |= 0x01
+	}
+	if bold {
+		bits |= 0x02
+	}
+	if underline {
+		bits |= 0x04
+	}
+	binary.LittleEndian.PutUint32(data[propertyOffset:], bits)
+	return append(recordHeader(tagCharShape, 0, len(data)), data...)
+}
+
+// tableRecords writes a table the way a file writes one: a control header
+// naming it, a TABLE record, and one LIST_HEADER per cell with the cell's
+// paragraphs beneath it.
+func tableRecords(level uint16, cells []tableCellSpec) []byte {
+	control := []byte{' ', 'l', 'b', 't'} // "tbl " stored back to front
+	control = append(control, make([]byte, 8)...)
+	out := append(recordHeader(tagCtrlHeader, level, len(control)), control...)
+
+	table := make([]byte, 8)
+	binary.LittleEndian.PutUint16(table[4:], uint16(len(cells)))
+	out = append(out, recordHeader(tagTable, level+1, len(table))...)
+	out = append(out, table...)
+
+	for _, cell := range cells {
+		header := make([]byte, 8+8+16)
+		binary.LittleEndian.PutUint32(header[0:], 1) // one paragraph
+		binary.LittleEndian.PutUint16(header[8:], cell.column)
+		binary.LittleEndian.PutUint16(header[10:], cell.row)
+		binary.LittleEndian.PutUint16(header[12:], cell.span)
+		binary.LittleEndian.PutUint16(header[14:], cell.rowSpan)
+		out = append(out, recordHeader(tagListHeader, level+1, len(header))...)
+		out = append(out, header...)
+		out = append(out, shiftLevels(paragraphRecords(units(cell.text)), level+2)...)
+	}
+	return out
+}
+
+type tableCellSpec struct {
+	row, column   uint16
+	span, rowSpan uint16
+	text          string
+}
+
+// shiftLevels rewrites a run of records to sit at a deeper level, which is how
+// a paragraph inside a cell is written.
+func shiftLevels(raw []byte, base uint16) []byte {
+	out := []byte{}
+	for offset := 0; offset+4 <= len(raw); {
+		header := binary.LittleEndian.Uint32(raw[offset:])
+		offset += 4
+		tag := uint16(header & 0x3FF)
+		level := uint16((header>>10)&0x3FF) + base
+		size := int((header >> 20) & 0xFFF)
+		if size == sizeInHeader {
+			size = int(binary.LittleEndian.Uint32(raw[offset:]))
+			offset += 4
+		}
+		if offset+size > len(raw) {
+			break
+		}
+		out = append(out, recordHeader(tag, level, size)...)
+		out = append(out, raw[offset:offset+size]...)
+		offset += size
+	}
+	return out
+}
+
+// paragraphWithControl writes a paragraph whose text holds a control mark,
+// with the control's own records beneath it.
+func paragraphWithControl(text string, control []byte) []byte {
+	code := units(text)
+	code = append(code, 11)
+	for filler := 0; filler < 6; filler++ {
+		code = append(code, 11)
+	}
+	code = append(code, 11)
+	return append(paragraphRecords(code), control...)
+}

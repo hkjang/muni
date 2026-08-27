@@ -11,7 +11,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
 
@@ -41,6 +40,8 @@ type importer struct {
 	header     fileHeader
 	charShapes []charShape
 	assets     []richdoc.Asset
+	// assetByID keeps a picture used twice from being stored twice.
+	assetByID map[string]string
 }
 
 // Parse reads a .hwp into muni's document model.
@@ -49,7 +50,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	if err != nil {
 		return nil, nil, Meta{}, err
 	}
-	imp := &importer{file: file}
+	imp := &importer{file: file, assetByID: map[string]string{}}
 	if err := imp.readFileHeader(); err != nil {
 		return nil, nil, Meta{}, err
 	}
@@ -169,36 +170,5 @@ func readCharShape(raw []byte) charShape {
 
 // section reads one BodyText stream into blocks.
 func (imp *importer) section(raw []byte) []*richdoc.Node {
-	out := []*richdoc.Node{}
-	for _, item := range readRecords(raw) {
-		if item.tag != tagParaText {
-			continue
-		}
-		text := readParagraphText(item.data)
-		for _, line := range strings.Split(text.text, "\n") {
-			trimmed := strings.TrimRight(line, " \t")
-			if strings.TrimSpace(trimmed) == "" {
-				continue
-			}
-			out = append(out, richdoc.Paragraph(richdoc.Text(trimmed)))
-		}
-	}
-	return out
-}
-
-// picture keeps a BinData stream as an asset.
-func (imp *importer) picture(name string, data []byte) *richdoc.Node {
-	if len(data) == 0 {
-		return nil
-	}
-	placeholder := richdoc.Placeholder(len(imp.assets) + 1)
-	imp.assets = append(imp.assets, richdoc.Asset{
-		Placeholder: placeholder,
-		Name:        name,
-		MediaType:   http.DetectContentType(data),
-		Data:        data,
-	})
-	node := &richdoc.Node{Type: "image"}
-	node.SetAttr("src", placeholder)
-	return node
+	return imp.paragraphs(tree(readRecords(raw)))
 }

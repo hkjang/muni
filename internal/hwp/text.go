@@ -42,52 +42,92 @@ func extendedControl(code uint16) bool {
 	return false
 }
 
-// paragraphText reads one PARA_TEXT record into the words it holds and the
-// controls it points at, in the order a reader meets them.
+// paragraphText is a paragraph's characters with the positions the file
+// counts them by.
+//
+// Those positions are what a PARA_CHAR_SHAPE record refers to, and they count
+// every code unit the record held — including the eight that a control mark
+// occupies. Counting only the characters that survived would put every shape
+// after the first table or picture on the wrong words.
 type paragraphText struct {
 	text string
+	// runes[i] is the file's own position for text[runes[i]:].
+	pieces []textPiece
 	// controls counts the object marks passed, so a paragraph can be matched
 	// with the records that follow it.
 	controls int
 }
 
+// textPiece is a stretch of characters and where the file counts it from.
+type textPiece struct {
+	at   uint32 // position in code units, as the file counts them
+	text string
+}
+
 func readParagraphText(raw []byte) paragraphText {
-	var out strings.Builder
-	controls := 0
+	out := paragraphText{}
+	var current strings.Builder
 	units := make([]uint16, 0, 8)
-	flush := func() {
+	position := uint32(0)
+	pieceAt := uint32(0)
+	flushUnits := func() {
 		if len(units) > 0 {
-			out.WriteString(string(utf16.Decode(units)))
+			current.WriteString(string(utf16.Decode(units)))
 			units = units[:0]
+		}
+	}
+	flushPiece := func() {
+		flushUnits()
+		if current.Len() > 0 {
+			out.pieces = append(out.pieces, textPiece{at: pieceAt, text: current.String()})
+			current.Reset()
 		}
 	}
 	for offset := 0; offset+2 <= len(raw); {
 		code := binary.LittleEndian.Uint16(raw[offset:])
 		if code >= 32 {
+			if len(units) == 0 && current.Len() == 0 {
+				pieceAt = position
+			}
 			units = append(units, code)
 			offset += 2
+			position++
 			continue
 		}
-		flush()
 		if replacement, ok := inlineControls[code]; ok && !extendedControl(code) {
-			out.WriteString(replacement)
+			if len(units) == 0 && current.Len() == 0 {
+				pieceAt = position
+			}
+			flushUnits()
+			current.WriteString(replacement)
 			offset += 2
+			position++
 			continue
 		}
 		if extendedControl(code) {
 			// Eight WCHAR including this one — the erratum that costs a reader
 			// the rest of the paragraph if it is read as eight bytes.
 			if replacement, ok := inlineControls[code]; ok {
-				out.WriteString(replacement)
+				if len(units) == 0 && current.Len() == 0 {
+					pieceAt = position
+				}
+				flushUnits()
+				current.WriteString(replacement)
 			} else {
-				controls++
+				flushPiece()
+				out.controls++
 			}
 			offset += controlWidth * 2
+			position += controlWidth
 			continue
 		}
 		// A character control that says nothing muni can keep.
 		offset += 2
+		position++
 	}
-	flush()
-	return paragraphText{text: out.String(), controls: controls}
+	flushPiece()
+	for _, piece := range out.pieces {
+		out.text += piece.text
+	}
+	return out
 }
