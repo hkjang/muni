@@ -153,10 +153,54 @@ func symbolRune(code, font string) string {
 	return string(rune32)
 }
 
+// styledRunProperties returns the run's properties with the ones its character
+// style supplies filled in underneath.
+//
+// Word's own "Strong" and "Emphasis" are character styles: the run says only
+// which style it wears, and the bold or the italic lives in styles.xml. muni
+// read the run alone, so text formatted through the styles gallery — which is
+// how most templates do it — arrived as plain text.
+//
+// The run always wins. A style is what a run starts from, not what it is.
+func (imp *importer) styledRunProperties(properties *xnode) *xnode {
+	if properties == nil {
+		return nil
+	}
+	id := properties.child("w", "rStyle").val()
+	if id == "" {
+		return properties
+	}
+	merged := &xnode{Space: properties.Space, Local: properties.Local, Attrs: properties.Attrs}
+	merged.Children = append(merged.Children, properties.Children...)
+	present := map[string]bool{}
+	for _, child := range properties.Children {
+		present[child.Space+":"+child.Local] = true
+	}
+	// basedOn chains: "Strong" may sit on a style that sets the font. The
+	// bound stops a file whose styles refer to each other in a circle.
+	for depth := 0; id != "" && depth < 16; depth++ {
+		style, ok := imp.styles[id]
+		if !ok {
+			break
+		}
+		for _, child := range style.runProperties.children() {
+			key := child.Space + ":" + child.Local
+			if present[key] {
+				continue
+			}
+			present[key] = true
+			merged.Children = append(merged.Children, child)
+		}
+		id = style.basedOn
+	}
+	return merged
+}
+
 func (imp *importer) marks(properties *xnode) []richdoc.Mark {
 	if properties == nil {
 		return nil
 	}
+	properties = imp.styledRunProperties(properties)
 	marks := make([]richdoc.Mark, 0, 4)
 	styleAttrs := map[string]any{}
 

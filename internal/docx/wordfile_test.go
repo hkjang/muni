@@ -64,3 +64,43 @@ func wordFieldChar(kind string) string {
 func wordInstruction(value string) string {
 	return `<w:r><w:instrText xml:space="preserve">` + escapeXML(value) + `</w:instrText></w:r>`
 }
+
+// wordPackageWithStyles is wordPackage with a word/styles.xml, for the styles
+// a document refers to instead of spelling out.
+func wordPackageWithStyles(t *testing.T, body, styles string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	parts := []struct{ name, content string }{
+		{"[Content_Types].xml", xmlHeader +
+			`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
+			`<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>` +
+			`<Default Extension="xml" ContentType="application/xml"/>` +
+			`<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>` +
+			`<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>` +
+			`</Types>`},
+		{"_rels/.rels", xmlHeader +
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+			`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>` +
+			`</Relationships>`},
+		{"word/document.xml", xmlHeader + `<w:document` + documentNamespaces + `><w:body>` + body + `</w:body></w:document>`},
+		{"word/styles.xml", xmlHeader + `<w:styles` + documentNamespaces + `>` + styles + `</w:styles>`},
+		{"word/_rels/document.xml.rels", xmlHeader +
+			`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
+			`<Relationship Id="rIdS" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>` +
+			`</Relationships>`},
+	}
+	for _, part := range parts {
+		writer, err := archive.Create(part.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(part.content)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}

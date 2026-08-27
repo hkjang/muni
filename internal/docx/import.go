@@ -27,6 +27,11 @@ type styleInfo struct {
 	kind    string
 	numID   string
 	level   int
+	// runProperties is the style's own w:rPr. A run that names a character
+	// style carries none of the formatting itself — "Strong" is bold because
+	// the style says so, and a reader that only looks at the run sees plain
+	// text.
+	runProperties *xnode
 }
 
 type importer struct {
@@ -149,9 +154,10 @@ func (imp *importer) loadStyles(file *zip.File) {
 			continue
 		}
 		info := styleInfo{
-			name:    child.child("w", "name").val(),
-			basedOn: child.child("w", "basedOn").val(),
-			kind:    child.attr("w:type"),
+			name:          child.child("w", "name").val(),
+			basedOn:       child.child("w", "basedOn").val(),
+			kind:          child.attr("w:type"),
+			runProperties: child.child("w", "rPr"),
 		}
 		// Word attaches list numbering to the style itself for the built-in
 		// "List Bullet" and "List Number" families.

@@ -112,6 +112,15 @@ func (n *xnode) child(prefix, local string) *xnode {
 	return nil
 }
 
+// children is Children read through a possibly-nil node, so a style with no
+// properties of its own reads as having none rather than needing a guard.
+func (n *xnode) children() []*xnode {
+	if n == nil {
+		return nil
+	}
+	return n.Children
+}
+
 // descendant finds the first matching node anywhere below n, which keeps the
 // drawing/blip lookups short without hard-coding every intermediate element.
 func (n *xnode) descendant(prefix, local string) *xnode {
