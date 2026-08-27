@@ -202,3 +202,20 @@ func TestACodeRunIsStillCode(t *testing.T) {
 		t.Errorf("코드 표시가 사라졌습니다: %v", marks)
 	}
 }
+
+// Word emits w:cs routinely, and muni never reads it. A run naming only that
+// has not chosen the font muni will show, so treating it as a choice discarded
+// the style's — and with it the code mark that font decides.
+func TestARunNamingOnlyAFontMuniIgnoresStillTakesTheStyles(t *testing.T) {
+	styles := `<w:style w:type="character" w:styleId="코드"><w:name w:val="코드"/>` +
+		`<w:rPr><w:rFonts w:ascii="D2Coding"/></w:rPr></w:style>`
+	body := `<w:p><w:r><w:rPr><w:rStyle w:val="코드"/><w:rFonts w:hint="eastAsia" w:cs="Times New Roman"/></w:rPr>` +
+		`<w:t>코드글자</w:t></w:r></w:p>`
+	document, _, _, err := Parse(wordPackageWithStyles(t, body, styles))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marks := markedText(t, document, "코드글자"); !has(marks, "code") {
+		t.Errorf("스타일의 글꼴과 코드 표시가 사라졌습니다: %v", marks)
+	}
+}

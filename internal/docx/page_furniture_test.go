@@ -296,3 +296,22 @@ func TestFieldTrimmingLeavesTheAuthorsOwnMarks(t *testing.T) {
 		}
 	}
 }
+
+// A footer written "([PAGE])" is a bracket, a counter and a bracket. Trimming
+// cannot reach those — a bracket is not a joiner, because trimming one out of
+// "홍길동 (기획조정실) / [PAGE]" would leave the other unclosed — but a piece
+// that is nothing except brackets was only ever holding the counter.
+func TestBracketsThatOnlyHeldACounterGoWithIt(t *testing.T) {
+	pageField := `<w:r><w:fldChar w:fldCharType="begin"/></w:r>` +
+		`<w:r><w:instrText> PAGE </w:instrText></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1</w:t></w:r>` +
+		`<w:r><w:fldChar w:fldCharType="end"/></w:r>`
+	for _, want := range []struct{ name, xml, expect string }{
+		{"괄호만", `<w:p><w:r><w:t>(</w:t></w:r>` + pageField + `<w:r><w:t>)</w:t></w:r></w:p>`, ""},
+		{"쓴 사람의 괄호", `<w:p><w:r><w:t>홍길동 (기획조정실) / </w:t></w:r>` + pageField + `</w:p>`, "홍길동 (기획조정실)"},
+	} {
+		if got := collapseSpaces(furnitureText(mustParseXML(t, want.xml))); got != want.expect {
+			t.Errorf("%s: %q, %q 를 기대했습니다", want.name, got, want.expect)
+		}
+	}
+}

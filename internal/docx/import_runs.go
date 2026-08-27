@@ -449,7 +449,10 @@ func namesAFont(fonts *xnode) bool {
 	if fonts == nil {
 		return false
 	}
-	for _, name := range []string{"w:ascii", "w:eastAsia", "w:hAnsi", "w:cs"} {
+	// Only the two marks() reads. A run naming w:cs alone — which Word emits
+	// routinely — has not chosen the font muni will show, and treating it as
+	// a choice would discard the style's.
+	for _, name := range []string{"w:ascii", "w:eastAsia"} {
 		if strings.TrimSpace(fonts.attr(name)) != "" {
 			return true
 		}

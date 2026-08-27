@@ -121,7 +121,10 @@ func fieldInstructions(paragraph *xnode) []string {
 // own, rather than a bare shape.
 func holdsBlocks(nodes []*xnode) bool {
 	for _, node := range nodes {
-		if node.is("w", "p") || node.is("w", "tbl") {
+		// w:sdt too: blocks() descends into a content control, and a branch
+		// wrapping one holds paragraphs just as surely as one holding them
+		// directly.
+		if node.is("w", "p") || node.is("w", "tbl") || node.is("w", "sdt") {
 			return true
 		}
 	}

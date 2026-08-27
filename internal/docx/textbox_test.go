@@ -146,3 +146,14 @@ func TestABlockLevelShapeIsReadOnce(t *testing.T) {
 		t.Errorf("직인이 %d번 나옵니다: %q", count, text)
 	}
 }
+
+// A branch wrapping a content control holds paragraphs just as surely as one
+// holding them directly. Treating it as a bare shape found no words in it and
+// dropped the lot.
+func TestABranchWrappingAContentControlKeepsItsParagraphs(t *testing.T) {
+	body := `<mc:AlternateContent><mc:Choice Requires="wps"><w:sdt><w:sdtContent>` +
+		`<w:p><w:r><w:t>내용컨트롤글자</w:t></w:r></w:p></w:sdtContent></w:sdt></mc:Choice></mc:AlternateContent>`
+	if text := importedText(t, body); !strings.Contains(text, "내용컨트롤글자") {
+		t.Errorf("내용 컨트롤의 문단이 사라졌습니다: %q", text)
+	}
+}

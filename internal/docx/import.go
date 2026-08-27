@@ -451,11 +451,21 @@ func furnitureText(root *xnode) string {
 			continue
 		}
 		text := current.text
+		beside := (index > 0 && pieces[index-1].field) ||
+			(index+1 < len(pieces) && pieces[index+1].field)
 		if index > 0 && pieces[index-1].field {
 			text = trimFieldJoiners(text, true)
 		}
 		if index+1 < len(pieces) && pieces[index+1].field {
 			text = trimFieldJoiners(text, false)
+		}
+		if beside && bracketsOnly(text) {
+			// A footer written "([PAGE])" is a bracket, a counter and a
+			// bracket. Trimming cannot reach these — a bracket is not a joiner,
+			// because trimming one out of "홍길동 (기획조정실) / [PAGE]" would
+			// leave the other unclosed — but a piece that is nothing except
+			// brackets was only ever holding the counter.
+			continue
 		}
 		out.WriteString(text)
 	}
@@ -493,6 +503,22 @@ func trimFieldJoiners(text string, leading bool) string {
 		return text
 	}
 	return string(runes[start:end])
+}
+
+// bracketsOnly reports whether a piece of text is nothing but brackets and
+// space.
+func bracketsOnly(text string) bool {
+	seen := false
+	for _, r := range text {
+		switch r {
+		case '(', ')', '[', ']', '{', '}', '<', '>':
+			seen = true
+		case ' ', '\t', '\u00a0':
+		default:
+			return false
+		}
+	}
+	return seen
 }
 
 func isSpace(r rune) bool {
