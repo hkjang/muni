@@ -350,3 +350,47 @@ func paragraphWithControl(text string, control []byte) []byte {
 	code = append(code, 11)
 	return append(paragraphRecords(code), control...)
 }
+
+// paraShapeRecord writes one PARA_SHAPE: the alignment in bits 2-4 of the
+// first word, then the margins and the first-line indent as HWPUNIT.
+func paraShapeRecord(alignCode uint32, leftUnits, firstLineUnits int32) []byte {
+	data := make([]byte, 54)
+	binary.LittleEndian.PutUint32(data[0:], alignCode<<2)
+	binary.LittleEndian.PutUint32(data[4:], uint32(leftUnits))
+	binary.LittleEndian.PutUint32(data[12:], uint32(firstLineUnits))
+	return append(recordHeader(tagParaShape, 0, len(data)), data...)
+}
+
+// styleRecord writes one STYLE: the Korean name, then the English one, each a
+// length in code units followed by the characters.
+func styleRecord(korean, english string) []byte {
+	data := []byte{}
+	for _, name := range []string{korean, english} {
+		encoded := units(name)
+		length := make([]byte, 2)
+		binary.LittleEndian.PutUint16(length, uint16(len(encoded)))
+		data = append(data, length...)
+		for _, unit := range encoded {
+			pair := make([]byte, 2)
+			binary.LittleEndian.PutUint16(pair, unit)
+			data = append(data, pair...)
+		}
+	}
+	data = append(data, make([]byte, 12)...)
+	return append(recordHeader(tagStyle, 0, len(data)), data...)
+}
+
+// styledParagraph writes a paragraph naming a shape and a style by number.
+func styledParagraph(text []uint16, shapeID uint16, styleID uint8) []byte {
+	header := make([]byte, 22)
+	binary.LittleEndian.PutUint32(header[0:], uint32(len(text)))
+	binary.LittleEndian.PutUint16(header[8:], shapeID)
+	header[10] = styleID
+	out := append(recordHeader(tagParaHeader, 0, len(header)), header...)
+	payload := make([]byte, len(text)*2)
+	for index, unit := range text {
+		binary.LittleEndian.PutUint16(payload[index*2:], unit)
+	}
+	out = append(out, recordHeader(tagParaText, 1, len(payload))...)
+	return append(out, payload...)
+}

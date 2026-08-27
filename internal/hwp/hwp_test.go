@@ -371,3 +371,58 @@ func TestAPictureKeepsItsBytes(t *testing.T) {
 		t.Errorf("주위 글자가 사라졌습니다: %q", document.PlainText())
 	}
 }
+
+// A paragraph names its shape and its style by number, and both live in
+// DocInfo. Reading only the body finds a document with no alignment, no
+// indentation and no headings — most of what a Korean report's layout is.
+func TestAParagraphTakesItsShapeAndStyleByNumber(t *testing.T) {
+	docInfo := paraShapeRecord(1, 0, 0)                       // shape 0: left, plain
+	docInfo = append(docInfo, paraShapeRecord(3, 3600, 0)...) // shape 1: centred, indented
+	docInfo = append(docInfo, styleRecord("바탕글", "Normal")...)
+	docInfo = append(docInfo, styleRecord("개요 1", "Outline 1")...)
+
+	body := styledParagraph(units("제1장 총칙"), 0, 1)
+	body = append(body, styledParagraph(units("가운데 문단"), 1, 0)...)
+
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, docInfo, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document.Content) != 2 {
+		t.Fatalf("블록 = %d개: %q", len(document.Content), document.PlainText())
+	}
+	heading := document.Content[0]
+	if heading.Type != "heading" || heading.AttrInt("level", 0) != 1 {
+		t.Errorf("개요 1 이 제목이 되지 않았습니다: %s %v", heading.Type, heading.Attrs)
+	}
+	body2 := document.Content[1]
+	if got := body2.AttrString("textAlign"); got != "center" {
+		t.Errorf("정렬 = %q", got)
+	}
+	if body2.AttrInt("indent", 0) == 0 {
+		t.Errorf("들여쓰기가 오지 않았습니다: %v", body2.Attrs)
+	}
+}
+
+// A heading draws its own weight and spacing. The shape it names describes a
+// paragraph, and applying it would fight what muni already does.
+func TestAHeadingDoesNotTakeAParagraphsIndent(t *testing.T) {
+	docInfo := paraShapeRecord(3, 3600, 0)
+	docInfo = append(docInfo, styleRecord("개요 2", "Outline 2")...)
+	body := styledParagraph(units("제1절 목적"), 0, 0)
+
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, docInfo, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	heading := document.Content[0]
+	if heading.Type != "heading" {
+		t.Fatalf("제목이 아닙니다: %s", heading.Type)
+	}
+	if heading.AttrInt("level", 0) != 2 {
+		t.Errorf("제목 단계 = %d", heading.AttrInt("level", 0))
+	}
+	if heading.AttrInt("indent", 0) != 0 || heading.AttrString("textAlign") != "" {
+		t.Errorf("제목이 문단 서식을 가져갔습니다: %v", heading.Attrs)
+	}
+}

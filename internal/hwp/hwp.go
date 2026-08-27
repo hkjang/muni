@@ -39,6 +39,8 @@ type importer struct {
 	file       *compound
 	header     fileHeader
 	charShapes []charShape
+	paraShapes []paraShape
+	styles     []styleInfo
 	assets     []richdoc.Asset
 	// assetByID keeps a picture used twice from being stored twice.
 	assetByID map[string]string
@@ -143,6 +145,10 @@ func (imp *importer) readDocInfo() {
 		switch item.tag {
 		case tagCharShape:
 			imp.charShapes = append(imp.charShapes, readCharShape(item.data))
+		case tagParaShape:
+			imp.paraShapes = append(imp.paraShapes, readParaShape(item.data))
+		case tagStyle:
+			imp.styles = append(imp.styles, readStyle(item.data))
 		case tagBinData:
 			// The picture streams are found by name; nothing to keep here yet.
 		}

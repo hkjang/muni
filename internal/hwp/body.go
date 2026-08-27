@@ -130,12 +130,40 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	}
 	inline := imp.inline(text, runs)
 
+	refs := readParagraphRefs(node.data)
+	level := 0
+	if int(refs.style) < len(imp.styles) {
+		level = imp.styles[refs.style].headingLevel
+	}
+	var shape paraShape
+	if int(refs.shape) < len(imp.paraShapes) {
+		shape = imp.paraShapes[refs.shape]
+	}
+
 	blocks := []*richdoc.Node{}
 	for _, line := range splitLines(inline) {
 		if blankInline(line) {
 			continue
 		}
-		blocks = append(blocks, &richdoc.Node{Type: "paragraph", Content: line})
+		block := &richdoc.Node{Type: "paragraph", Content: line}
+		if level > 0 {
+			// A heading draws its own weight and spacing; the shape it names
+			// describes a paragraph, and applying it would fight what muni
+			// already does with a heading.
+			block.Type = "heading"
+			block.SetAttr("level", level)
+		} else {
+			if shape.align != "" {
+				block.SetAttr("textAlign", shape.align)
+			}
+			if shape.indent > 0 {
+				block.SetAttr("indent", shape.indent)
+			}
+			if shape.firstLine {
+				block.SetAttr("firstLine", true)
+			}
+		}
+		blocks = append(blocks, block)
 	}
 	if len(blocks) == 0 && len(after) == 0 {
 		return nil
