@@ -536,7 +536,7 @@ paths:
       - name: format
         in: path
         required: true
-        schema: { type: string, enum: [docx, pdf, html, md, txt] }
+        schema: { type: string, enum: [docx, hwpx, pdf, html, md, txt] }
     get:
       summary: Export a document
       description: >-

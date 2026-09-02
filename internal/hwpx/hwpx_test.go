@@ -16,7 +16,7 @@ import (
 // only find disagreements muni had with itself.
 
 const headerXML = `<?xml version="1.0" encoding="UTF-8"?>
-<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head">
+<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core">
  <hh:refList>
   <hh:charProperties itemCnt="3">
    <hh:charPr id="0" height="1000" textColor="#000000"><hh:fontRef hangul="함초롬바탕"/></hh:charPr>
@@ -27,7 +27,7 @@ const headerXML = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:paraPr id="0"><hh:align horizontal="LEFT"/></hh:paraPr>
    <hh:paraPr id="1">
     <hh:align horizontal="CENTER"/>
-    <hh:margin><hh:left value="3600"/><hh:indent value="1000"/></hh:margin>
+    <hh:margin><hc:left value="3600"/><hc:intent value="1000"/></hh:margin>
     <hh:lineSpacing type="PERCENT" value="160"/>
    </hh:paraPr>
   </hh:paraProperties>

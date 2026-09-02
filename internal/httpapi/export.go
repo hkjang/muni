@@ -18,6 +18,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/docx"
+	"github.com/hkjang/muni/internal/hwpx"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -32,8 +33,8 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	format := strings.ToLower(r.PathValue("format"))
-	if !contains([]string{"txt", "md", "html", "docx", "pdf"}, format) {
-		writeError(w, 400, "UNSUPPORTED_EXPORT", "지원 형식은 txt, md, html, docx, pdf입니다.")
+	if !contains([]string{"txt", "md", "html", "docx", "hwpx", "pdf"}, format) {
+		writeError(w, 400, "UNSUPPORTED_EXPORT", "지원 형식은 txt, md, html, docx, hwpx, pdf입니다.")
 		return
 	}
 	all, _ := s.settings.GetAll(r.Context(), false)
@@ -73,6 +74,9 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 	case "docx":
 		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter, landscape)
 		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case "hwpx":
+		body, err = s.makeHWPX(r.Context(), id, title, content, landscape)
+		contentType = "application/hwp+zip"
 	case "pdf":
 		body, err = makePDF(r.Context(), title, pageHeader, pageFooter, landscape, s.renderHTMLWithAttachments(r.Context(), id, content))
 		contentType = "application/pdf"
@@ -111,6 +115,34 @@ func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title strin
 				return picture, true
 			}
 			return docx.DecodeDataURI(src)
+		},
+	})
+}
+
+// makeHWPX renders a Hangul Office file — the format a Korean office sends
+// back out, since the office on the other end is as likely to open it in
+// Hangul as in Word. It is not behind a policy toggle the way DOCX and PDF
+// are: it costs what an HTML export costs, and there is no Chromium in it.
+func (s *Server) makeHWPX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, landscape bool) ([]byte, error) {
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return nil, fmt.Errorf("문서 구조를 읽지 못했습니다: %w", err)
+	}
+	document = richdoc.WithTableOfContents(document)
+	images := s.attachmentImages(ctx, documentID)
+	return hwpx.Build(document, hwpx.Options{
+		Title:     title,
+		Created:   time.Now().UTC(),
+		Landscape: landscape,
+		ResolveImage: func(src string) (hwpx.Image, bool) {
+			picture, ok := images[src]
+			if !ok {
+				picture, ok = docx.DecodeDataURI(src)
+			}
+			if !ok {
+				return hwpx.Image{}, false
+			}
+			return hwpx.Image{Data: picture.Data, MediaType: picture.MediaType}, true
 		},
 	})
 }

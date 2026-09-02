@@ -181,12 +181,36 @@ func (imp *importer) runs(paragraph *node) []*richdoc.Node {
 				}
 			case child.is("lineBreak"):
 				out = append(out, &richdoc.Node{Type: "hardBreak"})
+			case child.is("footNote"), child.is("endNote"):
+				// A note lives inside its reference, which is where muni
+				// keeps one too. Reading only the paragraph's own text left
+				// every note in every Hangul file behind — the round trip
+				// through muni's own writer is what found it.
+				if note := imp.note(child); note != nil {
+					out = append(out, note)
+				}
 			case child.is("tbl"):
 				// Read as a block by paragraph(); nothing to do inline.
 			}
 		}
 	}
 	return richdoc.Doc(out...).Content
+}
+
+// note reads a footnote or endnote into muni's one kind of note, as the text
+// of its paragraphs joined by a space — muni's note holds text and nothing
+// else.
+func (imp *importer) note(current *node) *richdoc.Node {
+	lines := []string{}
+	current.each("p", func(paragraph *node) {
+		if text := strings.TrimSpace(paragraph.allText()); text != "" {
+			lines = append(lines, text)
+		}
+	})
+	if len(lines) == 0 {
+		return nil
+	}
+	return &richdoc.Node{Type: richdoc.FootnoteType, Content: []*richdoc.Node{richdoc.Text(strings.Join(lines, " "))}}
 }
 
 // text reads one <hp:t>, whose children are the things that interrupt a run of

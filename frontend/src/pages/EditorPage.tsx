@@ -14,7 +14,10 @@ import { NotificationBell } from "../features/notifications/NotificationBell";
 import { DocumentTags } from "../features/editor/DocumentTags";
 import { ApprovalLineDialog } from "../features/editor/ApprovalLineDialog";
 import { MoveDocumentDialog } from "../features/editor/MoveDocumentDialog";
-import { recallPosition, rememberPosition } from "../features/editor/lastPosition";
+import {
+  recallPosition,
+  rememberPosition,
+} from "../features/editor/lastPosition";
 import { LinkMenu } from "../features/editor/LinkMenu";
 import { SlashMenu } from "../features/editor/insert/SlashMenu";
 import { documentExtensions } from "../features/editor/documentExtensions";
@@ -24,7 +27,10 @@ import { TableTools } from "../features/editor/TableTools";
 import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
 import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { PasteBehaviour } from "../features/editor/extensions/pasteBehaviour";
-import { validScheme, type NumberingScheme } from "../features/editor/outline/numbering";
+import {
+  validScheme,
+  type NumberingScheme,
+} from "../features/editor/outline/numbering";
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
 import { PresentationDialog } from "../features/editor/presentations/PresentationDialog";
@@ -190,7 +196,12 @@ export function EditorPage() {
     const onSelection = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(
-        () => rememberPosition(window.localStorage, documentId, editor.state.selection.from),
+        () =>
+          rememberPosition(
+            window.localStorage,
+            documentId,
+            editor.state.selection.from,
+          ),
         800,
       );
     };
@@ -668,9 +679,15 @@ export function EditorPage() {
               canEdit={canEdit && mode === "editing"}
               maxTokens={capabilities.data?.maxAiTokens}
             />
-            <TableTools editor={editor} canEdit={canEdit && mode === "editing"} />
+            <TableTools
+              editor={editor}
+              canEdit={canEdit && mode === "editing"}
+            />
             <LinkMenu editor={editor} canEdit={canEdit && mode === "editing"} />
-            <ImageMenu editor={editor} canEdit={canEdit && mode === "editing"} />
+            <ImageMenu
+              editor={editor}
+              canEdit={canEdit && mode === "editing"}
+            />
             <SlashMenu
               editor={editor}
               documentId={documentId}
@@ -855,7 +872,8 @@ export function EditorPage() {
             <ContentCopyOutlined />
           </ListItemIcon>
           문서 복제
-        </MenuItem>,
+        </MenuItem>
+        ,
         <MenuItem
           onClick={() => {
             setExportAnchor(null);
@@ -866,7 +884,8 @@ export function EditorPage() {
             <DriveFileMoveOutlined />
           </ListItemIcon>
           다른 폴더로 옮기기
-        </MenuItem>,
+        </MenuItem>
+        ,
         <MenuItem
           onClick={() => {
             setExportAnchor(null);
@@ -877,7 +896,8 @@ export function EditorPage() {
             <DashboardCustomizeOutlined />
           </ListItemIcon>
           서식으로 저장
-        </MenuItem>,
+        </MenuItem>
+        ,
         <Divider key="template-divider" />,
         {capabilities.data?.docxExport && (
           <MenuItem
@@ -901,6 +921,15 @@ export function EditorPage() {
             PDF
           </MenuItem>
         )}
+        <MenuItem
+          component="a"
+          href={`/api/v1/documents/${documentId}/export/hwpx`}
+        >
+          <ListItemIcon>
+            <DownloadOutlined />
+          </ListItemIcon>
+          한글 (HWPX)
+        </MenuItem>
         <MenuItem
           component="a"
           href={`/api/v1/documents/${documentId}/export/md`}

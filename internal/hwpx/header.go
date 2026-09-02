@@ -105,9 +105,16 @@ func readParaShape(current *node) paraShape {
 		if left := margin.child("left"); left != nil {
 			shape.indent = indentSteps(left.attr("value"))
 		}
-		if indent := margin.child("indent"); indent != nil {
-			if value, err := strconv.Atoi(strings.TrimSpace(indent.attr("value"))); err == nil && value > 0 {
-				shape.firstLin = true
+		// The format spells the first-line indent "intent" — Hancom's own
+		// spelling, kept for as long as the format has existed. Looking for
+		// "indent" finds it in no real file. Both are accepted, because a
+		// fixture written to muni's reader rather than to the format is how
+		// this went unnoticed.
+		for _, name := range []string{"intent", "indent"} {
+			if first := margin.child(name); first != nil {
+				if value, err := strconv.Atoi(strings.TrimSpace(first.attr("value"))); err == nil && value > 0 {
+					shape.firstLin = true
+				}
 			}
 		}
 	}
