@@ -93,6 +93,21 @@ func OutlineLevel(names ...string) int {
 	return 0
 }
 
+// FontSize turns a character height into the size muni's editor draws. Both
+// formats write it in hundredths of a point — the .hwpx as an attribute, the
+// .hwp as the base size in its CHAR_SHAPE — so ten point, Hangul's own
+// default, is worth nothing to record.
+func FontSize(hundredths int) string {
+	if hundredths <= 0 {
+		return ""
+	}
+	point := float64(hundredths) / 100
+	if point == 10 {
+		return ""
+	}
+	return strconv.FormatFloat(point, 'f', -1, 64) + "pt"
+}
+
 // LineHeight turns a spacing percentage into the ratio muni holds. A hundred
 // per cent is single spacing, which muni draws without being told.
 func LineHeight(percent int) string {
