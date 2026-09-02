@@ -81,7 +81,7 @@ PDF Import는 xref가 손상된 파일도 객체 스캔으로 복구하고, Flat
 
 Import한 이미지는 문서 첨부파일로 저장되며, 같은 그림은 내용 해시로 한 번만 저장합니다. 페이지 절반 이상에 반복해서 나타나는 그림은 레터헤드 로고나 워터마크로 보고 본문에서 제외합니다. PDF 해석은 CPU를 쓰는 작업이라 업로드 한 건당 90초 제한과 페이지·텍스트 조각 수 상한을 두어, 조작된 파일이 워커를 붙잡지 못하게 합니다.
 
-업로드 파서(PDF·DOCX·Markdown·HTML)는 신뢰할 수 없는 입력을 다루므로 `go test -fuzz`용 퍼즈 타깃을 함께 두었습니다.
+업로드 파서(PDF·DOCX·HWP·HWPX·Markdown·HTML)는 신뢰할 수 없는 입력을 다루므로 `go test -fuzz`용 퍼즈 타깃을 함께 두었습니다. `.hwp` 쪽에는 실제로 찾아낸 입력 하나가 씨앗으로 남아 있습니다 — 스트림 길이를 파일보다 길게 적어 두면 읽는 쪽이 그것을 믿고 메모리를 잡던 문제로, 보호를 걷어내면 퍼저가 2초 만에 다시 찾아냅니다.
 
 ## Keycloak 설정
 
@@ -152,7 +152,7 @@ go run ./cmd/muni
 
 `webui/dist`에는 프런트엔드를 빌드하지 않은 체크아웃에서도 `go build`가 되도록 placeholder `index.html`만 커밋되어 있습니다. `npm run build`가 이 파일을 덮어쓰는데 옆에 생기는 asset은 gitignore 대상이라, 빌드된 `index.html`을 커밋하면 저장소에 없는 파일을 가리키게 됩니다. `scripts/check-webui-placeholder.sh`가 CI와 `make test`에서 이를 막아 줍니다.
 
-업로드 파서(PDF·DOCX·Markdown·HTML)에는 퍼즈 타깃이 있습니다.
+업로드 파서(PDF·DOCX·HWP·HWPX·Markdown·HTML)에는 퍼즈 타깃이 있습니다.
 
 ```bash
 go test ./internal/pdfx -run FuzzImport -fuzz FuzzImport -fuzztime=60s

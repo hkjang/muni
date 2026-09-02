@@ -25,6 +25,13 @@ type streamSpec struct {
 // sector, then the streams.
 func buildCompound(t *testing.T, streams []streamSpec) []byte {
 	t.Helper()
+	return compoundBytes(streams)
+}
+
+// compoundBytes is buildCompound without a testing.T, so the fuzz seed can
+// build one too. Writing into a bytes.Buffer cannot fail, so the errors the
+// zip and directory writers can return are not reachable here.
+func compoundBytes(streams []streamSpec) []byte {
 
 	type placed struct {
 		name    string
