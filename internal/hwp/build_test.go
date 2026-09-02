@@ -313,6 +313,7 @@ func tableRecords(level uint16, cells []tableCellSpec) []byte {
 		binary.LittleEndian.PutUint16(header[10:], cell.row)
 		binary.LittleEndian.PutUint16(header[12:], cell.span)
 		binary.LittleEndian.PutUint16(header[14:], cell.rowSpan)
+		binary.LittleEndian.PutUint32(header[16:], cell.width)
 		out = append(out, recordHeader(tagListHeader, level+1, len(header))...)
 		out = append(out, header...)
 		// The cell's paragraph follows its list header at the same depth —
@@ -327,7 +328,9 @@ func tableRecords(level uint16, cells []tableCellSpec) []byte {
 type tableCellSpec struct {
 	row, column   uint16
 	span, rowSpan uint16
-	text          string
+	// width is the cell's size in HWPUNIT, which follows the address.
+	width uint32
+	text  string
 }
 
 // shiftLevels rewrites a run of records to sit at a deeper level, which is how

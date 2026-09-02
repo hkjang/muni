@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/image/bmp"
 
+	"github.com/hkjang/muni/internal/hangul"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -198,12 +199,20 @@ func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*r
 		node          *richdoc.Node
 	}
 	placedCells := make([]placed, 0, len(cells))
+	// How wide each column is, learnt from the cells that cover one column
+	// apiece: a merged cell gives the total across the columns it covers.
+	columnPixels := map[int]int{}
 	rowCount := 0
 	for _, cell := range cells {
 		address, ok := readCellAddress(cell.data)
 		if !ok {
 			captions = append(captions, imp.paragraphs(cell.children)...)
 			continue
+		}
+		if address.span == 1 && columnPixels[int(address.column)] == 0 {
+			if pixels := hangul.PixelWidth(int(address.width)); pixels > 0 {
+				columnPixels[int(address.column)] = pixels
+			}
 		}
 		content := imp.paragraphs(cell.children)
 		if len(content) == 0 {
@@ -223,6 +232,13 @@ func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*r
 	}
 	if len(placedCells) == 0 {
 		return nil, captions
+	}
+	// Second, once every column has been seen: a cell in the first row can
+	// cover a column only a later row measures.
+	for _, cell := range placedCells {
+		if widths := hangul.ColumnWidths(columnPixels, int(cell.column), int(cell.span)); len(widths) > 0 {
+			cell.node.SetAttr("colwidth", widths)
+		}
 	}
 	// Indexed by where each cell says it is, rather than scanned for. The
 	// scan was rows × 1024 columns × cells, which a five-thousand-cell table
@@ -255,16 +271,19 @@ func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*r
 	return &richdoc.Node{Type: "table", Content: rows}, captions
 }
 
-// cellAddress is where a cell sits and how far it reaches.
+// cellAddress is where a cell sits, how far it reaches, and how wide it is.
 type cellAddress struct {
 	column, row   uint16
 	span, rowSpan uint16
+	width         uint32
 }
 
 // readCellAddress reads the part of a cell's LIST_HEADER that says where it is.
 //
 // The common part is a paragraph count and a property word; the cell's own
-// address follows it.
+// address follows it, and after the address its size in HWPUNIT. A file that
+// stops at the address still places its cells — the size is read only when
+// it is there.
 func readCellAddress(raw []byte) (cellAddress, bool) {
 	const common = 4 + 4
 	if len(raw) < common+8 {
@@ -275,6 +294,9 @@ func readCellAddress(raw []byte) (cellAddress, bool) {
 		row:     binary.LittleEndian.Uint16(raw[common+2:]),
 		span:    binary.LittleEndian.Uint16(raw[common+4:]),
 		rowSpan: binary.LittleEndian.Uint16(raw[common+6:]),
+	}
+	if len(raw) >= common+12 {
+		address.width = binary.LittleEndian.Uint32(raw[common+8:])
 	}
 	if address.span == 0 {
 		address.span = 1

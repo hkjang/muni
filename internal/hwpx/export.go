@@ -600,25 +600,30 @@ func (b *builder) table(node *richdoc.Node, ctx blockContext) {
 	if len(rows) == 0 {
 		return
 	}
+	// Where each cell lands once the merged cells above it have taken their
+	// addresses, so a cell's column is known before its row is written.
+	grid := tableGrid(rows)
+	// How far the widest row reaches, which is past the spans of its own
+	// cells when a cell merged down from above sits at the end of it.
 	columns := 0
-	for _, row := range rows {
-		span := 0
-		for _, cell := range row.Content {
-			if cell != nil {
-				span += cellSpan(cell, "colspan")
+	for rowIndex, row := range rows {
+		for cellIndex, cell := range row.Content {
+			start, placed := grid[[2]int{rowIndex, cellIndex}]
+			if !placed {
+				continue
 			}
-		}
-		if span > columns {
-			columns = span
+			if end := start + cellSpan(cell, "colspan"); end > columns {
+				columns = end
+			}
 		}
 	}
 	if columns == 0 {
 		return
 	}
-	// The column width is the text column shared out evenly; the reader
-	// records widths in pixels and the .docx path will do what it does.
+	// The text column, shared out between the columns in the proportion the
+	// editor holds them.
 	const column = 6 * hangul.UnitsPerInch
-	cellWidth := column / columns
+	widths := tableColumnWidths(rows, grid, columns, column)
 
 	header := len(rows[0].Content) > 0 && rows[0].Content[0] != nil && rows[0].Content[0].Type == "tableHeader"
 	// Heights are nominal, a line per paragraph: Hangul lays the table out
@@ -648,29 +653,24 @@ func (b *builder) table(node *richdoc.Node, ctx blockContext) {
 	out.WriteString(`<hp:sz width="` + strconv.Itoa(column) + `" widthRelTo="ABSOLUTE" height="` + strconv.Itoa(tableHeight) + `" heightRelTo="ABSOLUTE" protect="0"/>`)
 	out.WriteString(inlinePosition)
 	out.WriteString(`<hp:outMargin left="283" right="283" top="283" bottom="283"/><hp:inMargin left="510" right="510" top="141" bottom="141"/>`)
-	// Merged cells occupy addresses in later rows, which the next cell in
-	// that row has to step over.
-	occupied := map[[2]int]bool{}
 	for rowIndex, row := range rows {
 		out.WriteString(`<hp:tr>`)
-		columnIndex := 0
-		for _, cell := range row.Content {
-			if cell == nil || (cell.Type != "tableCell" && cell.Type != "tableHeader") {
+		for cellIndex, cell := range row.Content {
+			columnIndex, placed := grid[[2]int{rowIndex, cellIndex}]
+			if !placed {
 				continue
-			}
-			for occupied[[2]int{rowIndex, columnIndex}] {
-				columnIndex++
 			}
 			span := cellSpan(cell, "colspan")
 			rowSpan := cellSpan(cell, "rowspan")
 			cellHeight := 0
 			for down := 0; down < rowSpan; down++ {
-				for across := 0; across < span; across++ {
-					occupied[[2]int{rowIndex + down, columnIndex + across}] = true
-				}
 				if rowIndex+down < len(rowHeights) {
 					cellHeight += rowHeights[rowIndex+down]
 				}
+			}
+			cellWidth := 0
+			for across := 0; across < span && columnIndex+across < len(widths); across++ {
+				cellWidth += widths[columnIndex+across]
 			}
 			header := cell.Type == "tableHeader"
 			// The paragraphs come first inside a cell and the address after;
@@ -692,15 +692,121 @@ func (b *builder) table(node *richdoc.Node, ctx blockContext) {
 			out.WriteString(`</hp:subList>`)
 			out.WriteString(`<hp:cellAddr colAddr="` + strconv.Itoa(columnIndex) + `" rowAddr="` + strconv.Itoa(rowIndex) + `"/>`)
 			out.WriteString(`<hp:cellSpan colSpan="` + strconv.Itoa(span) + `" rowSpan="` + strconv.Itoa(rowSpan) + `"/>`)
-			out.WriteString(`<hp:cellSz width="` + strconv.Itoa(cellWidth*span) + `" height="` + strconv.Itoa(cellHeight) + `"/>`)
+			out.WriteString(`<hp:cellSz width="` + strconv.Itoa(cellWidth) + `" height="` + strconv.Itoa(cellHeight) + `"/>`)
 			out.WriteString(`<hp:cellMargin left="510" right="510" top="141" bottom="141"/>`)
 			out.WriteString(`</hp:tc>`)
-			columnIndex += span
 		}
 		out.WriteString(`</hp:tr>`)
 	}
 	out.WriteString(`</hp:tbl></hp:run></hp:p>`)
 	b.body.WriteString(out.String())
+}
+
+// tableGrid places every cell at the column it starts in, once the cells
+// merged down from the rows above have taken theirs. The key is the row and
+// the cell's place within it; a row's entry that is not a cell has none.
+func tableGrid(rows []*richdoc.Node) map[[2]int]int {
+	at := map[[2]int]int{}
+	occupied := map[[2]int]bool{}
+	for rowIndex, row := range rows {
+		columnIndex := 0
+		for cellIndex, cell := range row.Content {
+			if cell == nil || (cell.Type != "tableCell" && cell.Type != "tableHeader") {
+				continue
+			}
+			for occupied[[2]int{rowIndex, columnIndex}] {
+				columnIndex++
+			}
+			span := cellSpan(cell, "colspan")
+			for down := 0; down < cellSpan(cell, "rowspan"); down++ {
+				for across := 0; across < span; across++ {
+					occupied[[2]int{rowIndex + down, columnIndex + across}] = true
+				}
+			}
+			at[[2]int{rowIndex, cellIndex}] = columnIndex
+			columnIndex += span
+		}
+	}
+	return at
+}
+
+// tableColumnWidths shares the text column out between a table's columns, in
+// proportion to the pixel widths the editor holds — the ones both the Hangul
+// and the Word readers keep. A table whose cells say nothing about their
+// width is split evenly, which is what muni wrote before it kept them at all.
+func tableColumnWidths(rows []*richdoc.Node, grid map[[2]int]int, columns, available int) []int {
+	pixels := make([]float64, columns)
+	for rowIndex, row := range rows {
+		for cellIndex, cell := range row.Content {
+			start, placed := grid[[2]int{rowIndex, cellIndex}]
+			if !placed {
+				continue
+			}
+			// A merged cell says one width per column it covers, so the
+			// widths line up with the columns from where it starts.
+			values, _ := cell.Attr("colwidth").([]any)
+			for offset := 0; offset < cellSpan(cell, "colspan") && offset < len(values); offset++ {
+				index := start + offset
+				if index >= columns {
+					break
+				}
+				width := 0.0
+				switch typed := values[offset].(type) {
+				case float64:
+					width = typed
+				case int:
+					width = float64(typed)
+				}
+				if width > 0 && pixels[index] == 0 {
+					pixels[index] = width
+				}
+			}
+		}
+	}
+	total, missing := 0.0, 0
+	for _, value := range pixels {
+		if value > 0 {
+			total += value
+		} else {
+			missing++
+		}
+	}
+	widths := make([]int, columns)
+	if total == 0 {
+		width := available / columns
+		for index := range widths {
+			widths[index] = width
+		}
+		widths[columns-1] = available - width*(columns-1)
+		return widths
+	}
+	// A column nobody measured gets the average of the ones that were.
+	if missing > 0 {
+		average := total / float64(columns-missing)
+		for index, value := range pixels {
+			if value == 0 {
+				pixels[index] = average
+				total += average
+			}
+		}
+	}
+	// A tenth of an inch is as narrow as a column may end up; below that
+	// Hangul draws a sliver with no room for a character.
+	const minimum = hangul.UnitsPerInch / 10
+	assigned := 0
+	for index, value := range pixels {
+		widths[index] = int(value / total * float64(available))
+		if widths[index] < minimum {
+			widths[index] = minimum
+		}
+		assigned += widths[index]
+	}
+	// The drift from rounding goes into the last column, so the cells add up
+	// to the width the table declares.
+	if difference := available - assigned; difference != 0 && widths[columns-1]+difference >= minimum {
+		widths[columns-1] += difference
+	}
+	return widths
 }
 
 // flag writes a yes or no the way the format spells them.

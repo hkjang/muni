@@ -3,9 +3,11 @@ package hwp
 import (
 	"bytes"
 	"encoding/binary"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/hkjang/muni/internal/hangul"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -298,6 +300,62 @@ func TestATableIsRebuiltFromWhereItsCellsSay(t *testing.T) {
 	for _, phrase := range []string{"표 앞", "표머리글", "왼쪽칸", "오른쪽칸"} {
 		if !strings.Contains(document.PlainText(), phrase) {
 			t.Errorf("%q 가 사라졌습니다", phrase)
+		}
+	}
+}
+
+// A cell says how wide it is, right after where it sits — and a merged one
+// says the total across the columns it covers. Dropping both made every
+// table muni read out of a .hwp an even split, however narrow the first
+// column of the document was.
+func TestColumnWidthsComeOffTheCellsThatCoverOneColumn(t *testing.T) {
+	const half, inchAndAHalf = hangul.UnitsPerInch / 2, hangul.UnitsPerInch * 3 / 2
+	body := paragraphWithControl("", tableRecords(1, []tableCellSpec{
+		{row: 0, column: 0, span: 2, rowSpan: 1, width: half + inchAndAHalf, text: "머리글"},
+		{row: 1, column: 0, span: 1, rowSpan: 1, width: half, text: "좁은칸"},
+		{row: 1, column: 1, span: 1, rowSpan: 1, width: inchAndAHalf, text: "넓은칸"},
+	}))
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, nil, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table *richdoc.Node
+	for _, block := range document.Content {
+		if block.Type == "table" {
+			table = block
+		}
+	}
+	if table == nil || len(table.Content) != 2 {
+		t.Fatalf("표가 나오지 않았습니다: %q", document.PlainText())
+	}
+	narrow := table.Content[1].Content[0].Attr("colwidth")
+	if want := []any{48}; !reflect.DeepEqual(narrow, want) {
+		t.Errorf("좁은 칸의 너비 = %v, 원하는 것 = %v", narrow, want)
+	}
+	// The merged cell knows only its total, so its columns come from the row
+	// below rather than from halving what it says.
+	merged := table.Content[0].Content[0].Attr("colwidth")
+	if want := []any{48, 144}; !reflect.DeepEqual(merged, want) {
+		t.Errorf("병합된 칸의 너비 = %v, 원하는 것 = %v", merged, want)
+	}
+}
+
+// A cell that says nothing about its width leaves the editor to lay the table
+// out, rather than being recorded as a column of no width at all.
+func TestACellWithNoWidthRecordsNone(t *testing.T) {
+	body := paragraphWithControl("", tableRecords(1, []tableCellSpec{
+		{row: 0, column: 0, span: 1, rowSpan: 1, text: "칸"},
+	}))
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, nil, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, block := range document.Content {
+		if block.Type != "table" {
+			continue
+		}
+		if width := block.Content[0].Content[0].Attr("colwidth"); width != nil {
+			t.Errorf("너비 = %v", width)
 		}
 	}
 }
