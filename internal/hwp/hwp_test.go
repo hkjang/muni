@@ -472,3 +472,68 @@ func TestAnEmptyDocumentIsEmptyNotBroken(t *testing.T) {
 		t.Errorf("블록 = %v", document.Content)
 	}
 }
+
+// A real file can hold two streams for one id — BIN0003.bmp beside
+// BIN0003.jpg. The one a browser can show is the one kept.
+func TestTheDisplayableStreamIsPreferredWhenTwoShareAnId(t *testing.T) {
+	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, 'J', 'F', 'I', 'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0xFF, 0xD9}
+	control := []byte{' ', 'o', 's', 'g'} // "gso " back to front
+	control = append(control, make([]byte, 8)...)
+	body := append(recordHeader(tagCtrlHeader, 1, len(control)), control...)
+	shape := make([]byte, pictureBinIDOffset+8)
+	binary.LittleEndian.PutUint16(shape[pictureBinIDOffset:], 3)
+	body = append(body, recordHeader(tagShapeComponent, 2, 8)...)
+	body = append(body, make([]byte, 8)...)
+	body = append(body, recordHeader(tagShapePicture, 3, len(shape))...)
+	body = append(body, shape...)
+	streams := []streamSpec{
+		{path: "FileHeader", data: hwpFileHeader(false, false)},
+		{path: "BodyText/Section0", data: append(paragraphRecords(units("사진")), body...)},
+		{path: "BinData/BIN0003.bmp", data: []byte("BM this is not really a bitmap")},
+		{path: "BinData/BIN0003.jpg", data: jpeg},
+	}
+	_, assets, _, err := Parse(buildCompound(t, streams))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("자산 = %d개", len(assets))
+	}
+	if !strings.HasSuffix(assets[0].Name, ".jpg") {
+		t.Errorf("BMP 를 골랐습니다: %s", assets[0].Name)
+	}
+}
+
+// Old .hwp files keep their pictures as BMP, which no browser shows and the
+// import therefore drops. They arrive as PNG now.
+func TestABitmapArrivesAsAPNG(t *testing.T) {
+	// A 1×1 24-bit BMP, written out in full.
+	bitmap := []byte{
+		'B', 'M', 58, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0,
+		40, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 24, 0, 0, 0, 0, 0, 4, 0, 0, 0,
+		0x13, 0x0B, 0, 0, 0x13, 0x0B, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 255, 0,
+	}
+	control := []byte{' ', 'o', 's', 'g'}
+	control = append(control, make([]byte, 8)...)
+	body := append(recordHeader(tagCtrlHeader, 1, len(control)), control...)
+	shape := make([]byte, pictureBinIDOffset+8)
+	binary.LittleEndian.PutUint16(shape[pictureBinIDOffset:], 1)
+	body = append(body, recordHeader(tagShapePicture, 2, len(shape))...)
+	body = append(body, shape...)
+	streams := []streamSpec{
+		{path: "FileHeader", data: hwpFileHeader(false, false)},
+		{path: "BodyText/Section0", data: append(paragraphRecords(units("사진")), body...)},
+		{path: "BinData/BIN0001.bmp", data: bitmap},
+	}
+	_, assets, _, err := Parse(buildCompound(t, streams))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 1 {
+		t.Fatalf("자산 = %d개", len(assets))
+	}
+	if assets[0].MediaType != "image/png" || !bytes.HasPrefix(assets[0].Data, []byte{0x89, 'P', 'N', 'G'}) {
+		t.Errorf("BMP 가 PNG 로 오지 않았습니다: %s %q", assets[0].MediaType, assets[0].Data[:4])
+	}
+}

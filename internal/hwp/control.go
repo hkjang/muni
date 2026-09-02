@@ -1,10 +1,15 @@
 package hwp
 
 import (
+	"bytes"
 	"encoding/binary"
+	"image/png"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
+
+	"golang.org/x/image/bmp"
 
 	"github.com/hkjang/muni/internal/richdoc"
 )
@@ -230,11 +235,22 @@ func (imp *importer) pictureAt(picture *recordNode) *richdoc.Node {
 		image.SetAttr("src", placeholder)
 		return image
 	}
+	mediaType := http.DetectContentType(data)
+	if mediaType == "image/bmp" {
+		// Old .hwp files keep their pictures as BMP, which no browser shows
+		// and the import therefore drops. Every picture in a 2010s report
+		// file was BMP. Converted here, so it arrives as something the
+		// editor can draw rather than being found and then thrown away.
+		if converted, ok := bmpToPNG(data); ok {
+			data, mediaType = converted, "image/png"
+			name = strings.TrimSuffix(name, filepath.Ext(name)) + ".png"
+		}
+	}
 	placeholder := richdoc.Placeholder(len(imp.assets) + 1)
 	imp.assets = append(imp.assets, richdoc.Asset{
 		Placeholder: placeholder,
 		Name:        name,
-		MediaType:   http.DetectContentType(data),
+		MediaType:   mediaType,
 		Data:        data,
 	})
 	imp.assetByID[id] = placeholder
@@ -319,13 +335,38 @@ func (imp *importer) hasBinary(id string) bool {
 
 // binaryName finds the stream whose name starts with an id. The stream carries
 // the picture's own extension, so the match is on the start.
+//
+// A real file can hold two streams for one id — BIN0003.bmp beside
+// BIN0003.jpg — and which one the directory lists first is chance. The one a
+// browser can show is preferred: the import keeps only pictures the editor can
+// draw, and taking the BMP first threw away a picture that was there in JPEG.
 func (imp *importer) binaryName(id string) (string, bool) {
+	best, found := "", false
 	for _, name := range imp.file.names("BinData") {
-		if strings.HasPrefix(strings.ToUpper(name), strings.ToUpper(id)) {
-			return name, true
+		if !strings.HasPrefix(strings.ToUpper(name), strings.ToUpper(id)) {
+			continue
+		}
+		if !found || extensionRank(name) < extensionRank(best) {
+			best, found = name, true
 		}
 	}
-	return "", false
+	return best, found
+}
+
+// extensionRank orders a picture's formats by how readily a browser shows
+// them; lower is better.
+func extensionRank(name string) int {
+	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(name), ".")) {
+	case "png":
+		return 0
+	case "jpg", "jpeg":
+		return 1
+	case "gif", "webp":
+		return 2
+	case "bmp":
+		return 5
+	}
+	return 9
 }
 
 // binaryStream reads a picture's bytes, once.
@@ -343,4 +384,19 @@ func (imp *importer) binaryStream(id string) ([]byte, string, bool) {
 	}
 	imp.binaryCache[name] = raw
 	return raw, name, len(raw) > 0
+}
+
+// bmpToPNG re-encodes a BMP as PNG. A picture that cannot be decoded is left
+// as it was, which the import then drops — the same as before, and better than
+// storing bytes that claim to be a PNG and are not.
+func bmpToPNG(data []byte) ([]byte, bool) {
+	picture, err := bmp.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, false
+	}
+	var out bytes.Buffer
+	if err := png.Encode(&out, picture); err != nil {
+		return nil, false
+	}
+	return out.Bytes(), true
 }
