@@ -20,9 +20,11 @@ const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:fontface lang="HANGUL" fontCnt="2"><hh:font id="0" face="함초롬바탕" type="TTF"/><hh:font id="1" face="맑은 고딕" type="TTF"/></hh:fontface>
    <hh:fontface lang="LATIN" fontCnt="2"><hh:font id="0" face="Times New Roman" type="TTF"/><hh:font id="1" face="Arial" type="TTF"/></hh:fontface>
   </hh:fontfaces>
-  <hh:charProperties itemCnt="2">
+  <hh:charProperties itemCnt="4">
    <hh:charPr id="0" height="1000"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
    <hh:charPr id="1" height="1000"><hh:fontRef hangul="1" latin="1"/></hh:charPr>
+   <hh:charPr id="2" height="1000"><hh:fontRef hangul="0" latin="0"/><hh:supscript/></hh:charPr>
+   <hh:charPr id="3" height="1000"><hh:fontRef hangul="0" latin="0"/><hh:subscript/></hh:charPr>
   </hh:charProperties>
   <hh:paraProperties itemCnt="4">
    <hh:paraPr id="0"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>
@@ -137,6 +139,28 @@ func TestAHeaderAndFooterAreRead(t *testing.T) {
 	}
 	if text := document.PlainText(); text != "본문" {
 		t.Errorf("본문 = %q", text)
+	}
+}
+
+// The raised and lowered runs are elements of the charPr, and the format
+// spells the raised one "supscript" — looking for "superscript" finds it in
+// no file Hangul wrote.
+func TestRaisedAndLoweredRunsAreRead(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0">`+
+		`<hp:run charPrIDRef="2"><hp:t>위첨자</hp:t></hp:run>`+
+		`<hp:run charPrIDRef="3"><hp:t>아래첨자</hp:t></hp:run>`+
+		`<hp:run charPrIDRef="0"><hp:t>보통글</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMarkOn(document, "위첨자", "superscript") {
+		t.Errorf("위 첨자가 오지 않았습니다: %v", document.Content[0].Content[0].Marks)
+	}
+	if !hasMarkOn(document, "아래첨자", "subscript") {
+		t.Errorf("아래 첨자가 오지 않았습니다: %v", document.Content[0].Content[1].Marks)
+	}
+	if hasMarkOn(document, "보통글", "superscript") || hasMarkOn(document, "보통글", "subscript") {
+		t.Errorf("첨자가 아닌 글에 첨자가 붙었습니다: %v", document.Content[0].Content[2].Marks)
 	}
 }
 

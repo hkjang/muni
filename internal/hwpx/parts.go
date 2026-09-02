@@ -319,6 +319,15 @@ func (b *builder) charPrXML(id int, key charKey) string {
 	if key.strike {
 		out.WriteString(`<hh:strikeout shape="SOLID" color="#000000"/>`)
 	}
+	// Last of the switches, and in this order: the format lists the outline,
+	// shadow, emboss and engrave muni does not write between the strikeout and
+	// these two, and Hangul reads the children in the order it declares them.
+	switch key.script {
+	case "superscript":
+		out.WriteString(`<hh:supscript/>`)
+	case "subscript":
+		out.WriteString(`<hh:subscript/>`)
+	}
 	out.WriteString(`</hh:charPr>`)
 	return out.String()
 }

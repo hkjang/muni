@@ -58,6 +58,8 @@ type charShape struct {
 	color     string
 	sizePoint string
 	family    string
+	// script is "superscript", "subscript" or nothing.
+	script string
 }
 
 type paraShape struct {
