@@ -121,6 +121,13 @@ func readParaShape(current *node) paraShape {
 	if spacing := current.child("lineSpacing"); spacing != nil {
 		shape.lineRate = lineHeightOf(spacing)
 	}
+	if heading := current.child("heading"); heading != nil &&
+		strings.EqualFold(strings.TrimSpace(heading.attr("type")), "OUTLINE") {
+		// Zero-based in the file; muni's heading levels start at one.
+		if level, err := strconv.Atoi(strings.TrimSpace(heading.attr("level"))); err == nil && level >= 0 && level < 6 {
+			shape.outline = level + 1
+		}
+	}
 	return shape
 }
 

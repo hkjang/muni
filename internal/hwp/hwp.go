@@ -82,7 +82,11 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		document.Content = append(document.Content, imp.section(raw)...)
 	}
 	if len(document.Content) == 0 {
-		return nil, nil, Meta{}, errors.New("HWP 본문을 읽지 못했습니다")
+		// A document with no words is still a document. Real files have one
+		// paragraph holding only the section and column definitions — that
+		// is what a blank page saved from Hangul looks like — and refusing
+		// it says the file is broken when it is merely empty.
+		document.Content = []*richdoc.Node{richdoc.Paragraph()}
 	}
 	richdoc.LiftImages(document)
 	return document, imp.assets, Meta{Version: imp.header.version}, nil

@@ -113,8 +113,11 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	// Whatever the paragraph holds that is a block of its own comes out after
 	// it, the way a table does in every other importer muni has.
 	after := []*richdoc.Node{}
+	notes := []*richdoc.Node{}
 	for _, control := range node.all(tagCtrlHeader) {
-		after = append(after, imp.control(control)...)
+		blocks, inline := imp.control(control)
+		after = append(after, blocks...)
+		notes = append(notes, inline...)
 	}
 
 	if textRecord == nil {
@@ -129,6 +132,11 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 		runs = readCharRuns(shapeRecord.data)
 	}
 	inline := imp.inline(text, runs)
+	// A note goes at the end of the paragraph that referred to it. The mark
+	// in the text says where in the sentence, and keeping that would mean
+	// interleaving pieces and marks by position; the paragraph is right and
+	// the words are all there, which is the part that was missing.
+	inline = append(inline, notes...)
 
 	refs := readParagraphRefs(node.data)
 	level := 0

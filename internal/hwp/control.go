@@ -23,19 +23,85 @@ func controlID(raw []byte) string {
 }
 
 // control reads whatever a control mark stands for, when muni has somewhere to
-// put it.
-func (imp *importer) control(node *recordNode) []*richdoc.Node {
+// put it. Most of what it stands for is a block of its own; a note is inline,
+// and belongs in the sentence that referred to it.
+//
+// The ids are what real files carry. Every picture in every file read so far
+// arrived as "gso " — a general shape object — and so did every text box and
+// every group of either. "$pic" has not been seen in one.
+func (imp *importer) control(node *recordNode) (blocks, inline []*richdoc.Node) {
 	switch controlID(node.data) {
 	case "tbl ":
 		if table := imp.table(node); table != nil {
-			return []*richdoc.Node{table}
+			return []*richdoc.Node{table}, nil
 		}
-	case "$pic", "gso ":
-		if picture := imp.pictureFrom(node); picture != nil {
-			return []*richdoc.Node{picture}
+	case "gso ", "$pic":
+		return imp.shapeObject(node), nil
+	case "fn  ", "en  ":
+		// A footnote and an endnote are one kind of note to muni, and
+		// muni's PDF already prints its notes at the end.
+		if note := imp.note(node); note != nil {
+			return nil, []*richdoc.Node{note}
 		}
 	}
-	return nil
+	return nil, nil
+}
+
+// shapeObject reads a drawing: the pictures in it, and the words in any text
+// box it holds. A group holds several of either.
+//
+// A text box's paragraphs sit under a LIST_HEADER, and a table inside the box
+// has LIST_HEADERs of its own beneath that — so only the top-most lists are
+// taken here, and paragraphs() reads whatever is inside them the way it reads
+// anything else.
+func (imp *importer) shapeObject(node *recordNode) []*richdoc.Node {
+	out := []*richdoc.Node{}
+	for _, picture := range topRecords(node, tagShapePicture, tagListHeader) {
+		if image := imp.pictureAt(picture); image != nil {
+			out = append(out, image)
+		}
+	}
+	for _, list := range topRecords(node, tagListHeader, tagListHeader) {
+		out = append(out, imp.paragraphs(list.children)...)
+	}
+	return out
+}
+
+// note reads a footnote or endnote control: its paragraphs, joined by a space,
+// because muni's note holds text and nothing else.
+func (imp *importer) note(node *recordNode) *richdoc.Node {
+	lines := []string{}
+	for _, list := range topRecords(node, tagListHeader, tagListHeader) {
+		for _, block := range imp.paragraphs(list.children) {
+			if text := strings.TrimSpace(block.PlainText()); text != "" {
+				lines = append(lines, text)
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return nil
+	}
+	return &richdoc.Node{Type: richdoc.FootnoteType, Content: []*richdoc.Node{richdoc.Text(strings.Join(lines, " "))}}
+}
+
+// topRecords finds records with a tag beneath a node, without descending into
+// a record with the stop tag — what is inside one of those belongs to it.
+func topRecords(node *recordNode, tag, stop uint16) []*recordNode {
+	out := []*recordNode{}
+	var walk func(*recordNode)
+	walk = func(current *recordNode) {
+		for _, child := range current.children {
+			if child.tag == tag {
+				out = append(out, child)
+			}
+			if child.tag == stop {
+				continue
+			}
+			walk(child)
+		}
+	}
+	walk(node)
+	return out
 }
 
 // table reads a table control into muni's table.
@@ -150,8 +216,8 @@ func readCellAddress(raw []byte) (cellAddress, bool) {
 // The stream that holds them is named for the id the document's own BinData
 // record gave it — BIN0001 and so on — and the extension is whatever the
 // picture was.
-func (imp *importer) pictureFrom(node *recordNode) *richdoc.Node {
-	id := imp.pictureStreamID(node)
+func (imp *importer) pictureAt(picture *recordNode) *richdoc.Node {
+	id := imp.pictureStreamID(picture)
 	if id == "" {
 		return nil
 	}
@@ -186,25 +252,32 @@ func (imp *importer) pictureFrom(node *recordNode) *richdoc.Node {
 // whichever one had the lowest number.
 const pictureBinIDOffset = 4 + 4 + 4 + 32 + 16 + 8
 
-func (imp *importer) pictureStreamID(node *recordNode) string {
-	picture := findRecord(node, tagShapePicture)
-	if picture == nil {
+func (imp *importer) pictureStreamID(picture *recordNode) string {
+	if picture == nil || picture.tag != tagShapePicture {
 		return ""
 	}
-	if len(picture.data) >= pictureBinIDOffset+2 {
-		id := binary.LittleEndian.Uint16(picture.data[pictureBinIDOffset:])
-		if id != 0 {
+	// Two layouts have been seen in real files. In 5.0.3.x the id leads the
+	// picture information; in 5.0.2.x it follows the brightness, contrast and
+	// effect bytes, three bytes later at an odd offset — which a scan that
+	// steps two bytes at a time can never land on.
+	for _, offset := range []int{pictureBinIDOffset, pictureBinIDOffset + 3} {
+		if len(picture.data) < offset+2 {
+			continue
+		}
+		if id := binary.LittleEndian.Uint16(picture.data[offset:]); id != 0 {
 			if name := binaryName(id); imp.hasBinary(name) {
 				return name
 			}
 		}
 	}
-	// The offset moved between versions of the format. Searching the
-	// picture's own record is a guess, but a far narrower one than searching
-	// everything beneath the control.
-	for offset := 0; offset+2 <= len(picture.data); offset += 2 {
+	// Neither: search the tail of the record byte by byte. The format has
+	// undocumented gaps, and alignment is not something it promises.
+	for offset := pictureBinIDOffset - 8; offset+2 <= len(picture.data); offset++ {
+		if offset < 0 {
+			continue
+		}
 		id := binary.LittleEndian.Uint16(picture.data[offset:])
-		if id == 0 {
+		if id == 0 || id > 4096 {
 			continue
 		}
 		if name := binaryName(id); imp.hasBinary(name) {

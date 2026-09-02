@@ -38,10 +38,14 @@ const (
 	tagParaCharShape      = 0x044
 	tagCtrlHeader         = 0x047
 	tagListHeader         = 0x048
-	tagTable              = 0x04C
-	// HWPTAG_BEGIN + 75. The picture's own record, where the id of the stream
-	// holding its bytes is written.
-	tagShapePicture = 0x05B
+	// The tags below were wrong until real files were read. Counted from
+	// HWPTAG_BEGIN (0x10): SHAPE_COMPONENT is +76, TABLE is +77, and the
+	// picture's own record — where the id of its stream is written — is +85.
+	// Tables worked regardless, because the cells are found through their
+	// LIST_HEADERs and the TABLE tag was never consulted. Pictures did not.
+	tagShapeComponent = 0x04C
+	tagTable          = 0x04D
+	tagShapePicture   = 0x055
 )
 
 func readRecords(raw []byte) []record {
@@ -93,8 +97,60 @@ type recordNode struct {
 	children []*recordNode
 }
 
-// tree groups a flat record list by the depth each record carries.
+// tree groups a flat record list by the depth each record carries, and then
+// gives each list its paragraphs.
+//
+// A LIST_HEADER — a table cell, a text box, a note — does not sit above the
+// paragraphs it holds. It sits *before* them, at the same depth, and says in
+// its first word how many follow. Grouped by depth alone they become its
+// siblings, and every cell in every table reads as empty while its words hang
+// off the table instead. Real files showed this; the fixture that let it pass
+// had nested the paragraphs one level deeper, the way the reader wished they
+// were.
 func tree(records []record) []*recordNode {
+	roots := treeByDepth(records)
+	for _, root := range roots {
+		adoptListParagraphs(root)
+	}
+	return roots
+}
+
+// adoptListParagraphs moves the paragraphs that follow each list header into
+// it, using the count the header carries. A count of zero, or one that runs
+// past the next list, is read as "until the next list".
+func adoptListParagraphs(node *recordNode) {
+	kept := make([]*recordNode, 0, len(node.children))
+	for index := 0; index < len(node.children); index++ {
+		child := node.children[index]
+		if child.tag != tagListHeader {
+			kept = append(kept, child)
+			continue
+		}
+		count := -1
+		if len(child.data) >= 4 {
+			count = int(binary.LittleEndian.Uint32(child.data))
+		}
+		taken := 0
+		for index+1 < len(node.children) {
+			next := node.children[index+1]
+			if next.tag == tagListHeader || (count >= 0 && taken >= count && count != 0) {
+				break
+			}
+			if next.tag == tagParaHeader {
+				taken++
+			}
+			child.children = append(child.children, next)
+			index++
+		}
+		kept = append(kept, child)
+	}
+	node.children = kept
+	for _, child := range node.children {
+		adoptListParagraphs(child)
+	}
+}
+
+func treeByDepth(records []record) []*recordNode {
 	roots := []*recordNode{}
 	// stack[depth] is the node most recently opened at that depth.
 	var stack []*recordNode

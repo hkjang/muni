@@ -55,9 +55,11 @@ func (imp *importer) sectionIsLandscape(root *node) bool {
 	if page == nil {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(page.attr("landscape")), "WIDELY") {
-		return true
-	}
+	// The dimensions, not the attribute. Real files mark a portrait A4 —
+	// 59528 wide, 84188 high — as landscape="WIDELY", and another portrait
+	// page as "NARROWLY"; whatever the word means to Hangul, it is not the
+	// way the paper is turned. Believing it made fourteen of fifteen
+	// government documents landscape.
 	width, wErr := strconv.Atoi(strings.TrimSpace(page.attr("width")))
 	height, hErr := strconv.Atoi(strings.TrimSpace(page.attr("height")))
 	return wErr == nil && hErr == nil && width > height
@@ -110,6 +112,13 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 	inline := imp.runs(current)
 	style := imp.styles[current.attr("styleIDRef")]
 	shape := imp.paraShapes[firstNonEmpty(current.attr("paraPrIDRef"), style.paraShapeID)]
+	// An outline level can come from the style or from the paragraph shape.
+	// Real files use the shape: every paragraph names style 0 and the
+	// heading lives in paraPr as <hh:heading type="OUTLINE" level="…">.
+	level := style.headingLevel
+	if level == 0 {
+		level = shape.outline
+	}
 
 	if len(inline) == 0 {
 		if len(lifted) > 0 {
@@ -119,7 +128,7 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 	}
 
 	block := &richdoc.Node{Type: "paragraph", Content: inline}
-	if level := style.headingLevel; level > 0 {
+	if level > 0 {
 		block.Type = "heading"
 		block.SetAttr("level", level)
 	} else {

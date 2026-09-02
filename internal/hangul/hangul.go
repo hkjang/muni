@@ -72,7 +72,10 @@ func OutlineLevel(names ...string) int {
 			continue
 		}
 		lower := strings.ToLower(trimmed)
-		for _, prefix := range []string{"개요 ", "개요", "heading ", "heading", "제목 "} {
+		// "Outline N" is what Hangul itself writes as the English name of
+		// 개요 N. Real files name the level in the English name alone — "본문
+		// 대제목 / Outline 1" — so without it those headings were body text.
+		for _, prefix := range []string{"개요 ", "개요", "outline ", "outline", "heading ", "heading", "제목 "} {
 			if !strings.HasPrefix(lower, strings.ToLower(prefix)) {
 				continue
 			}

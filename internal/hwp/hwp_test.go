@@ -459,3 +459,16 @@ func TestShapePositionsCountATabAsEight(t *testing.T) {
 		t.Errorf("탭 뒤의 굵기가 어긋났습니다: %v", marks)
 	}
 }
+
+// A blank page saved from Hangul is one paragraph holding only the section
+// and column definitions. It is empty, not broken.
+func TestAnEmptyDocumentIsEmptyNotBroken(t *testing.T) {
+	code := []uint16{2, 'd', 'e', 0, 0, 0, 0, 2, 2, 'c', 'o', 0, 0, 0, 0, 2, 13}
+	document, _, _, err := Parse(hwpFile(t, false, false, paragraphRecords(code)))
+	if err != nil {
+		t.Fatalf("빈 문서를 거절했습니다: %v", err)
+	}
+	if len(document.Content) != 1 || document.Content[0].Type != "paragraph" {
+		t.Errorf("블록 = %v", document.Content)
+	}
+}

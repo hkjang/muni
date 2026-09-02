@@ -384,7 +384,9 @@ func escape(value string) string {
 		case '"':
 			out.WriteString("&quot;")
 		case '\t':
-			out.WriteString("</hp:t><hp:tab/><hp:t>")
+			// Inside the text element, not between two of them: that is
+			// where Hangul writes it, and where the reader looks for it.
+			out.WriteString("<hp:tab/>")
 		default:
 			if r < 0x20 && r != '\n' {
 				continue

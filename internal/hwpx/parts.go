@@ -248,10 +248,13 @@ func paraPrXML(id int, key paraKey) string {
 // for on the first paragraph the way Hangul writes it.
 func (b *builder) sectionXML() string {
 	width, height := 59528, 84188 // A4 in HWPUNIT
-	landscape := "NARROWLY"
+	// "WIDELY" is what Hangul writes on a portrait page — real files say so
+	// — and the reader goes by the dimensions either way. Written to match
+	// what Hangul writes rather than what the word suggests.
+	landscape := "WIDELY"
 	if b.opts.Landscape {
 		width, height = height, width
-		landscape = "WIDELY"
+		landscape = "NARROWLY"
 	}
 	sectionDef := `<hp:secPr id="" textDirection="HORIZONTAL" spaceColumns="1134" tabStop="8000" tabStopVal="4000" tabStopUnit="HWPUNIT" outlineShapeIDRef="1" memoShapeIDRef="0" textVerticalWidthHead="0" masterPageCnt="0">` +
 		`<hp:grid lineGrid="0" charGrid="0" wonggojiFormat="0"/>` +

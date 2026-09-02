@@ -315,7 +315,11 @@ func tableRecords(level uint16, cells []tableCellSpec) []byte {
 		binary.LittleEndian.PutUint16(header[14:], cell.rowSpan)
 		out = append(out, recordHeader(tagListHeader, level+1, len(header))...)
 		out = append(out, header...)
-		out = append(out, shiftLevels(paragraphRecords(units(cell.text)), level+2)...)
+		// The cell's paragraph follows its list header at the same depth —
+		// which is how real files are written, and not how this fixture was
+		// first written. Nesting it a level deeper let the reader pass with
+		// every real table's cells reading as empty.
+		out = append(out, shiftLevels(paragraphRecords(units(cell.text)), level+1)...)
 	}
 	return out
 }

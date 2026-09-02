@@ -60,6 +60,9 @@ type paraShape struct {
 	indent   int
 	firstLin bool
 	lineRate string
+	// outline is the heading level a shape carries, when the outline is
+	// done in the shape rather than in a named style.
+	outline int
 }
 
 type styleInfo struct {
