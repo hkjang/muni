@@ -182,6 +182,57 @@ func TestAFaceNumberWithNoTableNamesNothing(t *testing.T) {
 	}
 }
 
+// scriptCharShapeRecord writes a CHAR_SHAPE whose property word raises or
+// lowers the run, laid out from the format's own field list rather than from
+// the reader's constants: UINT16[7] faces, UINT8[7] ratios, INT8[7] spacings,
+// UINT8[7] relative sizes, INT8[7] offsets, INT32 base size, then the word.
+func scriptCharShapeRecord(bit uint) []byte {
+	const faces, ratios, spacings, relativeSizes, offsets = 7 * 2, 7, 7, 7, 7
+	propertyAt := faces + ratios + spacings + relativeSizes + offsets + 4
+	data := make([]byte, propertyAt+4)
+	binary.LittleEndian.PutUint32(data[propertyAt:], 1<<bit)
+	return append(recordHeader(tagCharShape, 0, len(data)), data...)
+}
+
+// The raised and lowered runs are one bit each in the property word, 15 and
+// 16 — a footnote number, a chemical formula, a square metre.
+func TestRaisedAndLoweredRunsAreRead(t *testing.T) {
+	docInfo := append(scriptCharShapeRecord(15), scriptCharShapeRecord(16)...)
+	body := paragraphRecords(units("위첨자아래첨자"),
+		charRun{at: 0, shape: 0},
+		charRun{at: 3, shape: 1})
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, docInfo, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marks := markedText(t, document, "위첨자"); !has(marks, "superscript") {
+		t.Errorf("위 첨자가 오지 않았습니다: %v", marks)
+	}
+	if marks := markedText(t, document, "아래첨자"); !has(marks, "subscript") {
+		t.Errorf("아래 첨자가 오지 않았습니다: %v", marks)
+	}
+}
+
+// A run neither raised nor lowered carries no script mark: bit 15 sits next
+// to the emboss and engrave bits, and a reader off by one would raise every
+// embossed word in the document.
+func TestAPlainRunIsNeitherRaisedNorLowered(t *testing.T) {
+	marks := markedText(t, mustParse(t, hwpFileWithDocInfo(t, scriptCharShapeRecord(13),
+		paragraphRecords(units("양각한 글"), charRun{at: 0, shape: 0}))), "양각한 글")
+	if has(marks, "superscript") || has(marks, "subscript") {
+		t.Errorf("첨자가 아닌 글에 첨자가 붙었습니다: %v", marks)
+	}
+}
+
+func mustParse(t *testing.T, file []byte) *richdoc.Node {
+	t.Helper()
+	document, _, _, err := Parse(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return document
+}
+
 // textStyleOf returns the textStyle attributes on the text holding a phrase,
 // empty when it carries none.
 func textStyleOf(t *testing.T, document *richdoc.Node, phrase string) map[string]string {

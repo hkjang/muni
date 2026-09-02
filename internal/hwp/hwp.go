@@ -59,6 +59,8 @@ type charShape struct {
 	strike    bool
 	color     string
 	sizePoint string
+	// script is "superscript", "subscript" or nothing.
+	script string
 	// fontID is the face's number in the FACE_NAME list; family is the name
 	// it resolves to, once DocInfo has been read through.
 	fontID uint16
@@ -254,6 +256,10 @@ func readCharShape(raw []byte) charShape {
 		underline: (bits>>2)&0x03 != 0,
 		strike:    (bits>>18)&0x07 != 0,
 		fontID:    binary.LittleEndian.Uint16(raw[0:]),
+		// Raised is bit 15 and lowered bit 16, one bit each: they sit past
+		// the outline, shadow, emboss and engrave fields and before the
+		// three the strikethrough takes.
+		script: hangul.Script(bits&(1<<15) != 0, bits&(1<<16) != 0),
 	}
 	// The base size is in hundredths of a point, the same unit the .hwpx
 	// writes as an attribute.

@@ -89,6 +89,8 @@ func TestTheMarksComeBackWithTheWordsTheyWereOn(t *testing.T) {
 		{"기울임", "italic"},
 		{"밑줄", "underline"},
 		{"취소선", "strike"},
+		{"위첨자표시", "superscript"},
+		{"아래첨자표시", "subscript"},
 		{"글자서식표시", "textStyle"},
 	} {
 		if !hasMarkOn(back, want.phrase, want.mark) {

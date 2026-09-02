@@ -128,6 +128,8 @@ type binItem struct {
 type charKey struct {
 	bold, italic, underline, strike, mono bool
 	color, size, family                   string
+	// script is "superscript", "subscript" or nothing.
+	script string
 }
 
 // paraKey is one distinct paragraph shape.
@@ -435,6 +437,10 @@ func applyMarks(key *charKey, marks []richdoc.Mark) {
 			key.strike = true
 		case "code":
 			key.mono = true
+		case "superscript", "sup":
+			key.script = "superscript"
+		case "subscript", "sub":
+			key.script = "subscript"
 		case "textStyle":
 			if color := mark.AttrString("color"); color != "" {
 				key.color = color

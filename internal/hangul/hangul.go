@@ -108,6 +108,21 @@ func FontSize(hundredths int) string {
 	return strconv.FormatFloat(point, 'f', -1, 64) + "pt"
 }
 
+// Script names the vertical script a run is set in, the way muni marks it.
+//
+// Both formats can say raised and lowered at once — the .hwp in two property
+// bits, the .hwpx in two elements — and muni's editor can draw only one of
+// them, so the raised one wins rather than the two cancelling into body text.
+func Script(superscript, subscript bool) string {
+	switch {
+	case superscript:
+		return "superscript"
+	case subscript:
+		return "subscript"
+	}
+	return ""
+}
+
 // LineHeight turns a spacing percentage into the ratio muni holds. A hundred
 // per cent is single spacing, which muni draws without being told.
 func LineHeight(percent int) string {
