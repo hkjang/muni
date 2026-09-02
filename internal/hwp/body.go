@@ -60,6 +60,19 @@ func (imp *importer) marksFor(id uint32) []richdoc.Mark {
 	if shape.strike {
 		marks = append(marks, richdoc.Mark{Type: "strike"})
 	}
+	attrs := map[string]any{}
+	if shape.color != "" {
+		attrs["color"] = shape.color
+	}
+	if shape.sizePoint != "" {
+		attrs["fontSize"] = shape.sizePoint
+	}
+	if shape.family != "" {
+		attrs["fontFamily"] = shape.family
+	}
+	if len(attrs) > 0 {
+		marks = append(marks, richdoc.Mark{Type: "textStyle", Attrs: attrs})
+	}
 	return marks
 }
 

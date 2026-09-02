@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hkjang/muni/internal/hangul"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -35,20 +36,33 @@ type fileHeader struct {
 	encrypted  bool
 }
 
-// charShapePropertyOffset is where a CHAR_SHAPE's switches begin: UINT16[7]
-// face names, UINT8[7] ratios, INT8[7] spacings, UINT8[7] relative sizes,
-// INT8[7] offsets, INT32 base size.
+// charShapeBaseSizeOffset is where a CHAR_SHAPE's base size sits, and
+// charShapePropertyOffset where its switches begin: UINT16[7] face names,
+// UINT8[7] ratios, INT8[7] spacings, UINT8[7] relative sizes, INT8[7]
+// offsets, INT32 base size.
 //
 // Counting the relative sizes as two bytes each puts this seven bytes too far
 // and reads the switches out of the base size, which is formatting arrived at
 // by accident.
-const charShapePropertyOffset = 7*2 + 7 + 7 + 7 + 7 + 4
+const (
+	charShapeBaseSizeOffset = 7*2 + 7 + 7 + 7 + 7
+	charShapePropertyOffset = charShapeBaseSizeOffset + 4
+	// After the switches come two INT8 shadow offsets, and only then the
+	// text colour — the underline, shade and shadow colours follow it.
+	charShapeColorOffset = charShapePropertyOffset + 4 + 2
+)
 
 type charShape struct {
 	bold      bool
 	italic    bool
 	underline bool
 	strike    bool
+	color     string
+	sizePoint string
+	// fontID is the face's number in the FACE_NAME list; family is the name
+	// it resolves to, once DocInfo has been read through.
+	fontID uint16
+	family string
 }
 
 type importer struct {
@@ -57,7 +71,10 @@ type importer struct {
 	charShapes []charShape
 	paraShapes []paraShape
 	styles     []styleInfo
-	assets     []richdoc.Asset
+	// faceNames is the document's font table in the order the FACE_NAME
+	// records came, which is the order a CHAR_SHAPE's face numbers index.
+	faceNames []string
+	assets    []richdoc.Asset
 	// assetByID keeps a picture used twice from being stored twice, and
 	// binaryCache keeps it from being decompressed twice.
 	assetByID   map[string]string
@@ -171,6 +188,8 @@ func (imp *importer) readDocInfo() {
 	}
 	for _, item := range readRecords(raw) {
 		switch item.tag {
+		case tagFaceName:
+			imp.faceNames = append(imp.faceNames, readFaceName(item.data))
 		case tagCharShape:
 			imp.charShapes = append(imp.charShapes, readCharShape(item.data))
 		case tagParaShape:
@@ -181,26 +200,80 @@ func (imp *importer) readDocInfo() {
 			// The picture streams are found by name; nothing to keep here yet.
 		}
 	}
+	// A CHAR_SHAPE names its face by number and nothing else, so a number
+	// taken for a name would put a font called "3" on every run. The names
+	// are resolved once the whole of DocInfo has been read rather than inside
+	// the loop, which would depend on FACE_NAME coming first.
+	for index := range imp.charShapes {
+		imp.charShapes[index].family = imp.faceName(imp.charShapes[index].fontID)
+	}
 }
 
-// readCharShape reads the italic/bold/underline/strike switches out of one
-// CHAR_SHAPE record.
+// readFaceName reads the font's name out of one FACE_NAME record.
+//
+// The record opens with a property byte saying which of the optional
+// tails — a substitute font, panose type information, a default font —
+// follow the name. muni wants only the name, which comes first.
+func readFaceName(raw []byte) string {
+	if len(raw) < 1 {
+		return ""
+	}
+	name, _ := readWideString(raw, 1)
+	return name
+}
+
+// faceName is the face a CHAR_SHAPE's Hangul font number points at.
+//
+// The FACE_NAME records are written one language after another, Hangul
+// first, so a Hangul font number indexes them from the start — which is the
+// face a Korean document is actually set in.
+func (imp *importer) faceName(id uint16) string {
+	if int(id) >= len(imp.faceNames) {
+		return ""
+	}
+	return imp.faceNames[id]
+}
+
+// readCharShape reads one CHAR_SHAPE record — the switches, the size, the
+// colour and which face the Hangul is set in.
 //
 // The record opens with five per-language tables of seven entries each — the
 // font ids two bytes wide, the other four one byte — and then the base size,
-// before the word the switches live in.
+// before the word the switches live in. The first entry of every table is the
+// Hangul one; the six after it are English, Hanja, Japanese, other, symbol
+// and user.
 func readCharShape(raw []byte) charShape {
 	const propertyOffset = charShapePropertyOffset
 	if len(raw) < propertyOffset+4 {
 		return charShape{}
 	}
 	bits := binary.LittleEndian.Uint32(raw[propertyOffset:])
-	return charShape{
+	shape := charShape{
 		italic:    bits&0x01 != 0,
 		bold:      bits&0x02 != 0,
 		underline: (bits>>2)&0x03 != 0,
 		strike:    (bits>>18)&0x07 != 0,
+		fontID:    binary.LittleEndian.Uint16(raw[0:]),
 	}
+	// The base size is in hundredths of a point, the same unit the .hwpx
+	// writes as an attribute.
+	shape.sizePoint = hangul.FontSize(int(int32(binary.LittleEndian.Uint32(raw[charShapeBaseSizeOffset:]))))
+	if len(raw) >= charShapeColorOffset+4 {
+		shape.color = colorHex(binary.LittleEndian.Uint32(raw[charShapeColorOffset:]))
+	}
+	return shape
+}
+
+// colorHex turns a COLORREF into the colour muni holds. The format writes
+// 0x00BBGGRR — blue first, which read as if it were RGB turns every red word
+// blue. Black is what a document is written in unless it says otherwise and
+// is worth nothing to record.
+func colorHex(value uint32) string {
+	red, green, blue := value&0xFF, (value>>8)&0xFF, (value>>16)&0xFF
+	if red == 0 && green == 0 && blue == 0 {
+		return ""
+	}
+	return fmt.Sprintf("#%02X%02X%02X", red, green, blue)
 }
 
 // section reads one BodyText stream into blocks.

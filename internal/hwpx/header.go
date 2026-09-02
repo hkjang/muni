@@ -80,11 +80,8 @@ func readCharShape(current *node) charShape {
 		shape.color = color
 	}
 	// height is in 1/100 pt.
-	if height, err := strconv.Atoi(strings.TrimSpace(current.attr("height"))); err == nil && height > 0 {
-		point := float64(height) / 100
-		if point != 10 {
-			shape.sizePoint = strconv.FormatFloat(point, 'f', -1, 64) + "pt"
-		}
+	if height, err := strconv.Atoi(strings.TrimSpace(current.attr("height"))); err == nil {
+		shape.sizePoint = hangul.FontSize(height)
 	}
 	if font := current.descendant("fontRef"); font != nil {
 		// hangul first: muni's documents are Korean, and that attribute names
