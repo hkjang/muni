@@ -38,6 +38,7 @@ const (
 	tagParaCharShape      = 0x044
 	tagCtrlHeader         = 0x047
 	tagListHeader         = 0x048
+	tagPageDef            = 0x049
 	// The tags below were wrong until real files were read. Counted from
 	// HWPTAG_BEGIN (0x10): SHAPE_COMPONENT is +76, TABLE is +77, and the
 	// picture's own record — where the id of its stream is written — is +85.

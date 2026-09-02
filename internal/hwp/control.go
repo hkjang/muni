@@ -52,8 +52,46 @@ func (imp *importer) control(node *recordNode) (blocks, inline []*richdoc.Node) 
 		}
 	case "head", "foot":
 		imp.furniture(controlID(node.data), node)
+	case "secd":
+		imp.pageDef(node)
 	}
 	return nil, nil
+}
+
+// pageDef reads the paper from a section definition: the first section's
+// says which way the whole document is turned.
+func (imp *importer) pageDef(node *recordNode) {
+	page := node.find(tagPageDef)
+	if page == nil || len(page.data) < 8 || imp.pageSeen {
+		return
+	}
+	imp.pageSeen = true
+	width := binary.LittleEndian.Uint32(page.data[0:])
+	height := binary.LittleEndian.Uint32(page.data[4:])
+	imp.landscape = width > height
+}
+
+// fieldLink reads the address a hyperlink field points at. After the id,
+// the property word and one flag byte comes the command as a length-
+// prefixed string: the address, then options, separated by semicolons, with
+// the colon of the scheme escaped the way Hangul writes it.
+func fieldLink(node *recordNode) string {
+	if controlID(node.data) != "%hlk" {
+		return ""
+	}
+	command, _ := readWideString(node.data, 9)
+	address := command
+	if cut := strings.Index(command, ";"); cut >= 0 {
+		address = command[:cut]
+	}
+	address = strings.TrimSpace(strings.ReplaceAll(address, `\:`, ":"))
+	if address == "" {
+		return ""
+	}
+	if !strings.Contains(address, ":") && !strings.HasPrefix(address, "#") {
+		address = "http://" + address
+	}
+	return address
 }
 
 // furniture keeps the words of a header or footer. muni holds one line of

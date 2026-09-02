@@ -24,6 +24,9 @@ type Meta struct {
 	// one line of each muni keeps.
 	Header string
 	Footer string
+	// Landscape is set when the first section's paper is wider than it is
+	// tall.
+	Landscape bool
 }
 
 type fileHeader struct {
@@ -62,6 +65,9 @@ type importer struct {
 	// headerText and footerText are the first header and footer met.
 	headerText string
 	footerText string
+	// landscape is the first section's paper, once seen.
+	landscape bool
+	pageSeen  bool
 }
 
 // Parse reads a .hwp into muni's document model.
@@ -96,7 +102,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		document.Content = []*richdoc.Node{richdoc.Paragraph()}
 	}
 	richdoc.LiftImages(document)
-	return document, imp.assets, Meta{Version: imp.header.version, Header: imp.headerText, Footer: imp.footerText}, nil
+	return document, imp.assets, Meta{Version: imp.header.version, Header: imp.headerText, Footer: imp.footerText, Landscape: imp.landscape}, nil
 }
 
 // readFileHeader reads the 256 bytes that say what the rest of the file is.

@@ -195,14 +195,27 @@ func tablesIn(current *node) []*node {
 // runs reads the inline content of a paragraph.
 func (imp *importer) runs(paragraph *node) []*richdoc.Node {
 	out := []*richdoc.Node{}
+	// A hyperlink is a field: a begin control in one run, an end control
+	// in a later one, and the words between them are the link.
+	href := ""
 	for _, run := range paragraph.children {
 		if !run.is("run") {
 			continue
 		}
 		shape := imp.charShapes[run.attr("charPrIDRef")]
-		marks := shape.marks()
 		for _, child := range run.children {
+			marks := shape.marks()
+			if href != "" {
+				marks = append(marks, richdoc.Mark{Type: "link", Attrs: map[string]any{"href": href}})
+			}
 			switch {
+			case child.is("ctrl"):
+				if begin := child.child("fieldBegin"); begin != nil {
+					href = fieldAddress(begin)
+				}
+				if child.child("fieldEnd") != nil {
+					href = ""
+				}
 			case child.is("t"):
 				out = append(out, imp.text(child, marks)...)
 			case child.is("pic"), child.is("picture"):
@@ -225,6 +238,33 @@ func (imp *importer) runs(paragraph *node) []*richdoc.Node {
 		}
 	}
 	return richdoc.Doc(out...).Content
+}
+
+// fieldAddress reads where a hyperlink field points: the Command parameter,
+// which is the address, then options, separated by semicolons, with the
+// colon of the scheme escaped. Any other kind of field is not a link.
+func fieldAddress(begin *node) string {
+	if !strings.EqualFold(strings.TrimSpace(begin.attr("type")), "HYPERLINK") {
+		return ""
+	}
+	command := ""
+	begin.each("stringParam", func(param *node) {
+		if strings.EqualFold(strings.TrimSpace(param.attr("name")), "Command") && command == "" {
+			command = param.allText()
+		}
+	})
+	address := command
+	if cut := strings.Index(command, ";"); cut >= 0 {
+		address = command[:cut]
+	}
+	address = strings.TrimSpace(strings.ReplaceAll(address, `\:`, ":"))
+	if address == "" {
+		return ""
+	}
+	if !strings.Contains(address, ":") && !strings.HasPrefix(address, "#") {
+		address = "http://" + address
+	}
+	return address
 }
 
 // note reads a footnote or endnote into muni's one kind of note, as the text

@@ -203,8 +203,8 @@ func hwpxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error
 }
 
 // hwpImport converts the older binary Hangul format: the words, the
-// paragraphs and lists they sit in, the tables, pictures and notes, and the
-// first header and footer.
+// paragraphs and lists they sit in, the tables, pictures, notes and links,
+// the first header and footer, and which way the paper is turned.
 func hwpImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error) {
 	document, assets, meta, err := hwp.Parse(body)
 	if err != nil {
@@ -214,7 +214,7 @@ func hwpImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error)
 	if err != nil {
 		return nil, nil, docx.Meta{}, err
 	}
-	return content, assets, docx.Meta{Header: meta.Header, Footer: meta.Footer}, nil
+	return content, assets, docx.Meta{Header: meta.Header, Footer: meta.Footer, Landscape: meta.Landscape}, nil
 }
 
 // pdfImport reconstructs paragraphs, headings, lists, tables and images from

@@ -67,22 +67,28 @@ func (imp *importer) marksFor(id uint32) []richdoc.Mark {
 //
 // A stretch of text is broken wherever the shape changes inside it, which is
 // what puts the bold on the word somebody bolded rather than on the paragraph.
-func (imp *importer) inline(text paragraphText, runs []charRun) []*richdoc.Node {
+func (imp *importer) inline(text paragraphText, runs []charRun, links []linkSpan) []*richdoc.Node {
 	out := []*richdoc.Node{}
 	for _, piece := range text.pieces {
 		position := piece.at
 		shape, _ := shapeAt(runs, position)
+		href := linkAt(links, position)
 		var current strings.Builder
 		flush := func() {
 			if current.Len() > 0 {
-				out = append(out, richdoc.Text(current.String(), imp.marksFor(shape)...))
+				marks := imp.marksFor(shape)
+				if href != "" {
+					marks = append(marks, richdoc.Mark{Type: "link", Attrs: map[string]any{"href": href}})
+				}
+				out = append(out, richdoc.Text(current.String(), marks...))
 				current.Reset()
 			}
 		}
 		for _, letter := range piece.text {
-			if next, _ := shapeAt(runs, position); next != shape {
+			next, _ := shapeAt(runs, position)
+			if nextHref := linkAt(links, position); next != shape || nextHref != href {
 				flush()
-				shape = next
+				shape, href = next, nextHref
 			}
 			current.WriteRune(letter)
 			// The file counts in UTF-16 code units, so a character outside the
@@ -92,6 +98,22 @@ func (imp *importer) inline(text paragraphText, runs []charRun) []*richdoc.Node 
 		flush()
 	}
 	return out
+}
+
+// linkSpan is a stretch of a paragraph that is a hyperlink, in code units.
+type linkSpan struct {
+	begin, end uint32
+	href       string
+}
+
+// linkAt says which address, if any, the character at a position links to.
+func linkAt(links []linkSpan, position uint32) string {
+	for _, link := range links {
+		if position >= link.begin && position < link.end {
+			return link.href
+		}
+	}
+	return ""
 }
 
 // paragraphs reads a run of PARA_HEADER nodes into blocks.
@@ -153,7 +175,24 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	if shapeRecord != nil {
 		runs = readCharRuns(shapeRecord.data)
 	}
-	inline := imp.inline(text, runs)
+	// A field's text is between its marks in the paragraph; which field it
+	// is comes from the field controls, in the same order.
+	links := []linkSpan{}
+	fields := 0
+	for _, control := range node.all(tagCtrlHeader) {
+		id := controlID(control.data)
+		if id == "" || id[0] != '%' {
+			continue
+		}
+		if href := fieldLink(control); href != "" && fields < len(text.fields) {
+			span := text.fields[fields]
+			if span.end != openField && span.end > span.begin {
+				links = append(links, linkSpan{begin: span.begin, end: span.end, href: href})
+			}
+		}
+		fields++
+	}
+	inline := imp.inline(text, runs, links)
 	// A note goes at the end of the paragraph that referred to it. The mark
 	// in the text says where in the sentence, and keeping that would mean
 	// interleaving pieces and marks by position; the paragraph is right and
@@ -191,6 +230,9 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 			}
 			if shape.firstLine {
 				block.SetAttr("firstLine", true)
+			}
+			if shape.lineRate != "" {
+				block.SetAttr("lineHeight", shape.lineRate)
 			}
 		}
 		blocks = append(blocks, block)

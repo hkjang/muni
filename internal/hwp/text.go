@@ -56,7 +56,17 @@ type paragraphText struct {
 	// controls counts the object marks passed, so a paragraph can be matched
 	// with the records that follow it.
 	controls int
+	// fields are the stretches between a field-begin mark and its end, in
+	// the order the begins came — the same order as the field controls.
+	fields []fieldSpan
 }
+
+// fieldSpan is where a field's text starts and ends, in code units.
+type fieldSpan struct {
+	begin, end uint32
+}
+
+const openField = ^uint32(0)
 
 // textPiece is a stretch of characters and where the file counts it from.
 type textPiece struct {
@@ -85,6 +95,18 @@ func readParagraphText(raw []byte) paragraphText {
 	}
 	for offset := 0; offset+2 <= len(raw); {
 		code := binary.LittleEndian.Uint16(raw[offset:])
+		// A field's text runs from after its begin mark to its end mark.
+		switch code {
+		case 3:
+			out.fields = append(out.fields, fieldSpan{begin: position + controlWidth, end: openField})
+		case 4:
+			for index := len(out.fields) - 1; index >= 0; index-- {
+				if out.fields[index].end == openField {
+					out.fields[index].end = position
+					break
+				}
+			}
+		}
 		if code >= 32 {
 			if len(units) == 0 && current.Len() == 0 {
 				pieceAt = position

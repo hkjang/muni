@@ -78,6 +78,7 @@ type builder struct {
 	preview    strings.Builder // the opening text, for Preview/PrvText.txt
 	paragraphs int             // paragraphs written, which numbers the next
 	objects    int             // pictures and tables written, which orders the next
+	fields     int             // fields written, which numbers the next
 }
 
 // openParagraph writes the opening tag of a paragraph, numbered the way
@@ -358,16 +359,40 @@ func (b *builder) baseKey(ctx blockContext) charKey {
 	return key
 }
 
-// inline writes runs, one per distinct shape.
+// inline writes runs, one per distinct shape. A link is a field: a begin
+// control before the words, an end control after, the way Hangul writes
+// one, and words that share an address share a field.
 func (b *builder) inline(nodes []*richdoc.Node, ctx blockContext) {
+	href, field := "", 0
+	closeField := func() {
+		if href != "" {
+			b.body.WriteString(`<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldEnd beginIDRef="` + strconv.Itoa(field) + `"/></hp:ctrl></hp:run>`)
+			href = ""
+		}
+	}
+	defer closeField()
 	for _, node := range nodes {
 		if node == nil {
 			continue
+		}
+		if node.Type != "text" {
+			closeField()
 		}
 		switch node.Type {
 		case "text":
 			key := b.baseKey(ctx)
 			applyMarks(&key, node.Marks)
+			if next := linkOf(node.Marks); next != href {
+				closeField()
+				if next != "" {
+					b.fields++
+					field = b.fields
+					href = next
+					b.body.WriteString(`<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldBegin id="` + strconv.Itoa(field) +
+						`" type="HYPERLINK" name="" editable="0" dirty="0"><hp:parameters cnt="1" name=""><hp:stringParam name="Command">` +
+						escape(strings.ReplaceAll(href, ":", `\:`)) + `;1;0;0;</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl></hp:run>`)
+				}
+			}
 			b.notePreview(node.Text)
 			b.body.WriteString(`<hp:run charPrIDRef="` + strconv.Itoa(b.charPrID(key)) + `"><hp:t>` +
 				escape(node.Text) + `</hp:t></hp:run>`)
@@ -385,6 +410,16 @@ func (b *builder) inline(nodes []*richdoc.Node, ctx blockContext) {
 			}
 		}
 	}
+}
+
+// linkOf is the address a text node links to, if any.
+func linkOf(marks []richdoc.Mark) string {
+	for _, mark := range marks {
+		if mark.Type == "link" {
+			return strings.TrimSpace(mark.AttrString("href"))
+		}
+	}
+	return ""
 }
 
 func applyMarks(key *charKey, marks []richdoc.Mark) {

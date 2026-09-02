@@ -20,6 +20,9 @@ type paraShape struct {
 	// "bulletList" or "orderedList" — and level how deep; "" is no list.
 	list  string
 	level int
+	// lineRate is the line spacing as a multiple of the font, "" for the
+	// default.
+	lineRate string
 }
 
 // readParaShape reads one PARA_SHAPE record.
@@ -48,6 +51,20 @@ func readParaShape(raw []byte) paraShape {
 		shape.list = "bulletList"
 	}
 	shape.level = int((property >> 25) & 0x07)
+	// The line spacing is written twice — at 24 for readers of the old
+	// version and at 50 for the new, with its kind in the third property
+	// word — and real files put the same number in both. Only a percentage
+	// is a multiple of the font; a fixed height in HWPUNIT is not.
+	kind, value := property&0x03, int32(0)
+	if len(raw) >= 54 {
+		kind = binary.LittleEndian.Uint32(raw[46:]) & 0x1F
+		value = int32(binary.LittleEndian.Uint32(raw[50:]))
+	} else if len(raw) >= 28 {
+		value = int32(binary.LittleEndian.Uint32(raw[24:]))
+	}
+	if kind == 0 {
+		shape.lineRate = hangul.LineHeight(int(value))
+	}
 	return shape
 }
 
