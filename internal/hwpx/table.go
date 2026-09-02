@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hkjang/muni/internal/hangul"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -15,6 +16,7 @@ import (
 func (imp *importer) table(current *node) *richdoc.Node {
 	rows := []*richdoc.Node{}
 	headerRows := headerRowCount(current)
+	widths := columnPixels(current)
 	for _, child := range current.children {
 		if !child.is("tr") {
 			continue
@@ -24,7 +26,7 @@ func (imp *importer) table(current *node) *richdoc.Node {
 			if !cellNode.is("tc") {
 				continue
 			}
-			row.Content = append(row.Content, imp.cell(cellNode, len(rows) < headerRows))
+			row.Content = append(row.Content, imp.cell(cellNode, len(rows) < headerRows, widths))
 		}
 		if len(row.Content) > 0 {
 			rows = append(rows, row)
@@ -47,7 +49,50 @@ func headerRowCount(table *node) int {
 	return 0
 }
 
-func (imp *importer) cell(current *node, header bool) *richdoc.Node {
+// columnPixels reads how wide each of a table's columns is, in the pixels
+// muni's editor holds a column in.
+//
+// <hp:cellSz> gives a merged cell's width as the total across the columns it
+// covers, so the columns are learnt from the cells that cover one apiece. A
+// table nested inside a cell measures its own columns, so only this table's
+// own rows are read.
+func columnPixels(table *node) map[int]int {
+	out := map[int]int{}
+	for _, row := range table.children {
+		if !row.is("tr") {
+			continue
+		}
+		for _, cell := range row.children {
+			if !cell.is("tc") || spanOf(cell, "colSpan") != 1 {
+				continue
+			}
+			column, ok := cellColumn(cell)
+			if !ok || out[column] > 0 {
+				continue
+			}
+			units, err := strconv.Atoi(strings.TrimSpace(cell.child("cellSz").attr("width")))
+			if err != nil {
+				continue
+			}
+			if pixels := hangul.PixelWidth(units); pixels > 0 {
+				out[column] = pixels
+			}
+		}
+	}
+	return out
+}
+
+// cellColumn reads which column a cell starts at, from the address Hangul
+// writes on every cell of every table of its own.
+func cellColumn(cell *node) (int, bool) {
+	value, err := strconv.Atoi(strings.TrimSpace(cell.child("cellAddr").attr("colAddr")))
+	if err != nil || value < 0 || value > 1000 {
+		return 0, false
+	}
+	return value, true
+}
+
+func (imp *importer) cell(current *node, header bool, widths map[int]int) *richdoc.Node {
 	kind := "tableCell"
 	if header || strings.EqualFold(strings.TrimSpace(current.attr("header")), "true") {
 		kind = "tableHeader"
@@ -60,6 +105,11 @@ func (imp *importer) cell(current *node, header bool) *richdoc.Node {
 	cell.SetAttr("verticalAlign", cellVerticalAlign(current))
 	if shade := imp.cellShade(current); shade != "" && kind != "tableHeader" {
 		cell.SetAttr("backgroundColor", shade)
+	}
+	if column, ok := cellColumn(current); ok {
+		if columns := hangul.ColumnWidths(widths, column, spanOf(current, "colSpan")); len(columns) > 0 {
+			cell.SetAttr("colwidth", columns)
+		}
 	}
 
 	content := []*richdoc.Node{}

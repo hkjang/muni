@@ -3,9 +3,12 @@ package hwpx
 import (
 	"archive/zip"
 	"bytes"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/hkjang/muni/internal/hangul"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -121,6 +124,43 @@ func TestVerticalAlignmentIsOnTheCellsList(t *testing.T) {
 	}
 	if cell.AttrString("verticalAlign") != "middle" {
 		t.Errorf("세로 정렬 = %q", cell.AttrString("verticalAlign"))
+	}
+}
+
+// <hp:cellSz> is the width of the cell, not of the column: a merged cell
+// gives the total across the columns it covers, so the columns are measured
+// from the cells that cover one apiece. Reading a merged cell's own width as
+// its column's made the first column of every merged table too wide.
+func TestColumnWidthsAreReadFromTheCells(t *testing.T) {
+	cell := func(column, span int, width int, text string) string {
+		return `<hp:tc name="" header="0" borderFillIDRef="1">` +
+			`<hp:subList id="" vertAlign="TOP"><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>` + text + `</hp:t></hp:run></hp:p></hp:subList>` +
+			`<hp:cellAddr colAddr="` + strconv.Itoa(column) + `" rowAddr="0"/>` +
+			`<hp:cellSpan colSpan="` + strconv.Itoa(span) + `" rowSpan="1"/>` +
+			`<hp:cellSz width="` + strconv.Itoa(width) + `" height="1900"/></hp:tc>`
+	}
+	const half, inchAndAHalf = hangul.UnitsPerInch / 2, hangul.UnitsPerInch * 3 / 2
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="2" colCnt="2">`+
+		`<hp:tr>`+cell(0, 2, half+inchAndAHalf, "머리글")+`</hp:tr>`+
+		`<hp:tr>`+cell(0, 1, half, "좁은칸")+cell(1, 1, inchAndAHalf, "넓은칸")+`</hp:tr>`+
+		`</hp:tbl></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var table *richdoc.Node
+	for _, block := range document.Content {
+		if block.Type == "table" {
+			table = block
+		}
+	}
+	if table == nil || len(table.Content) != 2 {
+		t.Fatalf("표가 없습니다: %v", blockTypes(document))
+	}
+	if width := table.Content[1].Content[0].Attr("colwidth"); !reflect.DeepEqual(width, []any{48}) {
+		t.Errorf("좁은 칸의 너비 = %v", width)
+	}
+	if width := table.Content[0].Content[0].Attr("colwidth"); !reflect.DeepEqual(width, []any{48, 144}) {
+		t.Errorf("병합된 칸의 너비 = %v", width)
 	}
 }
 

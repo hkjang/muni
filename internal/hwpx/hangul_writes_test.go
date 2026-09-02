@@ -56,6 +56,39 @@ func TestThePackageHasThePartsHangulWrites(t *testing.T) {
 	}
 }
 
+// The editor holds a column's width in pixels; Hangul wants it in HWPUNIT,
+// summing to the width the table declares. Sharing the text column out evenly
+// threw away every width a document had been carrying since it was read.
+func TestATablesColumnWidthsAreWrittenInProportion(t *testing.T) {
+	cell := func(text string, widths ...any) *richdoc.Node {
+		node := &richdoc.Node{Type: "tableCell", Content: []*richdoc.Node{richdoc.Paragraph(richdoc.Text(text))}}
+		node.SetAttr("colspan", len(widths))
+		node.SetAttr("rowspan", 1)
+		node.SetAttr("colwidth", widths)
+		return node
+	}
+	document := &richdoc.Node{Type: "doc", Content: []*richdoc.Node{{Type: "table", Content: []*richdoc.Node{
+		{Type: "tableRow", Content: []*richdoc.Node{cell("머리글", 50, 150)}},
+		{Type: "tableRow", Content: []*richdoc.Node{cell("좁은칸", 50), cell("넓은칸", 150)}},
+	}}}}
+	built, err := Build(document, Options{Title: "너비"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := partsOf(t, built)["Contents/section0.xml"]
+	found := regexp.MustCompile(`<hp:cellSz width="(\d+)"`).FindAllStringSubmatch(section, -1)
+	if len(found) != 3 {
+		t.Fatalf("칸 = %d개", len(found))
+	}
+	// A quarter and three quarters of the six-inch text column, and the
+	// merged cell across the whole of it.
+	for index, want := range []string{"43200", "10800", "32400"} {
+		if found[index][1] != want {
+			t.Errorf("%d번째 칸의 너비 = %s, 원하는 것 = %s", index, found[index][1], want)
+		}
+	}
+}
+
 // onePixel is the smallest PNG there is, for a picture to be written.
 var onePixel = []byte{
 	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
