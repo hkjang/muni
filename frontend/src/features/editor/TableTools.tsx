@@ -10,6 +10,29 @@ import {
   CallSplit,
 } from "@mui/icons-material";
 import { cellShades, normalizeShade } from "./extensions/cellBackground";
+import {
+  cellAlignments,
+  normalizeAlignment,
+  type CellAlignment,
+} from "./extensions/cellAlign";
+import VerticalAlignTop from "@mui/icons-material/VerticalAlignTop";
+import VerticalAlignCenter from "@mui/icons-material/VerticalAlignCenter";
+import VerticalAlignBottom from "@mui/icons-material/VerticalAlignBottom";
+
+// Where a cell's text sits between the top and the bottom of its row. muni
+// read this out of Word and Hangul files and wrote it back, and had no way to
+// set it — a document muni did not write kept its shape, and one muni did
+// could not be given one.
+const alignmentIcons: Record<CellAlignment, typeof VerticalAlignTop> = {
+  top: VerticalAlignTop,
+  middle: VerticalAlignCenter,
+  bottom: VerticalAlignBottom,
+};
+const alignmentLabels: Record<CellAlignment, string> = {
+  top: "위",
+  middle: "가운데",
+  bottom: "아래",
+};
 
 /**
  * TableTools appears while the caret is inside a table.
@@ -51,7 +74,10 @@ export function TableTools({
               size="small"
               onClick={() => editor.chain().focus().addRowBefore().run()}
             >
-              <TableRowsOutlined fontSize="small" sx={{ transform: "scaleY(-1)" }} />
+              <TableRowsOutlined
+                fontSize="small"
+                sx={{ transform: "scaleY(-1)" }}
+              />
             </IconButton>
           </Tooltip>
           <Tooltip title="아래에 행 추가">
@@ -76,7 +102,10 @@ export function TableTools({
               size="small"
               onClick={() => editor.chain().focus().addColumnBefore().run()}
             >
-              <ViewColumnOutlined fontSize="small" sx={{ transform: "scaleX(-1)" }} />
+              <ViewColumnOutlined
+                fontSize="small"
+                sx={{ transform: "scaleX(-1)" }}
+              />
             </IconButton>
           </Tooltip>
           <Tooltip title="오른쪽에 열 추가">
@@ -129,6 +158,42 @@ export function TableTools({
             </span>
           </Tooltip>
           <Divider flexItem orientation="vertical" sx={{ mx: 0.4, my: 0.5 }} />
+          {cellAlignments.map((alignment) => {
+            const current = normalizeAlignment(
+              editor.getAttributes("tableCell").verticalAlign ??
+                editor.getAttributes("tableHeader").verticalAlign,
+            );
+            const Icon = alignmentIcons[alignment];
+            return (
+              <Tooltip
+                key={alignment}
+                title={`세로 정렬 ${alignmentLabels[alignment]}`}
+              >
+                <span>
+                  <IconButton
+                    aria-label={`세로 정렬 ${alignmentLabels[alignment]}`}
+                    size="small"
+                    color={current === alignment ? "primary" : "default"}
+                    onClick={() =>
+                      editor
+                        .chain()
+                        .focus()
+                        .updateAttributes("tableCell", {
+                          verticalAlign: alignment,
+                        })
+                        .updateAttributes("tableHeader", {
+                          verticalAlign: alignment,
+                        })
+                        .run()
+                    }
+                  >
+                    <Icon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            );
+          })}
+          <Divider flexItem orientation="vertical" sx={{ mx: 0.4, my: 0.5 }} />
           {cellShades.map((shade) => {
             const current = normalizeShade(
               editor.getAttributes("tableCell").backgroundColor ??
@@ -163,7 +228,9 @@ export function TableTools({
                     bgcolor: shade.value || "#fff",
                     border: "1px solid",
                     borderColor: selected ? "primary.main" : "divider",
-                    boxShadow: selected ? "0 0 0 2px rgba(81,81,198,.25)" : "none",
+                    boxShadow: selected
+                      ? "0 0 0 2px rgba(81,81,198,.25)"
+                      : "none",
                     // The "없음" swatch reads as a crossed-out circle.
                     backgroundImage: shade.value
                       ? "none"

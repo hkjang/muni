@@ -38,7 +38,9 @@ export function SlashMenu({
 }) {
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   const [active, setActive] = useState(0);
-  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(
+    null,
+  );
   const fileInput = useRef<HTMLInputElement>(null);
   const pendingImage = useRef<Trigger | null>(null);
 
@@ -89,12 +91,17 @@ export function SlashMenu({
 
   const run = useCallback(
     (command: InsertCommand, at: Trigger) => {
-      const chain = editor.chain().focus().deleteRange({ from: at.from, to: at.to });
+      const chain = editor
+        .chain()
+        .focus()
+        .deleteRange({ from: at.from, to: at.to });
       switch (command.id) {
         case "h1":
         case "h2":
         case "h3":
-          chain.setNode("heading", { level: Number(command.id.slice(1)) }).run();
+          chain
+            .setNode("heading", { level: Number(command.id.slice(1)) })
+            .run();
           break;
         case "paragraph":
           chain.setParagraph().run();
@@ -113,6 +120,14 @@ export function SlashMenu({
           break;
         case "codeBlock":
           chain.toggleCodeBlock().run();
+          break;
+        case "mermaid":
+          // A diagram is a code block whose language says so. Nobody should
+          // have to know that to draw one.
+          chain
+            .toggleCodeBlock({ language: "mermaid" })
+            .insertContent("graph TD\n  시작 --> 끝")
+            .run();
           break;
         case "table":
           chain.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
@@ -153,7 +168,11 @@ export function SlashMenu({
         `/api/v1/documents/${documentId}/attachments`,
         { method: "POST", body: form },
       );
-      editor.chain().focus().setImage({ src: result.url, alt: file.name }).run();
+      editor
+        .chain()
+        .focus()
+        .setImage({ src: result.url, alt: file.name })
+        .run();
     } finally {
       event.target.value = "";
     }
@@ -235,7 +254,9 @@ export function SlashMenu({
         >
           {grouped.map((entry) => (
             <Box key={entry.group}>
-              <ListSubheader sx={{ lineHeight: "26px", fontSize: 11.5, px: 1.5 }}>
+              <ListSubheader
+                sx={{ lineHeight: "26px", fontSize: 11.5, px: 1.5 }}
+              >
                 {entry.group}
               </ListSubheader>
               {entry.commands.map((command) => {
@@ -255,7 +276,8 @@ export function SlashMenu({
                       px: 1.5,
                       py: 0.7,
                       cursor: "pointer",
-                      bgcolor: index === active ? "action.selected" : "transparent",
+                      bgcolor:
+                        index === active ? "action.selected" : "transparent",
                     }}
                   >
                     <Typography variant="body2" sx={{ flex: 1 }}>
