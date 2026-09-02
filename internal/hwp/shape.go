@@ -16,6 +16,10 @@ type paraShape struct {
 	align     string
 	indent    int
 	firstLine bool
+	// list is the kind of list a paragraph with this shape is an item of —
+	// "bulletList" or "orderedList" — and level how deep; "" is no list.
+	list  string
+	level int
 }
 
 // readParaShape reads one PARA_SHAPE record.
@@ -34,6 +38,16 @@ func readParaShape(raw []byte) paraShape {
 	if first := int32(binary.LittleEndian.Uint32(raw[12:])); first > 0 {
 		shape.firstLine = true
 	}
+	// Bits 23 and 24 say what heads the paragraph — nothing, an outline
+	// number, a list number or a bullet — and 25 to 27 how deep it sits. A
+	// .hwp has no list element: a list is a run of paragraphs that say so.
+	switch (property >> 23) & 0x03 {
+	case 2:
+		shape.list = "orderedList"
+	case 3:
+		shape.list = "bulletList"
+	}
+	shape.level = int((property >> 25) & 0x07)
 	return shape
 }
 

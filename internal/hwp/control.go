@@ -37,9 +37,11 @@ func controlID(raw []byte) string {
 func (imp *importer) control(node *recordNode) (blocks, inline []*richdoc.Node) {
 	switch controlID(node.data) {
 	case "tbl ":
-		if table := imp.table(node); table != nil {
-			return []*richdoc.Node{table}, nil
+		table, captions := imp.table(node)
+		if table != nil {
+			return append([]*richdoc.Node{table}, captions...), nil
 		}
+		return captions, nil
 	case "gso ", "$pic":
 		return imp.shapeObject(node), nil
 	case "fn  ", "en  ":
@@ -48,8 +50,38 @@ func (imp *importer) control(node *recordNode) (blocks, inline []*richdoc.Node) 
 		if note := imp.note(node); note != nil {
 			return nil, []*richdoc.Node{note}
 		}
+	case "head", "foot":
+		imp.furniture(controlID(node.data), node)
 	}
 	return nil, nil
+}
+
+// furniture keeps the words of a header or footer. muni holds one line of
+// each for the whole document, so the first of each kind is the one kept
+// and the paragraphs in it are joined by a space.
+func (imp *importer) furniture(kind string, node *recordNode) {
+	lines := []string{}
+	for _, list := range topRecords(node, tagListHeader, tagListHeader) {
+		for _, block := range imp.paragraphs(list.children) {
+			if text := strings.TrimSpace(block.PlainText()); text != "" {
+				lines = append(lines, text)
+			}
+		}
+	}
+	text := strings.Join(lines, " ")
+	if text == "" {
+		return
+	}
+	switch kind {
+	case "head":
+		if imp.headerText == "" {
+			imp.headerText = text
+		}
+	case "foot":
+		if imp.footerText == "" {
+			imp.footerText = text
+		}
+	}
 }
 
 // shapeObject reads a drawing: the pictures in it, and the words in any text
@@ -109,15 +141,18 @@ func topRecords(node *recordNode, tag, stop uint16) []*recordNode {
 	return out
 }
 
-// table reads a table control into muni's table.
+// table reads a table control into muni's table, and its caption into the
+// paragraphs that follow it.
 //
 // Each cell is a LIST_HEADER carrying where it sits and how far it reaches,
 // with its paragraphs beneath it. The rows are rebuilt from where the cells
-// say they are rather than from the order they were written in.
-func (imp *importer) table(node *recordNode) *richdoc.Node {
+// say they are rather than from the order they were written in. A caption is
+// a LIST_HEADER too, one with no cell address — and one that was dropped for
+// having none, until a real file's "[표 캡션]" went missing.
+func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*richdoc.Node) {
 	cells := node.all(tagListHeader)
 	if len(cells) == 0 {
-		return nil
+		return nil, nil
 	}
 	type placed struct {
 		row, column   uint16
@@ -129,6 +164,7 @@ func (imp *importer) table(node *recordNode) *richdoc.Node {
 	for _, cell := range cells {
 		address, ok := readCellAddress(cell.data)
 		if !ok {
+			captions = append(captions, imp.paragraphs(cell.children)...)
 			continue
 		}
 		content := imp.paragraphs(cell.children)
@@ -148,7 +184,7 @@ func (imp *importer) table(node *recordNode) *richdoc.Node {
 		}
 	}
 	if len(placedCells) == 0 {
-		return nil
+		return nil, captions
 	}
 	// Indexed by where each cell says it is, rather than scanned for. The
 	// scan was rows × 1024 columns × cells, which a five-thousand-cell table
@@ -176,9 +212,9 @@ func (imp *importer) table(node *recordNode) *richdoc.Node {
 		rows = append(rows, row)
 	}
 	if len(rows) == 0 {
-		return nil
+		return nil, captions
 	}
-	return &richdoc.Node{Type: "table", Content: rows}
+	return &richdoc.Node{Type: "table", Content: rows}, captions
 }
 
 // cellAddress is where a cell sits and how far it reaches.

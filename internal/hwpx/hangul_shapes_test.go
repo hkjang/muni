@@ -1,0 +1,165 @@
+package hwpx
+
+import (
+	"archive/zip"
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/hkjang/muni/internal/richdoc"
+)
+
+// What Hangul's own files taught, kept as tests. Each shape here was read
+// off fifteen files Hangul wrote, after a fixture shaped to the reader had
+// let the reader pass while every real file lost the thing in question.
+
+const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
+<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" version="1.4" secCnt="1">
+ <hh:refList>
+  <hh:fontfaces itemCnt="2">
+   <hh:fontface lang="HANGUL" fontCnt="2"><hh:font id="0" face="함초롬바탕" type="TTF"/><hh:font id="1" face="맑은 고딕" type="TTF"/></hh:fontface>
+   <hh:fontface lang="LATIN" fontCnt="2"><hh:font id="0" face="Times New Roman" type="TTF"/><hh:font id="1" face="Arial" type="TTF"/></hh:fontface>
+  </hh:fontfaces>
+  <hh:charProperties itemCnt="2">
+   <hh:charPr id="0" height="1000"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
+   <hh:charPr id="1" height="1000"><hh:fontRef hangul="1" latin="1"/></hh:charPr>
+  </hh:charProperties>
+  <hh:paraProperties itemCnt="4">
+   <hh:paraPr id="0"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>
+   <hh:paraPr id="1"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/>
+    <hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar"><hh:margin><hc:intent value="1800" unit="HWPUNIT"/><hc:left value="3600" unit="HWPUNIT"/></hh:margin><hh:lineSpacing type="PERCENT" value="200" unit="HWPUNIT"/></hp:case>
+    <hp:default><hh:margin><hc:intent value="1800"/><hc:left value="3600"/></hh:margin><hh:lineSpacing type="PERCENT" value="200"/></hp:default></hp:switch>
+   </hh:paraPr>
+   <hh:paraPr id="2"><hh:align horizontal="LEFT"/><hh:heading type="BULLET" idRef="1" level="0"/></hh:paraPr>
+   <hh:paraPr id="3"><hh:align horizontal="LEFT"/><hh:heading type="NUMBER" idRef="1" level="1"/></hh:paraPr>
+  </hh:paraProperties>
+  <hh:styles itemCnt="1"><hh:style id="0" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/></hh:styles>
+ </hh:refList>
+</hh:head>`
+
+func hangulFile(t *testing.T, body string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	for name, data := range map[string]string{
+		"mimetype":              "application/hwp+zip",
+		"Contents/header.xml":   hangulHeader,
+		"Contents/section0.xml": section(body),
+	} {
+		writer, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := writer.Write([]byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+// A run names its font by its number in the header's table, not by name.
+// Read as a name, every run in every Hangul file wore a font called "1".
+func TestAFontIsNamedByItsNumberInTheTable(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="1"><hp:t>고딕으로</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := document.Content[0].Content[0]
+	family := ""
+	for _, mark := range text.Marks {
+		if mark.Type == "textStyle" {
+			family = mark.AttrString("fontFamily")
+		}
+	}
+	if family != "맑은 고딕" {
+		t.Errorf("글꼴 = %q", family)
+	}
+}
+
+// Hangul keeps a paragraph's margins and line spacing inside a switch, one
+// copy for a reader that knows the unit attribute and one for a reader that
+// does not; a reader looking only at the paragraph's own children sees none.
+func TestMarginsInsideASwitchAreRead(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="1" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>들여쓴 문단</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	paragraph := document.Content[0]
+	if paragraph.AttrInt("indent", 0) != 2 {
+		t.Errorf("들여쓰기 = %v", paragraph.Attr("indent"))
+	}
+	if first, _ := paragraph.Attr("firstLine").(bool); !first {
+		t.Errorf("첫 줄 들여쓰기가 없습니다: %v", paragraph.Attrs)
+	}
+	if paragraph.AttrString("lineHeight") != "2" {
+		t.Errorf("줄간격 = %q", paragraph.AttrString("lineHeight"))
+	}
+}
+
+// The vertical alignment of a cell is on the cell's paragraph list: 1,294
+// cells of Hangul's own put it there and none on the cell.
+func TestVerticalAlignmentIsOnTheCellsList(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="1" colCnt="1"><hp:tr><hp:tc name="" header="0">`+
+		`<hp:subList id="" vertAlign="CENTER"><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>가운데</hp:t></hp:run></hp:p></hp:subList>`+
+		`<hp:cellAddr colAddr="0" rowAddr="0"/><hp:cellSpan colSpan="1" rowSpan="1"/></hp:tc></hp:tr></hp:tbl></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cell *richdoc.Node
+	for _, block := range document.Content {
+		if block.Type == "table" {
+			cell = block.Content[0].Content[0]
+		}
+	}
+	if cell == nil {
+		t.Fatalf("표가 없습니다: %v", blockTypes(document))
+	}
+	if cell.AttrString("verticalAlign") != "middle" {
+		t.Errorf("세로 정렬 = %q", cell.AttrString("verticalAlign"))
+	}
+}
+
+// A header or footer rides on the first paragraph as a control, with its
+// own paragraph list; its words are the document's, not the body's.
+func TestAHeaderAndFooterAreRead(t *testing.T) {
+	document, _, meta, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0">`+
+		`<hp:ctrl><hp:header id="0" applyPageType="BOTH"><hp:subList id="" vertAlign="TOP"><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>머리말입니다</hp:t></hp:run></hp:p></hp:subList></hp:header></hp:ctrl>`+
+		`<hp:ctrl><hp:footer id="0" applyPageType="BOTH"><hp:subList id="" vertAlign="BOTTOM"><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>꼬리말입니다</hp:t></hp:run></hp:p></hp:subList></hp:footer></hp:ctrl>`+
+		`<hp:t>본문</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Header != "머리말입니다" || meta.Footer != "꼬리말입니다" {
+		t.Errorf("머리말/꼬리말 = %q / %q", meta.Header, meta.Footer)
+	}
+	if text := document.PlainText(); text != "본문" {
+		t.Errorf("본문 = %q", text)
+	}
+}
+
+// A list is a run of paragraphs whose shape says bullet or number and how
+// deep, and nothing else marks it.
+func TestBulletAndNumberShapesBecomeLists(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t,
+		`<hp:p paraPrIDRef="2" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫째</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="3" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>첫째의 하나</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="2" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>둘째</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>목록 뒤</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); len(types) != 2 || types[0] != "bulletList" || types[1] != "paragraph" {
+		t.Fatalf("블록 = %v", types)
+	}
+	list := document.Content[0]
+	if len(list.Content) != 2 {
+		t.Fatalf("항목 = %d개", len(list.Content))
+	}
+	inner := list.Content[0].Content
+	if len(inner) != 2 || inner[1].Type != "orderedList" || !strings.Contains(inner[1].PlainText(), "첫째의 하나") {
+		t.Errorf("안쪽 목록 = %v", blockTypes(list.Content[0]))
+	}
+}

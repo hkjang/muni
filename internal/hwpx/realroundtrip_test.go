@@ -43,7 +43,7 @@ func TestRealRoundTrip(t *testing.T) {
 	}
 	for _, path := range files {
 		body, _ := os.ReadFile(path)
-		original, assets, _, err := hwp.Parse(body)
+		original, assets, meta, err := hwp.Parse(body)
 		if err != nil {
 			continue
 		}
@@ -51,13 +51,21 @@ func TestRealRoundTrip(t *testing.T) {
 		for _, a := range assets {
 			bytesFor[a.Placeholder] = a
 		}
-		built, err := Build(original, Options{Title: "왕복", ResolveImage: func(src string) (Image, bool) {
+		built, err := Build(original, Options{Title: "왕복", Header: meta.Header, Footer: meta.Footer, ResolveImage: func(src string) (Image, bool) {
 			a, ok := bytesFor[src]
 			return Image{Data: a.Data, MediaType: a.MediaType}, ok
 		}})
 		if err != nil {
 			t.Errorf("%s: build: %v", filepath.Base(path), err)
 			continue
+		}
+		// With MUNI_OUT set, each file written is kept, for a reader that
+		// is not this one — Hangul, or another implementation — to judge.
+		if out := os.Getenv("MUNI_OUT"); out != "" {
+			name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)) + ".hwpx"
+			if err := os.WriteFile(filepath.Join(out, name), built, 0o644); err != nil {
+				t.Errorf("%s: write: %v", name, err)
+			}
 		}
 		back, backAssets, _, err := Parse(built)
 		if err != nil {

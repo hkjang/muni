@@ -20,6 +20,10 @@ import (
 // Meta is what the file says about itself rather than about its text.
 type Meta struct {
 	Version string
+	// Header and Footer are the words of the first header and footer, the
+	// one line of each muni keeps.
+	Header string
+	Footer string
 }
 
 type fileHeader struct {
@@ -55,6 +59,9 @@ type importer struct {
 	// binaryCache keeps it from being decompressed twice.
 	assetByID   map[string]string
 	binaryCache map[string][]byte
+	// headerText and footerText are the first header and footer met.
+	headerText string
+	footerText string
 }
 
 // Parse reads a .hwp into muni's document model.
@@ -89,7 +96,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		document.Content = []*richdoc.Node{richdoc.Paragraph()}
 	}
 	richdoc.LiftImages(document)
-	return document, imp.assets, Meta{Version: imp.header.version}, nil
+	return document, imp.assets, Meta{Version: imp.header.version, Header: imp.headerText, Footer: imp.footerText}, nil
 }
 
 // readFileHeader reads the 256 bytes that say what the rest of the file is.

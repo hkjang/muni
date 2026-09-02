@@ -2,6 +2,7 @@ package hwpx
 
 import (
 	"archive/zip"
+	"github.com/hkjang/muni/internal/hangul"
 	"net/http"
 	"strconv"
 	"strings"
@@ -68,10 +69,30 @@ func (imp *importer) sectionIsLandscape(root *node) bool {
 // blocks reads a section into muni's blocks.
 func (imp *importer) blocks(root *node) []*richdoc.Node {
 	out := []*richdoc.Node{}
+	var lists hangul.ListStack
 	for _, child := range root.children {
-		out = append(out, imp.block(child)...)
+		kind, level := imp.listShape(child)
+		for _, block := range imp.block(child) {
+			if kind != "" && block.Type == "paragraph" {
+				out = lists.Add(out, kind, level, block)
+				continue
+			}
+			// Anything else — a heading, a table, a plain paragraph — ends
+			// the list that was open.
+			lists.Close()
+			out = append(out, block)
+		}
 	}
 	return out
+}
+
+// listShape says what list a paragraph's shape puts it in, if any.
+func (imp *importer) listShape(current *node) (kind string, level int) {
+	if !current.is("p") {
+		return "", 0
+	}
+	shape := imp.paraShapes[strings.TrimSpace(current.attr("paraPrIDRef"))]
+	return shape.list, shape.level
 }
 
 func (imp *importer) block(current *node) []*richdoc.Node {

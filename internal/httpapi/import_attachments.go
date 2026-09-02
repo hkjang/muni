@@ -96,7 +96,7 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	case ".hwpx":
 		content, assets, furniture, err = hwpxImport(body)
 	case ".hwp":
-		content, assets, err = hwpImport(body)
+		content, assets, furniture, err = hwpImport(body)
 	case ".pdf":
 		// PDF interpretation is CPU bound; bound it so one upload cannot hold
 		// a worker for the whole request timeout.
@@ -188,8 +188,8 @@ func docxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error
 // hwpxImport converts a Hangul Office file, keeping headings, tables, inline
 // formatting and embedded pictures.
 //
-// The furniture it reports is only the paper: HWPX keeps a header and footer
-// per section in a shape muni has nowhere to put yet.
+// The furniture it reports is the paper and the first header and footer:
+// Hangul keeps one of each per section, and muni one per document.
 func hwpxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error) {
 	document, assets, meta, err := hwpx.Parse(body)
 	if err != nil {
@@ -199,22 +199,22 @@ func hwpxImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error
 	if err != nil {
 		return nil, nil, docx.Meta{}, err
 	}
-	return content, assets, docx.Meta{Landscape: meta.Landscape}, nil
+	return content, assets, docx.Meta{Header: meta.Header, Footer: meta.Footer, Landscape: meta.Landscape}, nil
 }
 
-// hwpImport converts the older binary Hangul format. It keeps the words and
-// the paragraphs they sit in; the formatting a .hwp keeps in its DocInfo is
-// not read yet.
-func hwpImport(body []byte) (json.RawMessage, []richdoc.Asset, error) {
-	document, assets, _, err := hwp.Parse(body)
+// hwpImport converts the older binary Hangul format: the words, the
+// paragraphs and lists they sit in, the tables, pictures and notes, and the
+// first header and footer.
+func hwpImport(body []byte) (json.RawMessage, []richdoc.Asset, docx.Meta, error) {
+	document, assets, meta, err := hwp.Parse(body)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, docx.Meta{}, err
 	}
 	content, err := document.JSON()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, docx.Meta{}, err
 	}
-	return content, assets, nil
+	return content, assets, docx.Meta{Header: meta.Header, Footer: meta.Footer}, nil
 }
 
 // pdfImport reconstructs paragraphs, headings, lists, tables and images from

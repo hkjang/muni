@@ -96,7 +96,17 @@ func spanOf(cell *node, name string) int {
 }
 
 func cellVerticalAlign(cell *node) string {
-	switch strings.ToUpper(strings.TrimSpace(cell.attr("vertAlign"))) {
+	// The alignment is on the cell's paragraph list, not the cell: that is
+	// where Hangul writes it in every cell of every file of its own. The
+	// cell itself is read second, for a writer that put it there.
+	value := ""
+	if list := cell.child("subList"); list != nil {
+		value = list.attr("vertAlign")
+	}
+	if value == "" {
+		value = cell.attr("vertAlign")
+	}
+	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "CENTER":
 		return "middle"
 	case "BOTTOM":

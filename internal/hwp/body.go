@@ -2,6 +2,7 @@ package hwp
 
 import (
 	"encoding/binary"
+	"github.com/hkjang/muni/internal/hangul"
 	"strings"
 	"unicode/utf16"
 
@@ -96,13 +97,34 @@ func (imp *importer) inline(text paragraphText, runs []charRun) []*richdoc.Node 
 // paragraphs reads a run of PARA_HEADER nodes into blocks.
 func (imp *importer) paragraphs(nodes []*recordNode) []*richdoc.Node {
 	out := []*richdoc.Node{}
+	var lists hangul.ListStack
 	for _, node := range nodes {
 		if node.tag != tagParaHeader {
 			continue
 		}
-		out = append(out, imp.paragraph(node)...)
+		kind, level := imp.listShape(node)
+		for _, block := range imp.paragraph(node) {
+			if kind != "" && block.Type == "paragraph" {
+				out = lists.Add(out, kind, level, block)
+				continue
+			}
+			// Anything else — a heading, a table, a plain paragraph — ends
+			// the list that was open.
+			lists.Close()
+			out = append(out, block)
+		}
 	}
 	return out
+}
+
+// listShape says what list a paragraph's shape puts it in, if any.
+func (imp *importer) listShape(node *recordNode) (kind string, level int) {
+	refs := readParagraphRefs(node.data)
+	if int(refs.shape) < len(imp.paraShapes) {
+		shape := imp.paraShapes[refs.shape]
+		return shape.list, shape.level
+	}
+	return "", 0
 }
 
 // paragraph reads one PARA_HEADER and everything under it.

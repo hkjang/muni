@@ -75,7 +75,7 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter, landscape)
 		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	case "hwpx":
-		body, err = s.makeHWPX(r.Context(), id, title, content, landscape)
+		body, err = s.makeHWPX(r.Context(), id, title, content, landscape, pageHeader, pageFooter)
 		contentType = "application/hwp+zip"
 	case "pdf":
 		body, err = makePDF(r.Context(), title, pageHeader, pageFooter, landscape, s.renderHTMLWithAttachments(r.Context(), id, content))
@@ -123,7 +123,7 @@ func (s *Server) makeDOCX(ctx context.Context, documentID uuid.UUID, title strin
 // back out, since the office on the other end is as likely to open it in
 // Hangul as in Word. It is not behind a policy toggle the way DOCX and PDF
 // are: it costs what an HTML export costs, and there is no Chromium in it.
-func (s *Server) makeHWPX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, landscape bool) ([]byte, error) {
+func (s *Server) makeHWPX(ctx context.Context, documentID uuid.UUID, title string, content json.RawMessage, landscape bool, header, footer string) ([]byte, error) {
 	document, err := richdoc.Parse(content)
 	if err != nil {
 		return nil, fmt.Errorf("문서 구조를 읽지 못했습니다: %w", err)
@@ -134,6 +134,8 @@ func (s *Server) makeHWPX(ctx context.Context, documentID uuid.UUID, title strin
 		Title:     title,
 		Created:   time.Now().UTC(),
 		Landscape: landscape,
+		Header:    header,
+		Footer:    footer,
 		ResolveImage: func(src string) (hwpx.Image, bool) {
 			picture, ok := images[src]
 			if !ok {

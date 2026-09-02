@@ -23,12 +23,25 @@ func (imp *importer) loadHeader(files map[string]*zip.File) {
 	if err != nil {
 		return
 	}
+	// The font table comes first: a run names its face by number, and the
+	// number means nothing without the list it indexes.
+	imp.fonts = map[string]string{}
+	root.each("fontface", func(face *node) {
+		lang := strings.ToUpper(strings.TrimSpace(face.attr("lang")))
+		for _, font := range face.children {
+			if font.is("font") && font.attr("id") != "" {
+				imp.fonts[lang+"/"+strings.TrimSpace(font.attr("id"))] = strings.TrimSpace(font.attr("face"))
+			}
+		}
+	})
 	root.each("charPr", func(current *node) {
 		id := current.attr("id")
 		if id == "" {
 			return
 		}
-		imp.charShapes[id] = readCharShape(current)
+		shape := readCharShape(current)
+		shape.family = imp.fontFace(shape.family)
+		imp.charShapes[id] = shape
 	})
 	root.each("paraPr", func(current *node) {
 		id := current.attr("id")
@@ -75,10 +88,31 @@ func readCharShape(current *node) charShape {
 	}
 	if font := current.descendant("fontRef"); font != nil {
 		// hangul first: muni's documents are Korean, and that attribute names
-		// the face the Hangul is set in.
+		// the face the Hangul is set in — by its number in the font table,
+		// which the caller resolves.
 		shape.family = firstNonEmpty(font.attr("hangul"), font.attr("latin"))
 	}
 	return shape
+}
+
+// fontFace turns what a fontRef says into a face name. Hangul writes the
+// font's number in the header's table, every one of its files does, and a
+// number taken for a name puts a font called "0" on every run. A value that
+// is not a number is a name some other writer put there and stands as it is.
+func (imp *importer) fontFace(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	if _, err := strconv.Atoi(ref); err != nil {
+		return ref
+	}
+	for _, lang := range []string{"HANGUL", "LATIN"} {
+		if face := imp.fonts[lang+"/"+ref]; face != "" {
+			return face
+		}
+	}
+	return ""
 }
 
 // underlineIsDrawn reports whether an underline element actually draws one.
@@ -101,7 +135,7 @@ func readParaShape(current *node) paraShape {
 	} else {
 		shape.align = hangul.Alignment(current.attr("align"))
 	}
-	if margin := current.child("margin"); margin != nil {
+	if margin := current.descendant("margin"); margin != nil {
 		if left := margin.child("left"); left != nil {
 			shape.indent = indentSteps(left.attr("value"))
 		}
@@ -118,14 +152,24 @@ func readParaShape(current *node) paraShape {
 			}
 		}
 	}
-	if spacing := current.child("lineSpacing"); spacing != nil {
+	if spacing := current.descendant("lineSpacing"); spacing != nil {
 		shape.lineRate = lineHeightOf(spacing)
 	}
-	if heading := current.child("heading"); heading != nil &&
-		strings.EqualFold(strings.TrimSpace(heading.attr("type")), "OUTLINE") {
-		// Zero-based in the file; muni's heading levels start at one.
-		if level, err := strconv.Atoi(strings.TrimSpace(heading.attr("level"))); err == nil && level >= 0 && level < 6 {
-			shape.outline = level + 1
+	if heading := current.child("heading"); heading != nil {
+		level, err := strconv.Atoi(strings.TrimSpace(heading.attr("level")))
+		if err != nil || level < 0 {
+			level = 0
+		}
+		switch strings.ToUpper(strings.TrimSpace(heading.attr("type"))) {
+		case "OUTLINE":
+			// Zero-based in the file; muni's heading levels start at one.
+			if level < 6 {
+				shape.outline = level + 1
+			}
+		case "BULLET":
+			shape.list, shape.level = "bulletList", level
+		case "NUMBER":
+			shape.list, shape.level = "orderedList", level
 		}
 	}
 	return shape

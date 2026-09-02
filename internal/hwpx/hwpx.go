@@ -27,6 +27,9 @@ import (
 // Meta is what a section says about the page rather than about the text.
 type Meta struct {
 	Landscape bool
+	// Header and Footer are the words of the first header and footer.
+	Header string
+	Footer string
 }
 
 const maxPartBytes = 64 << 20
@@ -37,6 +40,8 @@ type importer struct {
 	charShapes map[string]charShape
 	paraShapes map[string]paraShape
 	styles     map[string]styleInfo
+	// fonts is the header's font table, face by "LANG/id".
+	fonts map[string]string
 	// binaryParts is where each picture is; binary is the bytes of the ones
 	// something actually asked for.
 	binaryParts map[string]*zip.File
@@ -63,6 +68,10 @@ type paraShape struct {
 	// outline is the heading level a shape carries, when the outline is
 	// done in the shape rather than in a named style.
 	outline int
+	// list is the kind of list a paragraph with this shape is an item of —
+	// "bulletList" or "orderedList" — and level how deep; "" is no list.
+	list  string
+	level int
 }
 
 type styleInfo struct {
@@ -110,6 +119,18 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		if imp.sectionIsLandscape(root) {
 			meta.Landscape = true
 		}
+		// A header or footer rides in a paragraph as a control. The body
+		// reader passes controls by, so its words are read here and once.
+		root.each("header", func(current *node) {
+			if meta.Header == "" {
+				meta.Header = imp.furnitureText(current)
+			}
+		})
+		root.each("footer", func(current *node) {
+			if meta.Footer == "" {
+				meta.Footer = imp.furnitureText(current)
+			}
+		})
 		document.Content = append(document.Content, imp.blocks(root)...)
 	}
 	if len(document.Content) == 0 {
@@ -119,6 +140,20 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	// the other importers do.
 	richdoc.LiftImages(document)
 	return document, imp.assets, meta, nil
+}
+
+// furnitureText reads a header or footer as one line of words: muni keeps one
+// line of each, and the paragraphs in it are joined by a space.
+func (imp *importer) furnitureText(current *node) string {
+	lines := []string{}
+	current.each("p", func(paragraph *node) {
+		for _, block := range imp.paragraph(paragraph) {
+			if text := strings.TrimSpace(block.PlainText()); text != "" {
+				lines = append(lines, text)
+			}
+		}
+	})
+	return strings.Join(lines, " ")
 }
 
 // sectionNames returns the body parts in the order they are read.
