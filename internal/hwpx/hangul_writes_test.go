@@ -181,6 +181,37 @@ func TestListsAreWrittenAsShapesAndComeBackAsLists(t *testing.T) {
 	}
 }
 
+// A highlight is the charPr's shadeColor, and the runs nobody marked keep
+// the "none" Hangul writes for them. Writing the colour on every charPr would
+// shade the whole document; writing it on none of them threw the mark away,
+// which is what every .hwpx muni exported used to do.
+func TestAHighlightIsWrittenAsTheShadeBehindTheWords(t *testing.T) {
+	marked := richdoc.Text("형광펜친글")
+	marked.Marks = []richdoc.Mark{{Type: "highlight", Attrs: map[string]any{"color": "#fff3a3"}}}
+	document := richdoc.Doc(richdoc.Paragraph(marked, richdoc.Text("맨글")))
+	built, err := Build(document, Options{Title: "음영"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	header := partsOf(t, built)["Contents/header.xml"]
+	if !strings.Contains(header, `shadeColor="#FFF3A3"`) {
+		t.Errorf("음영 색이 charPr 에 쓰이지 않았습니다: %s", header)
+	}
+	if !strings.Contains(header, `shadeColor="none"`) {
+		t.Errorf("음영 없는 글자 모양이 none 이 아닙니다")
+	}
+	back, _, _, err := Parse(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if color := markAttr(t, back, "형광펜친글", "highlight", "color"); color != "#FFF3A3" {
+		t.Errorf("왕복한 음영 색 = %q", color)
+	}
+	if hasMarkOn(back, "맨글", "highlight") {
+		t.Errorf("음영 없던 글에 음영이 붙어 돌아왔습니다")
+	}
+}
+
 func TestTheHeaderAndFooterAreWrittenAndReadBack(t *testing.T) {
 	built, err := Build(everyNode(t), Options{Title: "머리말", Header: "회의록 — 대외비", Footer: "무니"})
 	if err != nil {

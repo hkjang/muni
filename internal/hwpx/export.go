@@ -128,6 +128,9 @@ type binItem struct {
 type charKey struct {
 	bold, italic, underline, strike, mono bool
 	color, size, family                   string
+	// shade is the colour behind the words — muni's highlight — as six
+	// hexadecimal digits with a leading hash, "" for unshaded.
+	shade string
 	// script is "superscript", "subscript" or nothing.
 	script string
 }
@@ -441,6 +444,10 @@ func applyMarks(key *charKey, marks []richdoc.Mark) {
 			key.script = "superscript"
 		case "subscript", "sub":
 			key.script = "subscript"
+		case "highlight":
+			// Read back through the same judgement the readers make, so a
+			// highlight muni would not read is not one muni writes.
+			key.shade = hangul.TextShade(mark.AttrString("color"))
 		case "textStyle":
 			if color := mark.AttrString("color"); color != "" {
 				key.color = color

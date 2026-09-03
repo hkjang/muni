@@ -224,6 +224,80 @@ func TestAPlainRunIsNeitherRaisedNorLowered(t *testing.T) {
 	}
 }
 
+// shadedCharShapeRecord writes a CHAR_SHAPE with a colour behind the words,
+// laid out from the format's own field list rather than from the reader's
+// constants: UINT16[7] faces, UINT8[7] ratios, INT8[7] spacings, UINT8[7]
+// relative sizes, INT8[7] offsets, INT32 base size, UINT32 properties, INT8
+// shadow x, INT8 shadow y, then the text, underline and shade colours.
+func shadedCharShapeRecord(shade uint32) []byte {
+	const faces, ratios, spacings, relativeSizes, offsets = 7 * 2, 7, 7, 7, 7
+	shadeAt := faces + ratios + spacings + relativeSizes + offsets + 4 + 4 + 1 + 1 + 4 + 4
+	data := make([]byte, shadeAt+4)
+	binary.LittleEndian.PutUint32(data[shadeAt:], shade)
+	return append(recordHeader(tagCharShape, 0, len(data)), data...)
+}
+
+// 글자 음영 is what a reviewer marks a sentence with, and muni draws it as a
+// highlight — as it does the same word out of a .docx. Reading the text
+// colour and stopping left every marked sentence in every .hwp unmarked.
+func TestARunKeepsTheShadeBehindItsWords(t *testing.T) {
+	document := mustParse(t, hwpFileWithDocInfo(t, shadedCharShapeRecord(colorRefBytes(0xFF, 0xF3, 0xA3)),
+		paragraphRecords(units("형광펜 친 글"), charRun{at: 0, shape: 0})))
+	if marks := markedText(t, document, "형광펜 친 글"); !has(marks, "highlight") {
+		t.Fatalf("음영이 오지 않았습니다: %v", marks)
+	}
+	if color := markAttr(t, document, "형광펜 친 글", "highlight", "color"); color != "#FFF3A3" {
+		t.Errorf("음영 색 = %q", color)
+	}
+}
+
+// Hangul writes the shade of every run, marked or not: all ones for "없음",
+// and a record nothing ever set leaves it at nought. Taking either for a
+// colour would highlight every word of every document — the second in black,
+// which hides the words it is drawn behind.
+func TestARunNobodyShadedIsNotHighlighted(t *testing.T) {
+	docInfo := append(shadedCharShapeRecord(0xFFFFFFFF), shadedCharShapeRecord(0)...)
+	body := paragraphRecords(units("없음인글비어있는글"),
+		charRun{at: 0, shape: 0},
+		charRun{at: 4, shape: 1})
+	document := mustParse(t, hwpFileWithDocInfo(t, docInfo, body))
+	for _, phrase := range []string{"없음인글", "비어있는글"} {
+		if marks := markedText(t, document, phrase); has(marks, "highlight") {
+			t.Errorf("%q 에 음영이 붙었습니다: %v", phrase, marks)
+		}
+	}
+}
+
+// markAttr is one attribute of one kind of mark on the text holding a phrase.
+func markAttr(t *testing.T, document *richdoc.Node, phrase, mark, name string) string {
+	t.Helper()
+	out := ""
+	found := false
+	var walk func(*richdoc.Node)
+	walk = func(node *richdoc.Node) {
+		if node == nil || found {
+			return
+		}
+		if node.Type == "text" && strings.Contains(node.Text, phrase) {
+			found = true
+			for _, current := range node.Marks {
+				if current.Type == mark {
+					out = current.AttrString(name)
+				}
+			}
+			return
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(document)
+	if !found {
+		t.Fatalf("%q 를 찾지 못했습니다: %q", phrase, document.PlainText())
+	}
+	return out
+}
+
 func mustParse(t *testing.T, file []byte) *richdoc.Node {
 	t.Helper()
 	document, _, _, err := Parse(file)
