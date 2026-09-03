@@ -68,6 +68,37 @@ func readParaShape(raw []byte) paraShape {
 	return shape
 }
 
+// A BORDER_FILL is where a table cell's shade actually lives: the cell itself
+// names one by number and says nothing about colour. Reading only the cells
+// finds a table whose shaded heading row is as white as its body — which is
+// what every .hwp report arrived as, while the same document saved as .hwpx
+// kept its shading.
+//
+// borderFillFillOffset is where the fill information begins: a UINT16 of
+// switches, then five borders — the four sides and then the diagonal — each a
+// line kind, a thickness and a COLORREF.
+const (
+	borderFillFillOffset = 2 + 5*(1+1+4)
+	borderFillFaceOffset = borderFillFillOffset + 4
+)
+
+// readBorderFillShade reads the background one BORDER_FILL paints.
+//
+// The fill can be a colour, a picture or a gradient, and only the first is a
+// shade muni can hold: the kind is a word of switches whose lowest bit says
+// so, and the background colour follows it. A record that claims no colour
+// fill is left alone rather than read for one, which is what keeps a
+// gradient's first stop from arriving as a flat shade.
+func readBorderFillShade(raw []byte) string {
+	if len(raw) < borderFillFaceOffset+4 {
+		return ""
+	}
+	if binary.LittleEndian.Uint32(raw[borderFillFillOffset:])&0x01 == 0 {
+		return ""
+	}
+	return hangul.CellShade(colorRef(binary.LittleEndian.Uint32(raw[borderFillFaceOffset:])))
+}
+
 type styleInfo struct {
 	name         string
 	englishName  string

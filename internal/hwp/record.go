@@ -30,6 +30,7 @@ const sizeInHeader = 0xFFF
 const (
 	tagDocumentProperties = 0x010 // HWPTAG_BEGIN
 	tagFaceName           = 0x013
+	tagBorderFill         = 0x014
 	tagCharShape          = 0x015
 	tagParaShape          = 0x019
 	tagStyle              = 0x01A
