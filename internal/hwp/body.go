@@ -63,6 +63,9 @@ func (imp *importer) marksFor(id uint32) []richdoc.Mark {
 	if shape.script != "" {
 		marks = append(marks, richdoc.Mark{Type: shape.script})
 	}
+	if shape.shade != "" {
+		marks = append(marks, richdoc.Mark{Type: "highlight", Attrs: map[string]any{"color": shape.shade}})
+	}
 	attrs := map[string]any{}
 	if shape.color != "" {
 		attrs["color"] = shape.color

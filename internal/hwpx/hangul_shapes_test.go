@@ -23,11 +23,13 @@ const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:fontface lang="HANGUL" fontCnt="2"><hh:font id="0" face="함초롬바탕" type="TTF"/><hh:font id="1" face="맑은 고딕" type="TTF"/></hh:fontface>
    <hh:fontface lang="LATIN" fontCnt="2"><hh:font id="0" face="Times New Roman" type="TTF"/><hh:font id="1" face="Arial" type="TTF"/></hh:fontface>
   </hh:fontfaces>
-  <hh:charProperties itemCnt="4">
-   <hh:charPr id="0" height="1000"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
+  <hh:charProperties itemCnt="6">
+   <hh:charPr id="0" height="1000" shadeColor="none"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
    <hh:charPr id="1" height="1000"><hh:fontRef hangul="1" latin="1"/></hh:charPr>
    <hh:charPr id="2" height="1000"><hh:fontRef hangul="0" latin="0"/><hh:supscript/></hh:charPr>
    <hh:charPr id="3" height="1000"><hh:fontRef hangul="0" latin="0"/><hh:subscript/></hh:charPr>
+   <hh:charPr id="4" height="1000" shadeColor="#FFF3A3"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
+   <hh:charPr id="5" height="1000" shadeColor="#FFFFFF"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
   </hh:charProperties>
   <hh:paraProperties itemCnt="4">
    <hh:paraPr id="0"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>
@@ -202,6 +204,62 @@ func TestRaisedAndLoweredRunsAreRead(t *testing.T) {
 	if hasMarkOn(document, "보통글", "superscript") || hasMarkOn(document, "보통글", "subscript") {
 		t.Errorf("첨자가 아닌 글에 첨자가 붙었습니다: %v", document.Content[0].Content[2].Marks)
 	}
+}
+
+// 글자 음영 is an attribute of the charPr, not an element beside the bold and
+// the italic, and Hangul writes it on every charPr it makes — "none" for the
+// runs nobody marked, white for the ones a writer set to the paper's own
+// colour. Reading the elements alone left every marked sentence unmarked,
+// while the same sentence out of a .docx came through highlighted.
+func TestARunKeepsTheShadeBehindItsWords(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0">`+
+		`<hp:run charPrIDRef="4"><hp:t>형광펜친글</hp:t></hp:run>`+
+		`<hp:run charPrIDRef="5"><hp:t>흰바탕글</hp:t></hp:run>`+
+		`<hp:run charPrIDRef="0"><hp:t>음영없는글</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMarkOn(document, "형광펜친글", "highlight") {
+		t.Fatalf("음영이 오지 않았습니다: %v", document.Content[0].Content[0].Marks)
+	}
+	if color := markAttr(t, document, "형광펜친글", "highlight", "color"); color != "#FFF3A3" {
+		t.Errorf("음영 색 = %q", color)
+	}
+	for _, phrase := range []string{"흰바탕글", "음영없는글"} {
+		if hasMarkOn(document, phrase, "highlight") {
+			t.Errorf("%q 에 음영이 붙었습니다", phrase)
+		}
+	}
+}
+
+// markAttr is one attribute of one kind of mark on the text holding a phrase.
+func markAttr(t *testing.T, document *richdoc.Node, phrase, mark, name string) string {
+	t.Helper()
+	out := ""
+	found := false
+	var walk func(*richdoc.Node)
+	walk = func(node *richdoc.Node) {
+		if node == nil || found {
+			return
+		}
+		if node.Type == "text" && strings.Contains(node.Text, phrase) {
+			found = true
+			for _, current := range node.Marks {
+				if current.Type == mark {
+					out = current.AttrString(name)
+				}
+			}
+			return
+		}
+		for _, child := range node.Content {
+			walk(child)
+		}
+	}
+	walk(document)
+	if !found {
+		t.Fatalf("%q 를 찾지 못했습니다: %q", phrase, document.PlainText())
+	}
+	return out
 }
 
 // A list is a run of paragraphs whose shape says bullet or number and how

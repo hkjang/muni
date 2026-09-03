@@ -50,6 +50,9 @@ const (
 	// After the switches come two INT8 shadow offsets, and only then the
 	// text colour — the underline, shade and shadow colours follow it.
 	charShapeColorOffset = charShapePropertyOffset + 4 + 2
+	// The shade is the third of those colours: the text's, the underline's,
+	// then the one behind the words.
+	charShapeShadeOffset = charShapeColorOffset + 4 + 4
 )
 
 type charShape struct {
@@ -59,6 +62,9 @@ type charShape struct {
 	strike    bool
 	color     string
 	sizePoint string
+	// shade is the colour behind the words, which muni draws as a
+	// highlight; "" is unshaded.
+	shade string
 	// script is "superscript", "subscript" or nothing.
 	script string
 	// fontID is the face's number in the FACE_NAME list; family is the name
@@ -274,6 +280,13 @@ func readCharShape(raw []byte) charShape {
 	shape.sizePoint = hangul.FontSize(int(int32(binary.LittleEndian.Uint32(raw[charShapeBaseSizeOffset:]))))
 	if len(raw) >= charShapeColorOffset+4 {
 		shape.color = colorHex(binary.LittleEndian.Uint32(raw[charShapeColorOffset:]))
+	}
+	// The shade is written in every record Hangul makes, unshaded runs
+	// included, so what it says for "none" matters as much as what it says
+	// for a colour — hangul.TextShade is where that judgement lives, shared
+	// with the .hwpx reader.
+	if len(raw) >= charShapeShadeOffset+4 {
+		shape.shade = hangul.TextShade(colorRef(binary.LittleEndian.Uint32(raw[charShapeShadeOffset:])))
 	}
 	return shape
 }

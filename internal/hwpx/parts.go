@@ -298,9 +298,15 @@ func (b *builder) charPrXML(id int, key charKey) string {
 		family = key.family
 	}
 	font := strconv.Itoa(b.fontID(family))
+	// "none" is what Hangul writes for a run nothing is drawn behind, and it
+	// is what a shade the reader would refuse comes back as.
+	shade := "none"
+	if key.shade != "" {
+		shade = strings.ToUpper(key.shade)
+	}
 	var out strings.Builder
 	out.WriteString(`<hh:charPr id="` + strconv.Itoa(id) + `" height="` + height + `" textColor="` + escape(color) +
-		`" shadeColor="none" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="` + strconv.Itoa(characterBorder) + `">`)
+		`" shadeColor="` + escape(shade) + `" useFontSpace="0" useKerning="0" symMark="NONE" borderFillIDRef="` + strconv.Itoa(characterBorder) + `">`)
 	out.WriteString(`<hh:fontRef hangul="` + font + `" latin="` + font + `" hanja="` + font +
 		`" japanese="` + font + `" other="` + font + `" symbol="` + font + `" user="` + font + `"/>`)
 	out.WriteString(`<hh:ratio hangul="100" latin="100" hanja="100" japanese="100" other="100" symbol="100" user="100"/>`)

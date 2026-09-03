@@ -88,6 +88,35 @@ func CellVerticalAlign(code uint32) string {
 // fill" — and anything that is not a colour is nothing at all. The editor
 // holds the colour in lower case, the way the .docx reader records one.
 func CellShade(value string) string {
+	digits := hexColor(value)
+	if digits == "" || digits == "ffffff" {
+		return ""
+	}
+	return "#" + digits
+}
+
+// TextShade is the shading behind a run's words — Hangul's 글자 음영, which
+// muni draws as a highlight — worth recording, given the same way.
+//
+// Neither end of the greyscale is a highlight. White is what unshaded words
+// already sit on, and is also what both formats write for "no shade": the
+// .hwpx says shadeColor="none" and the .hwp writes a COLORREF of all ones.
+// Black is what a .hwp leaves the field at when nothing ever set it, and a
+// document whose every run was shaded black would be unreadable. The editor
+// holds the colour in upper case, the way the .docx reader records a
+// highlight — a cell's shade is lower case there, so the two differ.
+func TextShade(value string) string {
+	digits := hexColor(value)
+	if digits == "" || digits == "ffffff" || digits == "000000" {
+		return ""
+	}
+	return "#" + strings.ToUpper(digits)
+}
+
+// hexColor is the six hexadecimal digits of a colour, in lower case, and
+// nothing at all for anything that is not one — "none", a name, a length the
+// format does not use.
+func hexColor(value string) string {
 	digits := strings.ToLower(strings.TrimSpace(value))
 	digits = strings.TrimPrefix(digits, "#")
 	if len(digits) != 6 {
@@ -98,10 +127,7 @@ func CellShade(value string) string {
 			return ""
 		}
 	}
-	if digits == "ffffff" {
-		return ""
-	}
-	return "#" + digits
+	return digits
 }
 
 // Alignment names a paragraph's alignment the way muni does.

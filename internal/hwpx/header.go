@@ -77,6 +77,9 @@ func readCharShape(current *node) charShape {
 		underline: underlineIsDrawn(current.child("underline")),
 		// The format spells the raised one "supscript", without the "er".
 		script: hangul.Script(current.child("supscript") != nil, current.child("subscript") != nil),
+		// The shade is an attribute rather than an element, and Hangul writes
+		// it on every charPr — shadeColor="none" for the unshaded ones.
+		shade: hangul.TextShade(current.attr("shadeColor")),
 	}
 	if color := normalizeColor(current.attr("textColor")); color != "" {
 		shape.color = color

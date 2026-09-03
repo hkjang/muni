@@ -58,6 +58,9 @@ type charShape struct {
 	color     string
 	sizePoint string
 	family    string
+	// shade is the colour behind the words, which muni draws as a
+	// highlight; "" is unshaded.
+	shade string
 	// script is "superscript", "subscript" or nothing.
 	script string
 }
