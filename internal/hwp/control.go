@@ -221,7 +221,10 @@ func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*r
 		built := &richdoc.Node{Type: "tableCell", Content: content}
 		built.SetAttr("colspan", int(address.span))
 		built.SetAttr("rowspan", int(address.rowSpan))
-		built.SetAttr("verticalAlign", "top")
+		built.SetAttr("verticalAlign", address.verticalAlign)
+		if shade := imp.borderFillShade(address.borderFill); shade != "" {
+			built.SetAttr("backgroundColor", shade)
+		}
 		placedCells = append(placedCells, placed{
 			row: address.row, column: address.column,
 			rowSpan: address.rowSpan, span: address.span, node: built,
@@ -271,32 +274,49 @@ func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*r
 	return &richdoc.Node{Type: "table", Content: rows}, captions
 }
 
-// cellAddress is where a cell sits, how far it reaches, and how wide it is.
+// cellAddress is where a cell sits, how far it reaches, how wide it is, where
+// in it the words sit and what paints it.
 type cellAddress struct {
 	column, row   uint16
 	span, rowSpan uint16
 	width         uint32
+	// verticalAlign is where the words sit in the cell, named the way muni
+	// marks it.
+	verticalAlign string
+	// borderFill is which of DocInfo's BORDER_FILL records paints the cell,
+	// counting from one; zero is a cell that names none.
+	borderFill uint16
 }
 
 // readCellAddress reads the part of a cell's LIST_HEADER that says where it is.
 //
 // The common part is a paragraph count and a property word; the cell's own
-// address follows it, and after the address its size in HWPUNIT. A file that
-// stops at the address still places its cells — the size is read only when
+// address follows it, and after the address its size in HWPUNIT, its height,
+// its four margins and the number of the border and fill that paint it. A
+// file that stops early still places its cells — each tail is read only when
 // it is there.
 func readCellAddress(raw []byte) (cellAddress, bool) {
 	const common = 4 + 4
 	if len(raw) < common+8 {
 		return cellAddress{}, false
 	}
+	// The property word every paragraph list opens with says in bits 5 and 6
+	// where in the cell its words sit.
+	property := binary.LittleEndian.Uint32(raw[4:])
 	address := cellAddress{
-		column:  binary.LittleEndian.Uint16(raw[common:]),
-		row:     binary.LittleEndian.Uint16(raw[common+2:]),
-		span:    binary.LittleEndian.Uint16(raw[common+4:]),
-		rowSpan: binary.LittleEndian.Uint16(raw[common+6:]),
+		column:        binary.LittleEndian.Uint16(raw[common:]),
+		row:           binary.LittleEndian.Uint16(raw[common+2:]),
+		span:          binary.LittleEndian.Uint16(raw[common+4:]),
+		rowSpan:       binary.LittleEndian.Uint16(raw[common+6:]),
+		verticalAlign: hangul.CellVerticalAlign((property >> 5) & 0x03),
 	}
 	if len(raw) >= common+12 {
 		address.width = binary.LittleEndian.Uint32(raw[common+8:])
+	}
+	// Past the width come the height and the four margins, and then the
+	// number of the BORDER_FILL: 4 + 4 + 4×2.
+	if len(raw) >= common+26 {
+		address.borderFill = binary.LittleEndian.Uint16(raw[common+24:])
 	}
 	if address.span == 0 {
 		address.span = 1
@@ -310,6 +330,16 @@ func readCellAddress(raw []byte) (cellAddress, bool) {
 		return cellAddress{}, false
 	}
 	return address, true
+}
+
+// borderFillShade is the background of the BORDER_FILL a cell names. The
+// records are counted from one in the order DocInfo wrote them, so a cell
+// naming none says zero.
+func (imp *importer) borderFillShade(id uint16) string {
+	if id < 1 || int(id) > len(imp.borderFills) {
+		return ""
+	}
+	return imp.borderFills[id-1]
 }
 
 // pictureFrom reads a picture control into an image node, keeping its bytes.

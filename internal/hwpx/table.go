@@ -165,16 +165,14 @@ func cellVerticalAlign(cell *node) string {
 	return "top"
 }
 
-// cellShade reads a cell's fill, if it has one worth keeping. White and no
-// fill are the absence of a shade rather than a shade.
+// cellShade reads a cell's fill, if it has one worth keeping. What counts as
+// one is the rule the .hwp reader keeps too — white and no fill are the
+// absence of a shade rather than a shade — so the same table shades the same
+// whichever of the two formats it arrived in.
 func (imp *importer) cellShade(cell *node) string {
 	fill := cell.descendant("fillBrush")
 	if fill == nil {
 		return ""
 	}
-	colour := normalizeColor(fill.descendant("winBrush").attr("faceColor"))
-	if colour == "" || strings.EqualFold(colour, "#FFFFFF") {
-		return ""
-	}
-	return strings.ToLower(colour)
+	return hangul.CellShade(fill.descendant("winBrush").attr("faceColor"))
 }

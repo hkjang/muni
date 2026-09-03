@@ -307,13 +307,18 @@ func tableRecords(level uint16, cells []tableCellSpec) []byte {
 	out = append(out, table...)
 
 	for _, cell := range cells {
-		header := make([]byte, 8+8+16)
+		// Laid out from the format: a paragraph count and the list's property
+		// word, then the address, the size, the height, the four margins and
+		// the number of the border and fill that paint the cell.
+		header := make([]byte, 4+4+8+4+4+8+2)
 		binary.LittleEndian.PutUint32(header[0:], 1) // one paragraph
+		binary.LittleEndian.PutUint32(header[4:], cell.verticalAlign<<5)
 		binary.LittleEndian.PutUint16(header[8:], cell.column)
 		binary.LittleEndian.PutUint16(header[10:], cell.row)
 		binary.LittleEndian.PutUint16(header[12:], cell.span)
 		binary.LittleEndian.PutUint16(header[14:], cell.rowSpan)
 		binary.LittleEndian.PutUint32(header[16:], cell.width)
+		binary.LittleEndian.PutUint16(header[32:], cell.borderFill)
 		out = append(out, recordHeader(tagListHeader, level+1, len(header))...)
 		out = append(out, header...)
 		// The cell's paragraph follows its list header at the same depth —
@@ -330,7 +335,36 @@ type tableCellSpec struct {
 	span, rowSpan uint16
 	// width is the cell's size in HWPUNIT, which follows the address.
 	width uint32
-	text  string
+	// verticalAlign is the code the list's property word carries in bits 5
+	// and 6: 0 top, 1 centre, 2 bottom.
+	verticalAlign uint32
+	// borderFill is which BORDER_FILL paints the cell, counting from one.
+	borderFill uint16
+	text       string
+}
+
+// borderFillRecord writes one BORDER_FILL into DocInfo, painting the fill it
+// is asked for.
+//
+// Laid out from the format rather than from the reader's own constants: a
+// word of switches, then five borders — the four sides and the diagonal —
+// each a line kind, a thickness and a colour, and then the fill.
+func borderFillRecord(fillKind uint32, face uint32) []byte {
+	const property, border = 2, 1 + 1 + 4
+	fillOffset := property + 5*border
+	data := make([]byte, fillOffset+4+4+4+4)
+	binary.LittleEndian.PutUint32(data[fillOffset:], fillKind)
+	binary.LittleEndian.PutUint32(data[fillOffset+4:], face)
+	// The pattern colour and "no pattern" follow the background.
+	binary.LittleEndian.PutUint32(data[fillOffset+8:], 0xFFFFFFFF)
+	binary.LittleEndian.PutUint32(data[fillOffset+12:], 0xFFFFFFFF)
+	return append(recordHeader(tagBorderFill, 0, len(data)), data...)
+}
+
+// colorRefBytes writes a colour the way a COLORREF holds it: 0x00BBGGRR, blue
+// first.
+func colorRefBytes(red, green, blue uint32) uint32 {
+	return red | green<<8 | blue<<16
 }
 
 // shiftLevels rewrites a run of records to sit at a deeper level, which is how

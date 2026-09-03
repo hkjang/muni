@@ -76,7 +76,11 @@ type importer struct {
 	// faceNames is the document's font table in the order the FACE_NAME
 	// records came, which is the order a CHAR_SHAPE's face numbers index.
 	faceNames []string
-	assets    []richdoc.Asset
+	// borderFills is the shade each BORDER_FILL paints, in the order the
+	// records came — which is the order a table cell's number points into,
+	// counting from one.
+	borderFills []string
+	assets      []richdoc.Asset
 	// assetByID keeps a picture used twice from being stored twice, and
 	// binaryCache keeps it from being decompressed twice.
 	assetByID   map[string]string
@@ -192,6 +196,10 @@ func (imp *importer) readDocInfo() {
 		switch item.tag {
 		case tagFaceName:
 			imp.faceNames = append(imp.faceNames, readFaceName(item.data))
+		case tagBorderFill:
+			// Every BORDER_FILL is kept, shade or none, because a cell's
+			// number counts the records rather than the shaded ones.
+			imp.borderFills = append(imp.borderFills, readBorderFillShade(item.data))
 		case tagCharShape:
 			imp.charShapes = append(imp.charShapes, readCharShape(item.data))
 		case tagParaShape:
@@ -270,16 +278,21 @@ func readCharShape(raw []byte) charShape {
 	return shape
 }
 
-// colorHex turns a COLORREF into the colour muni holds. The format writes
-// 0x00BBGGRR — blue first, which read as if it were RGB turns every red word
-// blue. Black is what a document is written in unless it says otherwise and
-// is worth nothing to record.
+// colorHex turns a COLORREF into the colour muni holds. Black is what a
+// document is written in unless it says otherwise and is worth nothing to
+// record.
 func colorHex(value uint32) string {
-	red, green, blue := value&0xFF, (value>>8)&0xFF, (value>>16)&0xFF
-	if red == 0 && green == 0 && blue == 0 {
+	if value&0x00FFFFFF == 0 {
 		return ""
 	}
-	return fmt.Sprintf("#%02X%02X%02X", red, green, blue)
+	return colorRef(value)
+}
+
+// colorRef turns a COLORREF into hexadecimal without judging what it says.
+// The format writes 0x00BBGGRR — blue first, which read as if it were RGB
+// turns every red word blue.
+func colorRef(value uint32) string {
+	return fmt.Sprintf("#%02X%02X%02X", value&0xFF, (value>>8)&0xFF, (value>>16)&0xFF)
 }
 
 // section reads one BodyText stream into blocks.

@@ -67,6 +67,43 @@ func ColumnWidths(pixels map[int]int, column, span int) []any {
 	return out
 }
 
+// CellVerticalAlign names where in a table cell the words sit, from the
+// number both formats' cells store it as. The order is the format's own, and
+// a cell that says nothing sits at the top — Hangul's default and Word's.
+func CellVerticalAlign(code uint32) string {
+	switch code {
+	case 1:
+		return "middle"
+	case 2:
+		return "bottom"
+	}
+	return "top"
+}
+
+// CellShade is the fill a table cell is worth recording, given as six
+// hexadecimal digits with or without a leading hash.
+//
+// White is the absence of a shade rather than a shade — it is what an
+// unshaded cell is drawn in, and it is also what both formats write for "no
+// fill" — and anything that is not a colour is nothing at all. The editor
+// holds the colour in lower case, the way the .docx reader records one.
+func CellShade(value string) string {
+	digits := strings.ToLower(strings.TrimSpace(value))
+	digits = strings.TrimPrefix(digits, "#")
+	if len(digits) != 6 {
+		return ""
+	}
+	for _, r := range digits {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return ""
+		}
+	}
+	if digits == "ffffff" {
+		return ""
+	}
+	return "#" + digits
+}
+
 // Alignment names a paragraph's alignment the way muni does.
 func Alignment(value string) string {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
