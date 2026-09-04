@@ -220,10 +220,19 @@ func (b *builder) headerXML() string {
 	}
 	out.WriteString(`</hh:fontfaces>`)
 
-	out.WriteString(`<hh:borderFills itemCnt="3">`)
+	out.WriteString(`<hh:borderFills itemCnt="` + strconv.Itoa(tableBorder+len(b.cellFillOrder)) + `">`)
 	out.WriteString(borderFillXML(paragraphBorder, "NONE", "0.1 mm", ""))
 	out.WriteString(borderFillXML(characterBorder, "NONE", "0.1 mm", `<hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>`))
 	out.WriteString(borderFillXML(tableBorder, "SOLID", "0.12 mm", ""))
+	// A shaded cell's borderFill draws the table's own lines and fills the
+	// inside with the colour; the cell names it and says nothing else about
+	// the colour, which is the only place HWPX keeps one. The brush is shaped
+	// like the one Hangul writes, hatch colour and all — nothing hatches
+	// without a hatch style, and a loader still expects the attribute.
+	for index, shade := range b.cellFillOrder {
+		out.WriteString(borderFillXML(tableBorder+1+index, "SOLID", "0.12 mm",
+			`<hc:fillBrush><hc:winBrush faceColor="`+escape(shade)+`" hatchColor="#999999" alpha="0"/></hc:fillBrush>`))
+	}
 	out.WriteString(`</hh:borderFills>`)
 
 	out.WriteString(`<hh:charProperties itemCnt="` + strconv.Itoa(len(charPrs)) + `">`)

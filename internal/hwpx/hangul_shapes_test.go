@@ -23,6 +23,12 @@ const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:fontface lang="HANGUL" fontCnt="2"><hh:font id="0" face="함초롬바탕" type="TTF"/><hh:font id="1" face="맑은 고딕" type="TTF"/></hh:fontface>
    <hh:fontface lang="LATIN" fontCnt="2"><hh:font id="0" face="Times New Roman" type="TTF"/><hh:font id="1" face="Arial" type="TTF"/></hh:fontface>
   </hh:fontfaces>
+  <hh:borderFills itemCnt="4">
+   <hh:borderFill id="1" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill>
+   <hh:borderFill id="2" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/><hc:fillBrush><hc:winBrush faceColor="#D9E2F3" hatchColor="#333333" alpha="0"/></hc:fillBrush></hh:borderFill>
+   <hh:borderFill id="3" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/><hc:fillBrush><hc:winBrush faceColor="#FFFFFF" hatchColor="#333333" alpha="0"/></hc:fillBrush></hh:borderFill>
+   <hh:borderFill id="4" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/><hc:fillBrush><hc:gradation type="LINEAR" angle="90" centerX="0" centerY="0" step="50"><hc:color value="#FF0000"/><hc:color value="#0000FF"/></hc:gradation></hc:fillBrush></hh:borderFill>
+  </hh:borderFills>
   <hh:charProperties itemCnt="6">
    <hh:charPr id="0" height="1000" shadeColor="none"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
    <hh:charPr id="1" height="1000"><hh:fontRef hangul="1" latin="1"/></hh:charPr>
@@ -126,6 +132,44 @@ func TestVerticalAlignmentIsOnTheCellsList(t *testing.T) {
 	}
 	if cell.AttrString("verticalAlign") != "middle" {
 		t.Errorf("세로 정렬 = %q", cell.AttrString("verticalAlign"))
+	}
+}
+
+// 칸 음영 is not on the cell either. A cell names a borderFill by number and
+// the header holds the brush that paints it — Hangul writes the colour there
+// and nowhere else — so a reader that looked for a brush on the cell found one
+// in no real file, and every shaded table came through white.
+func TestACellsShadeIsReadFromTheBorderFillItNames(t *testing.T) {
+	cell := func(column int, fill, text string) string {
+		return `<hp:tc name="" header="0" borderFillIDRef="` + fill + `">` +
+			`<hp:subList id="" vertAlign="TOP"><hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>` + text + `</hp:t></hp:run></hp:p></hp:subList>` +
+			`<hp:cellAddr colAddr="` + strconv.Itoa(column) + `" rowAddr="0"/>` +
+			`<hp:cellSpan colSpan="1" rowSpan="1"/><hp:cellSz width="1800" height="1900"/></hp:tc>`
+	}
+	document, _, _, err := Parse(hangulFile(t, `<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:tbl rowCnt="1" colCnt="4"><hp:tr>`+
+		cell(0, "2", "음영칸")+cell(1, "3", "흰칸")+cell(2, "1", "맨칸")+cell(3, "4", "그러데이션칸")+
+		`</hp:tr></hp:tbl></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row *richdoc.Node
+	for _, block := range document.Content {
+		if block.Type == "table" {
+			row = block.Content[0]
+		}
+	}
+	if row == nil || len(row.Content) != 4 {
+		t.Fatalf("표가 없습니다: %v", blockTypes(document))
+	}
+	if shade := row.Content[0].AttrString("backgroundColor"); shade != "#d9e2f3" {
+		t.Errorf("음영 = %q", shade)
+	}
+	// White is what an unshaded cell is already drawn in, a fill that paints
+	// no colour paints none, and a gradation is not a colour muni can hold.
+	for index, name := range map[int]string{1: "흰칸", 2: "맨칸", 3: "그러데이션칸"} {
+		if shade := row.Content[index].AttrString("backgroundColor"); shade != "" {
+			t.Errorf("%s의 음영 = %q", name, shade)
+		}
 	}
 }
 

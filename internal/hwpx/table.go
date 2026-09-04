@@ -165,12 +165,41 @@ func cellVerticalAlign(cell *node) string {
 	return "top"
 }
 
-// cellShade reads a cell's fill, if it has one worth keeping. What counts as
-// one is the rule the .hwp reader keeps too — white and no fill are the
-// absence of a shade rather than a shade — so the same table shades the same
-// whichever of the two formats it arrived in.
+// cellShade reads a cell's fill, if it has one worth keeping.
+//
+// The colour is not on the cell. A cell names a borderFill by number and the
+// header holds what that number means — the same indirection a run's
+// formatting takes — so looking for a brush on the cell found one in no file
+// Hangul wrote, and every shaded table read out of a real .hwpx came through
+// white while the same table out of a .hwp or a .docx came through shaded.
+//
+// What counts as a shade is the rule the .hwp reader keeps too — white and no
+// fill are the absence of a shade rather than a shade — so the same table
+// shades the same whichever of the two formats it arrived in.
 func (imp *importer) cellShade(cell *node) string {
-	fill := cell.descendant("fillBrush")
+	if ref := strings.TrimSpace(cell.attr("borderFillIDRef")); ref != "" {
+		return imp.cellFills[ref]
+	}
+	// A writer that put the brush on the cell itself is still read, but only
+	// from the cell's own elements: a brush among its paragraphs belongs to a
+	// table nested inside it.
+	for _, child := range cell.children {
+		if child.is("subList") {
+			continue
+		}
+		if child.is("fillBrush") {
+			return brushShade(child)
+		}
+		if fill := child.descendant("fillBrush"); fill != nil {
+			return brushShade(fill)
+		}
+	}
+	return ""
+}
+
+// brushShade is the colour a fill brush paints, for the solid fills muni can
+// hold: a gradation or a picture is not a colour muni has anywhere to put.
+func brushShade(fill *node) string {
 	if fill == nil {
 		return ""
 	}

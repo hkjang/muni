@@ -34,6 +34,18 @@ func (imp *importer) loadHeader(files map[string]*zip.File) {
 			}
 		}
 	})
+	// A table cell says borderFillIDRef="4" and nothing about its colour: the
+	// fill it names is here, beside the run and paragraph shapes and read for
+	// the same reason.
+	root.each("borderFill", func(current *node) {
+		id := strings.TrimSpace(current.attr("id"))
+		if id == "" {
+			return
+		}
+		if shade := brushShade(current.child("fillBrush")); shade != "" {
+			imp.cellFills[id] = shade
+		}
+	})
 	root.each("charPr", func(current *node) {
 		id := current.attr("id")
 		if id == "" {

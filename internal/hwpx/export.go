@@ -49,11 +49,12 @@ func Build(doc *richdoc.Node, opts Options) ([]byte, error) {
 		doc = richdoc.Doc()
 	}
 	b := &builder{
-		opts:     opts,
-		charPrs:  map[string]int{},
-		paraPrs:  map[string]int{},
-		pictures: map[string]string{},
-		fonts:    []string{"함초롬바탕"},
+		opts:      opts,
+		charPrs:   map[string]int{},
+		paraPrs:   map[string]int{},
+		pictures:  map[string]string{},
+		cellFills: map[string]int{},
+		fonts:     []string{"함초롬바탕"},
 	}
 	// The one shape every run starts from, and the one every paragraph does.
 	b.charPrID(charKey{})
@@ -73,6 +74,12 @@ type builder struct {
 
 	binData  []binItem
 	pictures map[string]string // source → binary item id
+
+	// The colour behind a table cell is not on the cell in HWPX: it is part of
+	// the borderFill the cell names, so each distinct shade needs one of its
+	// own in the header.
+	cellFills     map[string]int // shade → borderFill id
+	cellFillOrder []string       // shades, at the numbers the cells refer to them by
 
 	fonts      []string        // faces, at the numbers the runs refer to them by
 	preview    strings.Builder // the opening text, for Preview/PrvText.txt
@@ -682,7 +689,7 @@ func (b *builder) table(node *richdoc.Node, ctx blockContext) {
 			header := cell.Type == "tableHeader"
 			// The paragraphs come first inside a cell and the address after;
 			// the order is the format's, and a loader holds to it.
-			out.WriteString(`<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="` + strconv.Itoa(tableBorder) + `">`)
+			out.WriteString(`<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="` + strconv.Itoa(b.cellBorderFill(cell)) + `">`)
 			out.WriteString(openSubList(cellVerticalAlignValue(cell)))
 			saved := b.body
 			b.body = strings.Builder{}
@@ -833,6 +840,28 @@ func cellSpan(cell *richdoc.Node, name string) int {
 		return 64
 	}
 	return span
+}
+
+// cellBorderFill is the borderFill a cell refers to by number: the table's
+// plain one unless the cell is shaded, in which case it names one carrying
+// that colour. The shade goes through the same judgement the readers make, so
+// a colour muni would not read back — white, or something that is not a colour
+// at all — is not one muni writes.
+func (b *builder) cellBorderFill(cell *richdoc.Node) int {
+	shade := hangul.CellShade(cell.AttrString("backgroundColor"))
+	if shade == "" {
+		return tableBorder
+	}
+	shade = strings.ToUpper(shade)
+	if id, ok := b.cellFills[shade]; ok {
+		return id
+	}
+	// The three the header always writes come first, and a shade takes the
+	// next number after them.
+	id := tableBorder + 1 + len(b.cellFillOrder)
+	b.cellFills[shade] = id
+	b.cellFillOrder = append(b.cellFillOrder, shade)
+	return id
 }
 
 func cellVerticalAlignValue(cell *richdoc.Node) string {
