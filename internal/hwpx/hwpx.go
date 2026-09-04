@@ -42,6 +42,10 @@ type importer struct {
 	styles     map[string]styleInfo
 	// fonts is the header's font table, face by "LANG/id".
 	fonts map[string]string
+	// cellFills is the colour each of the header's borderFills paints, by the
+	// id a table cell names it with; a fill that paints nothing muni can hold
+	// is not in it.
+	cellFills map[string]string
 	// binaryParts is where each picture is; binary is the bytes of the ones
 	// something actually asked for.
 	binaryParts map[string]*zip.File
@@ -102,6 +106,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		charShapes:  map[string]charShape{},
 		paraShapes:  map[string]paraShape{},
 		styles:      map[string]styleInfo{},
+		cellFills:   map[string]string{},
 		binaryParts: map[string]*zip.File{},
 		binary:      map[string][]byte{},
 		assetByID:   map[string]string{},

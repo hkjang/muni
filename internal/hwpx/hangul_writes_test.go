@@ -89,6 +89,64 @@ func TestATablesColumnWidthsAreWrittenInProportion(t *testing.T) {
 	}
 }
 
+// A cell's shade is written where HWPX keeps one: a borderFill of its own in
+// the header, which the cell names. Writing nothing lost every shade a table
+// carried — the colour a reviewer painted a row of a report in came back as
+// a plain white table the moment it was exported.
+func TestACellsShadeIsWrittenAsABorderFillOfItsOwn(t *testing.T) {
+	cell := func(text, shade string) *richdoc.Node {
+		node := &richdoc.Node{Type: "tableCell", Content: []*richdoc.Node{richdoc.Paragraph(richdoc.Text(text))}}
+		node.SetAttr("colspan", 1)
+		node.SetAttr("rowspan", 1)
+		if shade != "" {
+			node.SetAttr("backgroundColor", shade)
+		}
+		return node
+	}
+	document := &richdoc.Node{Type: "doc", Content: []*richdoc.Node{{Type: "table", Content: []*richdoc.Node{
+		{Type: "tableRow", Content: []*richdoc.Node{cell("음영칸", "#d9e2f3"), cell("같은음영칸", "#d9e2f3")}},
+		{Type: "tableRow", Content: []*richdoc.Node{cell("맨칸", ""), cell("흰칸", "#ffffff")}},
+	}}}}
+	built, err := Build(document, Options{Title: "칸음영"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := partsOf(t, built)
+	header, body := parts["Contents/header.xml"], parts["Contents/section0.xml"]
+	// The three every file carries, and one more for the one colour used.
+	if !strings.Contains(header, `<hh:borderFills itemCnt="4">`) ||
+		!strings.Contains(header, `<hh:borderFill id="4"`) ||
+		!strings.Contains(header, `<hc:winBrush faceColor="#D9E2F3"`) {
+		t.Errorf("음영이 borderFill 로 쓰이지 않았습니다: %s", header)
+	}
+	// Two cells the same colour share one fill; the unshaded ones keep the
+	// table's own.
+	if got := strings.Count(body, `borderFillIDRef="4"`); got != 2 {
+		t.Errorf("4번 채우기를 쓰는 칸 = %d개", got)
+	}
+	if got := strings.Count(body, `<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="3">`); got != 2 {
+		t.Errorf("음영 없는 칸이 표의 채우기를 쓰지 않았습니다: %d개", got)
+	}
+
+	back, _, _, err := Parse(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := back.Content[0]
+	if table.Type != "table" {
+		t.Fatalf("표가 돌아오지 않았습니다: %s", table.Type)
+	}
+	for _, want := range []struct {
+		row, column int
+		shade       string
+	}{{0, 0, "#d9e2f3"}, {0, 1, "#d9e2f3"}, {1, 0, ""}, {1, 1, ""}} {
+		got := table.Content[want.row].Content[want.column].AttrString("backgroundColor")
+		if got != want.shade {
+			t.Errorf("%d행 %d칸의 왕복한 음영 = %q, 원하는 것 = %q", want.row, want.column, got, want.shade)
+		}
+	}
+}
+
 // onePixel is the smallest PNG there is, for a picture to be written.
 var onePixel = []byte{
 	0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
