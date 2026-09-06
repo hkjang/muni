@@ -2,6 +2,7 @@ package hwp
 
 import (
 	"encoding/binary"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -265,6 +266,40 @@ func TestARunNobodyShadedIsNotHighlighted(t *testing.T) {
 		if marks := markedText(t, document, phrase); has(marks, "highlight") {
 			t.Errorf("%q 에 음영이 붙었습니다: %v", phrase, marks)
 		}
+	}
+}
+
+// 쪽 나누기 is a bit on the paragraph that comes after it, and muni's page
+// break is a block between the two. A 별지 서식 whose every form began on its
+// own page arrived as one unbroken run of paragraphs.
+func TestAPageBreakBecomesABlockBeforeTheParagraphThatCarriesIt(t *testing.T) {
+	body := append(paragraphRecords(units("첫 쪽")),
+		dividedParagraphRecords(paragraphDividePage, units("둘째 쪽"))...)
+	document := mustParse(t, hwpFile(t, false, false, body))
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph", "pageBreak", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+}
+
+// The first paragraph of every section carries a section break and a column
+// break — three of the four bits' worth in all sixteen real files. Only the
+// page bit is a page break; taking the byte for a flag put a blank page at the
+// top of every document.
+func TestASectionBreakOnTheFirstParagraphIsNotAPageBreak(t *testing.T) {
+	const sectionAndColumn = 0x01 | 0x02
+	body := dividedParagraphRecords(sectionAndColumn, units("첫 문단"))
+	document := mustParse(t, hwpFile(t, false, false, body))
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+}
+
+// A break with nothing in front of it would open the document on a blank page.
+func TestAPageBreakOnTheVeryFirstParagraphIsDropped(t *testing.T) {
+	body := dividedParagraphRecords(paragraphDividePage, units("첫 문단"))
+	document := mustParse(t, hwpFile(t, false, false, body))
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph"}) {
+		t.Fatalf("블록 = %v", types)
 	}
 }
 

@@ -135,20 +135,33 @@ func readWideString(raw []byte, offset int) (string, int) {
 	return string(utf16.Decode(units)), offset + length*2
 }
 
-// paragraphRefs is which shape and style a PARA_HEADER names.
+// paragraphDividePage is the bit of the divide sort that says the paragraph
+// opens a new page. The byte holds four of them — a section break, a column
+// break, this one, and a text-column break — and the first paragraph of every
+// section carries the first two, so only this bit means 쪽 나누기.
+const paragraphDividePage = 0x04
+
+// paragraphRefs is which shape and style a PARA_HEADER names, and whether it
+// starts a new page.
 //
-// The layout is a character count, a control mask, then the two numbers.
+// The layout is a character count, a control mask, the two numbers, then the
+// divide sort.
 type paragraphRefs struct {
-	shape uint16
-	style uint8
+	shape     uint16
+	style     uint8
+	pageBreak bool
 }
 
 func readParagraphRefs(raw []byte) paragraphRefs {
 	if len(raw) < 11 {
 		return paragraphRefs{}
 	}
-	return paragraphRefs{
+	refs := paragraphRefs{
 		shape: binary.LittleEndian.Uint16(raw[8:]),
 		style: raw[10],
 	}
+	if len(raw) >= 12 {
+		refs.pageBreak = raw[11]&paragraphDividePage != 0
+	}
+	return refs
 }

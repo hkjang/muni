@@ -329,3 +329,53 @@ func TestBulletAndNumberShapesBecomeLists(t *testing.T) {
 		t.Errorf("안쪽 목록 = %v", blockTypes(list.Content[0]))
 	}
 }
+
+// 쪽 나누기 is an attribute on the paragraph that comes after it, and muni's
+// page break is a block between the two. Hangul writes pageBreak on every
+// paragraph — "0" for the ones that break nothing — and it lands on ordinary
+// paragraphs with their own words, not only on empty ones: twelve of the
+// breaks in six real files, and ten of them in one 보도자료 whose every item
+// starts a page.
+func TestAPageBreakBecomesABlockBeforeTheParagraphThatCarriesIt(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t,
+		`<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0"><hp:run charPrIDRef="0"><hp:t>첫 쪽</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="1" columnBreak="0"><hp:run charPrIDRef="0"><hp:t>둘째 쪽</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph", "pageBreak", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+	if text := document.Content[2].PlainText(); text != "둘째 쪽" {
+		t.Errorf("나눈 뒤 문단 = %q", text)
+	}
+}
+
+// A break with nothing in front of it would open the document on a blank
+// page, and a real 위촉장 does begin its first section that way.
+func TestAPageBreakOnTheVeryFirstParagraphIsDropped(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t,
+		`<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="1" columnBreak="0"><hp:run charPrIDRef="0"><hp:t>첫 문단</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+}
+
+// muni writes a page break as an empty paragraph carrying the attribute, so
+// reading one back as a break *and* an empty paragraph would push the page
+// down a line every time a document went out and came in again.
+func TestAParagraphHoldingOnlyABreakIsTheBreak(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t,
+		`<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0"><hp:run charPrIDRef="0"><hp:t>앞</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="1" columnBreak="0"><hp:run charPrIDRef="0"><hp:t/></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="0" styleIDRef="0" pageBreak="0" columnBreak="0"><hp:run charPrIDRef="0"><hp:t>뒤</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph", "pageBreak", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+}
