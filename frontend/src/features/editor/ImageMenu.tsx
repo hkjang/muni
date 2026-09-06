@@ -18,7 +18,7 @@ import {
   FormatAlignRight,
   TextFieldsOutlined,
 } from "@mui/icons-material";
-import { percentFor, pixelsFor, widthPresets } from "./extensions/imageAttributes";
+import { heightFor, percentFor, pixelsFor, widthPresets } from "./extensions/imageAttributes";
 
 /**
  * ImageMenu appears while an image is selected.
@@ -39,13 +39,23 @@ export function ImageMenu({
 
   const attributes = editor.getAttributes("image") as {
     width?: number | null;
+    height?: number | null;
     textAlign?: string | null;
     alt?: string | null;
   };
   const percent = percentFor(attributes.width);
 
-  const setWidth = (value: number) =>
-    editor.chain().focus().updateAttributes("image", { width: pixelsFor(value) }).run();
+  const setWidth = (value: number) => {
+    const width = pixelsFor(value);
+    // A picture the document drew squashed carries a height; leaving that
+    // behind while the width moves would stretch it.
+    const height = heightFor(attributes.width, attributes.height, width);
+    editor
+      .chain()
+      .focus()
+      .updateAttributes("image", height ? { width, height } : { width })
+      .run();
+  };
 
   return (
     <BubbleMenu

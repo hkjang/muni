@@ -199,12 +199,17 @@ describe("node attributes survive a load", () => {
               src: "/api/v1/attachments/x",
               alt: "표 이미지",
               width: 320,
+              // A 한글 document draws a picture into a box of its own, so the
+              // height is not the shape of the bytes and cannot be recomputed
+              // from the width. An attribute the schema does not know is
+              // dropped on the way in, and the next autosave writes it away.
+              height: 80,
             },
           },
         ],
       });
       const json = JSON.stringify(editor.getJSON());
-      for (const expected of ["/api/v1/attachments/x", "표 이미지", "320"]) {
+      for (const expected of ["/api/v1/attachments/x", "표 이미지", "320", `"height":80`]) {
         expect(json, "image attributes").toContain(expected);
       }
     } finally {

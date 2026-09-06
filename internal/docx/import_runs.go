@@ -397,6 +397,13 @@ func (imp *importer) image(node *xnode) *richdoc.Node {
 	if extent := node.descendant("wp", "extent"); extent != nil {
 		if cx, err := strconv.Atoi(extent.attr("cx")); err == nil && cx > 0 {
 			image.SetAttr("width", cx/emuPerPixel)
+			// The drawn height sits beside the width and says something the
+			// width cannot: a picture Word squashed keeps the shape it was
+			// drawn in only if both halves of the extent come along. The
+			// writer has always read them as a pair.
+			if cy, err := strconv.Atoi(extent.attr("cy")); err == nil && cy > 0 {
+				image.SetAttr("height", cy/emuPerPixel)
+			}
 		}
 	}
 	return image

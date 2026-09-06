@@ -367,6 +367,16 @@ func imageHTML(node *richdoc.Node) string {
 	out := `<img` + blockIDAttribute(node) + ` src="` + html.EscapeString(src) + `" alt="` + html.EscapeString(node.AttrString("alt")) + `"`
 	if width := node.AttrInt("width", 0); width > 0 {
 		out += ` width="` + strconv.Itoa(width) + `"`
+		// The stylesheet asks every picture for height:auto so that one wider
+		// than the column shrinks instead of spilling out of the page. That
+		// also flattens a picture the document itself squashed back to the
+		// shape of its bytes, so a picture that was drawn in a shape of its
+		// own has to name that shape: the ratio survives the shrinking, a
+		// fixed height would not.
+		if height := node.AttrInt("height", 0); height > 0 {
+			out += ` height="` + strconv.Itoa(height) + `"` +
+				` style="aspect-ratio:` + strconv.Itoa(width) + `/` + strconv.Itoa(height) + `"`
+		}
 	}
 	out += ">"
 	// An image is its own block here, so the alignment has to be carried by

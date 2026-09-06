@@ -611,6 +611,12 @@ func (b *documentBuilder) addImage(picture imageItem) {
 	node.SetAttr("src", placeholder)
 	if picture.width > 0 {
 		node.SetAttr("width", int(picture.width))
+		// A PDF draws a picture into a box of its own choosing, so the box is
+		// the only place its shape is written down — the bytes underneath are
+		// whatever resolution the picture happened to be scanned at.
+		if picture.height > 0 {
+			node.SetAttr("height", int(picture.height))
+		}
 	}
 	b.blocks = append(b.blocks, node)
 }

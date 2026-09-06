@@ -170,6 +170,16 @@ func htmlAttr(node *xhtml.Node, name string) string {
 	return ""
 }
 
+// htmlPixels reads a length attribute. Browsers write a bare number and muni's
+// own export does too, but a pasted tag often carries the unit.
+func htmlPixels(node *xhtml.Node, name string) int {
+	value, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(htmlAttr(node, name)), "px"))
+	if err != nil || value <= 0 {
+		return 0
+	}
+	return value
+}
+
 func (h *htmlConverter) blocks(nodes []*xhtml.Node, depth int) []*richdoc.Node {
 	out := make([]*richdoc.Node, 0, len(nodes))
 	pending := make([]*xhtml.Node, 0, 4)
@@ -574,8 +584,14 @@ func (h *htmlConverter) inlineElement(node *xhtml.Node, marks []richdoc.Mark, de
 		return []*richdoc.Node{{Type: "hardBreak"}}
 	case "img":
 		if image := h.inline.imageNode(strings.TrimSpace(htmlAttr(node, "src")), htmlAttr(node, "alt")); image != nil {
-			if width, err := strconv.Atoi(strings.TrimSuffix(strings.TrimSpace(htmlAttr(node, "width")), "px")); err == nil && width > 0 {
+			if width := htmlPixels(node, "width"); width > 0 {
 				image.SetAttr("width", width)
+				// The height is only worth keeping next to a width: on its own
+				// it says nothing about how wide the picture was drawn, and
+				// every writer downstream reads the two as a pair.
+				if height := htmlPixels(node, "height"); height > 0 {
+					image.SetAttr("height", height)
+				}
 			}
 			return []*richdoc.Node{image}
 		}
