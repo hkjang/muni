@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -184,6 +185,23 @@ func TestAPictureSurvivesTheRoundTrip(t *testing.T) {
 	}
 	if types := blockTypesOf(back); len(types) != 1 || types[0] != "image" {
 		t.Errorf("블록 = %v", types)
+	}
+}
+
+// The writer has always said which paragraph opens a page; nothing read it
+// back, so a document exported to .hwpx and imported again lost every break.
+func TestAPageBreakSurvivesTheRoundTrip(t *testing.T) {
+	source := `{"type":"doc","content":[` +
+		`{"type":"paragraph","content":[{"type":"text","text":"첫 쪽"}]},` +
+		`{"type":"pageBreak"},` +
+		`{"type":"paragraph","content":[{"type":"text","text":"둘째 쪽"}]}]}`
+	node, err := richdoc.Parse(json.RawMessage(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := roundTrip(t, node)
+	if types := blockTypesOf(back); !reflect.DeepEqual(types, []string{"paragraph", "pageBreak", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
 	}
 }
 

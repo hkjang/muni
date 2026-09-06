@@ -73,6 +73,11 @@ func (imp *importer) blocks(root *node) []*richdoc.Node {
 	for _, child := range root.children {
 		kind, level := imp.listShape(child)
 		for _, block := range imp.block(child) {
+			if block.Type == "pageBreak" && len(out) == 0 {
+				// Nothing to break away from: the document would open on a
+				// blank page.
+				continue
+			}
 			if kind != "" && block.Type == "paragraph" {
 				out = lists.Add(out, kind, level, block)
 				continue
@@ -130,6 +135,15 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 		}
 	}
 
+	// A page break is a block of its own in muni; in HWPX it is an attribute on
+	// the paragraph that comes after it, so it belongs in front of whatever this
+	// paragraph turns out to be. Hangul writes it on ordinary paragraphs that
+	// carry their own words, not only on empty ones.
+	before := []*richdoc.Node{}
+	if isTrue(current.attr("pageBreak")) {
+		before = append(before, &richdoc.Node{Type: "pageBreak"})
+	}
+
 	inline := imp.runs(current)
 	style := imp.styles[current.attr("styleIDRef")]
 	shape := imp.paraShapes[firstNonEmpty(current.attr("paraPrIDRef"), style.paraShapeID)]
@@ -143,7 +157,13 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 
 	if len(inline) == 0 {
 		if len(lifted) > 0 {
-			return lifted
+			return append(before, lifted...)
+		}
+		// A paragraph that holds nothing but the break is the break: keeping
+		// the empty paragraph too would push the next page down a line every
+		// time the document went out and came back.
+		if len(before) > 0 {
+			return before
 		}
 		return []*richdoc.Node{richdoc.Paragraph()}
 	}
@@ -168,7 +188,17 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 			block.SetAttr("lineHeight", shape.lineRate)
 		}
 	}
-	return append([]*richdoc.Node{block}, lifted...)
+	return append(before, append([]*richdoc.Node{block}, lifted...)...)
+}
+
+// isTrue reads a flag the format writes as a number. Hangul writes
+// pageBreak="1"; other writers say "true".
+func isTrue(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true":
+		return true
+	}
+	return false
 }
 
 // tablesIn finds the tables a paragraph positions, stopping at a cell — what

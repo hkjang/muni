@@ -246,9 +246,20 @@ func units(text string) []uint16 { return utf16.Encode([]rune(text)) }
 // a bare PARA_TEXT is not a file Hangul would ever write and proves nothing
 // about reading one.
 func paragraphRecords(text []uint16, shapes ...charRun) []byte {
+	return dividedParagraphRecords(0, text, shapes...)
+}
+
+// dividedParagraphRecords writes a paragraph that carries a divide sort: the
+// byte saying it opens a new section, column or page.
+func dividedParagraphRecords(divide byte, text []uint16, shapes ...charRun) []byte {
+	// Laid out from the format: the character count, the control mask, the
+	// paragraph shape, the style, the divide sort, then the number of
+	// character shapes. Counting the style as two bytes puts the shape count
+	// on top of the divide sort, and every page break reads as none.
 	header := make([]byte, 22)
 	binary.LittleEndian.PutUint32(header[0:], uint32(len(text)))
-	binary.LittleEndian.PutUint16(header[10:], uint16(len(shapes)))
+	header[11] = divide
+	binary.LittleEndian.PutUint16(header[12:], uint16(len(shapes)))
 	out := append(recordHeader(tagParaHeader, 0, len(header)), header...)
 
 	payload := make([]byte, len(text)*2)

@@ -145,6 +145,11 @@ func (imp *importer) paragraphs(nodes []*recordNode) []*richdoc.Node {
 		}
 		kind, level := imp.listShape(node)
 		for _, block := range imp.paragraph(node) {
+			if block.Type == "pageBreak" && len(out) == 0 {
+				// Nothing to break away from: the document would open on a
+				// blank page.
+				continue
+			}
 			if kind != "" && block.Type == "paragraph" {
 				out = lists.Add(out, kind, level, block)
 				continue
@@ -172,6 +177,15 @@ func (imp *importer) listShape(node *recordNode) (kind string, level int) {
 func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	textRecord := node.find(tagParaText)
 	shapeRecord := node.find(tagParaCharShape)
+	refs := readParagraphRefs(node.data)
+
+	// A page break is a block of its own in muni; in HWP it is a bit on the
+	// paragraph that comes after it, so it belongs in front of whatever this
+	// paragraph turns out to be.
+	before := []*richdoc.Node{}
+	if refs.pageBreak {
+		before = append(before, &richdoc.Node{Type: "pageBreak"})
+	}
 
 	// Whatever the paragraph holds that is a block of its own comes out after
 	// it, the way a table does in every other importer muni has.
@@ -184,10 +198,7 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	}
 
 	if textRecord == nil {
-		if len(after) > 0 {
-			return after
-		}
-		return nil
+		return append(before, after...)
 	}
 	text := readParagraphText(textRecord.data)
 	var runs []charRun
@@ -218,7 +229,6 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	// the words are all there, which is the part that was missing.
 	inline = append(inline, notes...)
 
-	refs := readParagraphRefs(node.data)
 	level := 0
 	if int(refs.style) < len(imp.styles) {
 		level = imp.styles[refs.style].headingLevel
@@ -256,10 +266,7 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 		}
 		blocks = append(blocks, block)
 	}
-	if len(blocks) == 0 && len(after) == 0 {
-		return nil
-	}
-	return append(blocks, after...)
+	return append(before, append(blocks, after...)...)
 }
 
 // splitLines breaks inline content at the line breaks a paragraph carries.
