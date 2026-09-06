@@ -491,6 +491,59 @@ func TestAPictureIsKeptAtTheSizeItIsDrawn(t *testing.T) {
 	}
 }
 
+// The number a picture writes counts DocInfo's BIN_DATA records; it is not
+// the number of the stream. In a real report whose pictures were written in
+// one order and listed in another, reading it as the stream's number gave
+// every picture its neighbour's image.
+func TestAPictureFindsItsBytesThroughTheBinDataRecords(t *testing.T) {
+	pixel := []byte{
+		0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 'I', 'D', 'A', 'T', 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 'I', 'E', 'N', 'D', 0xae,
+		0x42, 0x60, 0x82,
+	}
+	second := append(append([]byte{}, pixel...), 0x00)
+
+	// The records name the streams the other way round: the first record is
+	// stream two, the second is stream one.
+	docInfo := append(binDataRecord(2, "png"), binDataRecord(1, "png")...)
+
+	body := paragraphRecords(units("사진 둘"))
+	for _, number := range []uint16{1, 2} {
+		control := []byte{'c', 'i', 'p', '$'}
+		control = append(control, make([]byte, 8)...)
+		body = append(body, recordHeader(tagCtrlHeader, 1, len(control))...)
+		body = append(body, control...)
+		shape := make([]byte, pictureBinIDOffset+8)
+		binary.LittleEndian.PutUint16(shape[pictureBinIDOffset:], number)
+		body = append(body, recordHeader(tagShapePicture, 2, len(shape))...)
+		body = append(body, shape...)
+	}
+
+	streams := []streamSpec{
+		{path: "FileHeader", data: hwpFileHeader(false, false)},
+		{path: "DocInfo", data: docInfo},
+		{path: "BodyText/Section0", data: body},
+		{path: "BinData/BIN0001.png", data: pixel},
+		{path: "BinData/BIN0002.png", data: second},
+	}
+	_, assets, _, err := Parse(buildCompound(t, streams))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(assets) != 2 {
+		t.Fatalf("그림 = %d개", len(assets))
+	}
+	// The picture that wrote 1 means the first record, which is stream two.
+	if assets[0].Name != "BIN0002.png" || !bytes.Equal(assets[0].Data, second) {
+		t.Errorf("첫 그림 = %s", assets[0].Name)
+	}
+	if assets[1].Name != "BIN0001.png" || !bytes.Equal(assets[1].Data, pixel) {
+		t.Errorf("둘째 그림 = %s", assets[1].Name)
+	}
+}
+
 // A paragraph names its shape and its style by number, and both live in
 // DocInfo. Reading only the body finds a document with no alignment, no
 // indentation and no headings — most of what a Korean report's layout is.

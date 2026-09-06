@@ -462,8 +462,8 @@ func (imp *importer) pictureStreamID(picture *recordNode) string {
 		if len(picture.data) < offset+2 {
 			continue
 		}
-		if id := binary.LittleEndian.Uint16(picture.data[offset:]); id != 0 {
-			if name := binaryName(id); imp.hasBinary(name) {
+		if number := binary.LittleEndian.Uint16(picture.data[offset:]); number != 0 {
+			if name, ok := imp.binaryAt(number); ok {
 				return name
 			}
 		}
@@ -474,15 +474,37 @@ func (imp *importer) pictureStreamID(picture *recordNode) string {
 		if offset < 0 {
 			continue
 		}
-		id := binary.LittleEndian.Uint16(picture.data[offset:])
-		if id == 0 || id > 4096 {
+		number := binary.LittleEndian.Uint16(picture.data[offset:])
+		if number == 0 || number > 4096 {
 			continue
 		}
-		if name := binaryName(id); imp.hasBinary(name) {
+		if name, ok := imp.binaryAt(number); ok {
 			return name
 		}
 	}
 	return ""
+}
+
+// binaryAt is the stream the number a picture wrote stands for.
+//
+// The number is not the stream's own. It counts DocInfo's BIN_DATA records,
+// and each of those says which stream it means — a report whose three
+// pictures were written in one order and listed in another gave every picture
+// its neighbour's image, because the number was read as the stream's. The
+// giveaway was that each picture was drawn at exactly the shape of one of the
+// others.
+//
+// A file whose records say nothing about the number — one where they were not
+// read at all — falls back to reading it as the stream's, which is what every
+// file whose two orders agree has always done.
+func (imp *importer) binaryAt(number uint16) (string, bool) {
+	if number >= 1 && int(number) <= len(imp.binaries) {
+		if named := imp.binaries[number-1]; named != "" && imp.hasBinary(named) {
+			return named, true
+		}
+	}
+	name := binaryName(number)
+	return name, imp.hasBinary(name)
 }
 
 // findRecord looks for a tag anywhere beneath a node.

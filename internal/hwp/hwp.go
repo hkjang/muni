@@ -86,7 +86,11 @@ type importer struct {
 	// records came — which is the order a table cell's number points into,
 	// counting from one.
 	borderFills []string
-	assets      []richdoc.Asset
+	// binaries is the stream each BIN_DATA record names, in the order the
+	// records came — which is the order a picture's number counts, and not
+	// the order the streams are numbered in.
+	binaries []string
+	assets   []richdoc.Asset
 	// assetByID keeps a picture used twice from being stored twice, and
 	// binaryCache keeps it from being decompressed twice.
 	assetByID   map[string]string
@@ -213,7 +217,7 @@ func (imp *importer) readDocInfo() {
 		case tagStyle:
 			imp.styles = append(imp.styles, readStyle(item.data))
 		case tagBinData:
-			// The picture streams are found by name; nothing to keep here yet.
+			imp.binaries = append(imp.binaries, readBinData(item.data))
 		}
 	}
 	// A CHAR_SHAPE names its face by number and nothing else, so a number
@@ -223,6 +227,21 @@ func (imp *importer) readDocInfo() {
 	for index := range imp.charShapes {
 		imp.charShapes[index].family = imp.faceName(imp.charShapes[index].fontID)
 	}
+}
+
+// readBinData reads which stream one BIN_DATA record names.
+//
+// The record opens with what kind of thing it is: a picture kept inside the
+// file, one linked from disk, or a stream of something else. Only a kept one
+// has a stream here, and its number — which is the stream's, and not the
+// number the picture that uses it wrote — comes next, before the extension it
+// was saved as.
+func readBinData(raw []byte) string {
+	const embedding = 1
+	if len(raw) < 4 || binary.LittleEndian.Uint16(raw)&0x0F != embedding {
+		return ""
+	}
+	return binaryName(binary.LittleEndian.Uint16(raw[2:]))
 }
 
 // readFaceName reads the font's name out of one FACE_NAME record.

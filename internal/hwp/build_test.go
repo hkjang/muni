@@ -457,3 +457,18 @@ func styledParagraph(text []uint16, shapeID uint16, styleID uint8) []byte {
 	out = append(out, recordHeader(tagParaText, 1, len(payload))...)
 	return append(out, payload...)
 }
+
+// binDataRecord writes one BIN_DATA into DocInfo: a picture kept inside the
+// file, the stream it is in, and the extension it was saved as.
+func binDataRecord(stream uint16, extension string) []byte {
+	const embedding = 1
+	data := make([]byte, 4)
+	binary.LittleEndian.PutUint16(data, embedding)
+	binary.LittleEndian.PutUint16(data[2:], stream)
+	letters := units(extension)
+	data = binary.LittleEndian.AppendUint16(data, uint16(len(letters)))
+	for _, letter := range letters {
+		data = binary.LittleEndian.AppendUint16(data, letter)
+	}
+	return append(recordHeader(tagBinData, 0, len(data)), data...)
+}
