@@ -529,7 +529,7 @@ func (b *builder) picture(node *richdoc.Node) string {
 		b.pictures[src] = id
 	}
 	item := b.binData[b.pictureIndex(id)]
-	width, height := pictureSize(item.data, node.AttrInt("width", 0))
+	width, height := pictureSize(item.data, node.AttrInt("width", 0), node.AttrInt("height", 0))
 	w, h := strconv.Itoa(width), strconv.Itoa(height)
 	pixelsWide, pixelsHigh := strconv.Itoa(width*96/hangul.UnitsPerInch), strconv.Itoa(height*96/hangul.UnitsPerInch)
 	number := strconv.Itoa(b.nextObject())
@@ -564,14 +564,22 @@ func (b *builder) pictureIndex(id string) int {
 
 // pictureSize is a picture's size in HWPUNIT, from its pixels at 96 to the
 // inch, no wider than the text column.
-func pictureSize(data []byte, requestedPixels int) (int, int) {
+//
+// A document that says how tall the picture is drawn as well as how wide is
+// taken at its word, the way the .docx writer takes it: a picture read out of
+// a Hangul file carries both, and working the height out again from the bytes
+// would undo whatever the author did to the shape of it.
+func pictureSize(data []byte, requestedPixels, requestedHigh int) (int, int) {
 	const column = 6 * hangul.UnitsPerInch // an A4 text column, roughly
 	config, _, err := image.DecodeConfig(bytes.NewReader(data))
 	pixelsWide, pixelsHigh := 320, 240
 	if err == nil && config.Width > 0 && config.Height > 0 {
 		pixelsWide, pixelsHigh = config.Width, config.Height
 	}
-	if requestedPixels > 0 && pixelsWide > 0 {
+	switch {
+	case requestedPixels > 0 && requestedHigh > 0:
+		pixelsWide, pixelsHigh = requestedPixels, requestedHigh
+	case requestedPixels > 0 && pixelsWide > 0:
 		pixelsHigh = pixelsHigh * requestedPixels / pixelsWide
 		pixelsWide = requestedPixels
 	}

@@ -432,6 +432,65 @@ func TestAPictureKeepsItsBytes(t *testing.T) {
 	}
 }
 
+// A picture is drawn at the size the document draws it at, which is not the
+// size its bytes are — a letterhead scanned large and dragged into a corner
+// arrived filling the page. The size is written on the SHAPE_COMPONENT above
+// the picture, as the second of the two sizes there.
+func TestAPictureIsKeptAtTheSizeItIsDrawn(t *testing.T) {
+	pixel := []byte{
+		0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 'I', 'D', 'A', 'T', 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 'I', 'E', 'N', 'D', 0xae,
+		0x42, 0x60, 0x82,
+	}
+	// A drawing, the way a real file writes one: the control, the component
+	// that says how big it is, and the picture beneath that.
+	control := []byte{' ', 'o', 's', 'g'} // "gso " back to front
+	control = append(control, make([]byte, 40)...)
+	body := append(recordHeader(tagCtrlHeader, 1, len(control)), control...)
+
+	// A component directly beneath the control writes the control id twice,
+	// then its offsets in the group, the group level with the version, the
+	// size the picture came in at and the size it is drawn at.
+	component := []byte{'c', 'i', 'p', '$', 'c', 'i', 'p', '$'}
+	component = append(component, make([]byte, 12)...)
+	component = binary.LittleEndian.AppendUint32(component, 36000)
+	component = binary.LittleEndian.AppendUint32(component, 18000)
+	component = binary.LittleEndian.AppendUint32(component, 3600)
+	component = binary.LittleEndian.AppendUint32(component, 1800)
+	body = append(body, recordHeader(tagShapeComponent, 2, len(component))...)
+	body = append(body, component...)
+
+	shape := make([]byte, pictureBinIDOffset+8)
+	binary.LittleEndian.PutUint16(shape[pictureBinIDOffset:], 1)
+	body = append(body, recordHeader(tagShapePicture, 3, len(shape))...)
+	body = append(body, shape...)
+
+	streams := []streamSpec{
+		{path: "FileHeader", data: hwpFileHeader(false, false)},
+		{path: "BodyText/Section0", data: append(paragraphRecords(units("사진")), body...)},
+		{path: "BinData/BIN0001.png", data: pixel},
+	}
+	document, _, _, err := Parse(buildCompound(t, streams))
+	if err != nil {
+		t.Fatal(err)
+	}
+	image := (*richdoc.Node)(nil)
+	for _, block := range document.Content {
+		if block.Type == "image" {
+			image = block
+		}
+	}
+	if image == nil {
+		t.Fatalf("그림이 없습니다: %v", blockTypes(document))
+	}
+	// 3600 HWPUNIT is half an inch, and the editor draws an inch as 96.
+	if width, height := image.AttrInt("width", 0), image.AttrInt("height", 0); width != 48 || height != 24 {
+		t.Errorf("그린 크기 = %dx%d, 48x24이어야 합니다", width, height)
+	}
+}
+
 // A paragraph names its shape and its style by number, and both live in
 // DocInfo. Reading only the body finds a document with no alignment, no
 // indentation and no headings — most of what a Korean report's layout is.

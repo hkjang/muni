@@ -44,6 +44,22 @@ func PixelWidth(units int) int {
 	return int(float64(units)/UnitsPerInch*96 + 0.5)
 }
 
+// PictureSize turns the size a document draws a picture at, in HWPUNIT, into
+// the pixels muni's editor draws it at.
+//
+// A picture is kept at the size the document draws it rather than at the size
+// its bytes are: a letterhead scanned at 1632 pixels and dragged down to a
+// corner of the page comes back filling the page otherwise. Both lengths have
+// to be real ones — a file that gives one of them as nothing is not saying how
+// big the picture is, and half a size is worse than none.
+func PictureSize(widthUnits, heightUnits int) (int, int) {
+	width, height := PixelWidth(widthUnits), PixelWidth(heightUnits)
+	if width <= 0 || height <= 0 {
+		return 0, 0
+	}
+	return width, height
+}
+
 // ColumnWidths is what a cell keeps for the columns it covers: one width per
 // column, and nothing at all unless every column it covers has one, because
 // muni's editor reads the list as a whole.

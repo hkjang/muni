@@ -405,5 +405,28 @@ func (imp *importer) picture(current *node) *richdoc.Node {
 	if alt := strings.TrimSpace(current.attr("alt")); alt != "" {
 		node.SetAttr("alt", alt)
 	}
+	if width, height := drawnSize(current); width > 0 {
+		node.SetAttr("width", width)
+		node.SetAttr("height", height)
+	}
 	return node
+}
+
+// drawnSize is how large a picture is drawn, in the pixels muni's editor
+// draws it at.
+//
+// <hp:sz> is the size on the page — <hp:orgSz> is the size the picture came
+// in at, and <hp:curSz> repeats the drawn one. A real letterhead is 122400
+// units of picture drawn 12263 units wide, an eighth of its own size.
+func drawnSize(picture *node) (int, int) {
+	size := picture.child("sz")
+	if size == nil {
+		size = picture.child("curSz")
+	}
+	width, wErr := strconv.Atoi(strings.TrimSpace(size.attr("width")))
+	height, hErr := strconv.Atoi(strings.TrimSpace(size.attr("height")))
+	if wErr != nil || hErr != nil {
+		return 0, 0
+	}
+	return hangul.PictureSize(width, height)
 }

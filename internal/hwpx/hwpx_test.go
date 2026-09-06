@@ -259,6 +259,37 @@ func TestAPictureBecomesABlockWithItsBytes(t *testing.T) {
 	}
 }
 
+// A picture is drawn at <hp:sz>, the size on the page — <hp:orgSz> is the
+// size it came in at, and a real letterhead is eight times its own size. Kept
+// at its own size it fills the page.
+func TestAPictureIsKeptAtTheSizeItIsDrawn(t *testing.T) {
+	pixel := []byte{
+		0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+		0x89, 0x00, 0x00, 0x00, 0x0a, 'I', 'D', 'A', 'T', 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+		0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 'I', 'E', 'N', 'D', 0xae,
+		0x42, 0x60, 0x82,
+	}
+	document := parseFile(t, `<hp:p styleIDRef="0"><hp:run charPrIDRef="0">`+
+		`<hp:pic><hp:orgSz width="36000" height="18000"/><hp:curSz width="3600" height="1800"/>`+
+		`<hc:img binaryItemIDRef="image1"/>`+
+		`<hp:sz width="3600" widthRelTo="ABSOLUTE" height="1800" heightRelTo="ABSOLUTE" protect="0"/>`+
+		`</hp:pic></hp:run></hp:p>`, map[string][]byte{"image1.png": pixel})
+	image := (*richdoc.Node)(nil)
+	for _, block := range document.Content {
+		if block.Type == "image" {
+			image = block
+		}
+	}
+	if image == nil {
+		t.Fatalf("그림이 없습니다: %v", blockTypes(document))
+	}
+	// 3600 HWPUNIT is half an inch, and the editor draws an inch as 96.
+	if width, height := image.AttrInt("width", 0), image.AttrInt("height", 0); width != 48 || height != 24 {
+		t.Errorf("그린 크기 = %dx%d, 48x24이어야 합니다", width, height)
+	}
+}
+
 // A file with no section is not a document, and saying so beats returning an
 // empty one.
 func TestAFileWithNoSectionIsRefused(t *testing.T) {

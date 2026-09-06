@@ -188,6 +188,38 @@ func TestAPictureSurvivesTheRoundTrip(t *testing.T) {
 	}
 }
 
+// A picture the document draws at a size of its own keeps that size through
+// the writing: the height is written as it is rather than worked out again
+// from the bytes, which would undo a picture squeezed on purpose.
+func TestAPictureKeepsTheSizeItIsDrawnThroughTheRoundTrip(t *testing.T) {
+	image := &richdoc.Node{Type: "image"}
+	image.SetAttr("src", "/api/v1/attachments/abc")
+	image.SetAttr("width", 48)
+	image.SetAttr("height", 24)
+	built, err := Build(richdoc.Doc(image), Options{Title: "그림", ResolveImage: func(string) (Image, bool) {
+		return Image{Data: onePixel, MediaType: "image/png"}, true
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Half an inch by a quarter, in the units Hangul measures in.
+	if body := partsOf(t, built)["Contents/section0.xml"]; !strings.Contains(body, `<hp:sz width="3600" widthRelTo="ABSOLUTE" height="1800"`) {
+		t.Errorf("그림 크기가 3600x1800으로 쓰이지 않았습니다")
+	}
+	back, _, _, err := Parse(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, block := range back.Content {
+		if block.Type != "image" {
+			continue
+		}
+		if width, height := block.AttrInt("width", 0), block.AttrInt("height", 0); width != 48 || height != 24 {
+			t.Errorf("돌아온 크기 = %dx%d, 48x24이어야 합니다", width, height)
+		}
+	}
+}
+
 // The writer has always said which paragraph opens a page; nothing read it
 // back, so a document exported to .hwpx and imported again lost every break.
 func TestAPageBreakSurvivesTheRoundTrip(t *testing.T) {

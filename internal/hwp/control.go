@@ -132,8 +132,15 @@ func (imp *importer) furniture(kind string, node *recordNode) {
 // anything else.
 func (imp *importer) shapeObject(node *recordNode) []*richdoc.Node {
 	out := []*richdoc.Node{}
+	sizes := drawnSizes(node)
 	for _, picture := range topRecords(node, tagShapePicture, tagListHeader) {
 		if image := imp.pictureAt(picture); image != nil {
+			if size, ok := sizes[picture]; ok {
+				if width, height := hangul.PictureSize(size[0], size[1]); width > 0 {
+					image.SetAttr("width", width)
+					image.SetAttr("height", height)
+				}
+			}
 			out = append(out, image)
 		}
 	}
@@ -158,6 +165,55 @@ func (imp *importer) note(node *recordNode) *richdoc.Node {
 		return nil
 	}
 	return &richdoc.Node{Type: richdoc.FootnoteType, Content: []*richdoc.Node{richdoc.Text(strings.Join(lines, " "))}}
+}
+
+// The size a picture is drawn at is not written on the picture; it is written
+// on the SHAPE_COMPONENT above it, which is where every drawing — a picture,
+// a text box, a group of either — says how big it is. Two sizes are there:
+// the size the picture came in at, and after it the size it is drawn at, the
+// one someone changed by dragging a corner.
+//
+// Where those numbers begin depends on where the component sits. A component
+// directly beneath the control header writes the control id twice, once for
+// the control and once for itself; one inside a group writes it once.
+const (
+	shapeComponentTopOffset   = 8
+	shapeComponentGroupOffset = 4
+	// After the id come the offsets within the group, the group level with
+	// the version, and the size the picture came in at.
+	shapeComponentDrawnSize = 4 + 4 + 4 + 4 + 4
+)
+
+// drawnSizes is how large each picture in a drawing is drawn, in HWPUNIT,
+// looked up by the picture's own record.
+func drawnSizes(node *recordNode) map[*recordNode][2]int {
+	out := map[*recordNode][2]int{}
+	var walk func(current *recordNode, offset int)
+	walk = func(current *recordNode, offset int) {
+		for _, child := range current.children {
+			if child.tag == tagListHeader {
+				// A text box's paragraphs, and any drawing of their own
+				// inside them, are read as the words they are.
+				continue
+			}
+			if child.tag != tagShapeComponent {
+				walk(child, offset)
+				continue
+			}
+			if at := offset + shapeComponentDrawnSize; len(child.data) >= at+8 {
+				width := int(binary.LittleEndian.Uint32(child.data[at:]))
+				height := int(binary.LittleEndian.Uint32(child.data[at+4:]))
+				for _, picture := range child.children {
+					if picture.tag == tagShapePicture {
+						out[picture] = [2]int{width, height}
+					}
+				}
+			}
+			walk(child, shapeComponentGroupOffset)
+		}
+	}
+	walk(node, shapeComponentTopOffset)
+	return out
 }
 
 // topRecords finds records with a tag beneath a node, without descending into
