@@ -93,6 +93,14 @@ export const insertCommands: InsertCommand[] = [
     group: "삽입",
   },
   {
+    id: "file",
+    label: "파일 내용 넣기",
+    keywords:
+      "file import 파일 가져오기 문서 넣기 pdf docx hwp hwpx markdown txt html",
+    group: "삽입",
+    hint: "끌어다 놓기도 됩니다",
+  },
+  {
     id: "horizontalRule",
     label: "가로 구분선",
     keywords: "divider rule hr 구분선",

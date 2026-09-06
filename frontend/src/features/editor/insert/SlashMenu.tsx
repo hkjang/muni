@@ -9,6 +9,7 @@ import {
   Typography,
 } from "@mui/material";
 import { api } from "../../../lib/api";
+import { acceptedDropFiles } from "../extensions/fileDrop";
 import {
   groupInsertCommands,
   insertCommands,
@@ -31,10 +32,13 @@ export function SlashMenu({
   editor,
   documentId,
   canEdit,
+  onFiles,
 }: {
   editor: Editor;
   documentId: string;
   canEdit: boolean;
+  /** Puts document files in at a position, the way a drop does. */
+  onFiles?: (files: File[], position: number) => void;
 }) {
   const [trigger, setTrigger] = useState<Trigger | null>(null);
   const [active, setActive] = useState(0);
@@ -42,7 +46,9 @@ export function SlashMenu({
     null,
   );
   const fileInput = useRef<HTMLInputElement>(null);
+  const documentInput = useRef<HTMLInputElement>(null);
   const pendingImage = useRef<Trigger | null>(null);
+  const pendingFiles = useRef<Trigger | null>(null);
 
   const matches = useMemo(
     () => matchInsertCommands(insertCommands, trigger?.query ?? ""),
@@ -151,11 +157,25 @@ export function SlashMenu({
           pendingImage.current = at;
           fileInput.current?.click();
           break;
+        case "file":
+          chain.run();
+          pendingFiles.current = at;
+          documentInput.current?.click();
+          break;
       }
       close();
     },
     [close, editor],
   );
+
+  const pickFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    const at = pendingFiles.current;
+    pendingFiles.current = null;
+    event.target.value = "";
+    if (files.length === 0 || !onFiles) return;
+    onFiles(files, at ? at.from : editor.state.selection.to);
+  };
 
   const uploadImage = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -224,6 +244,14 @@ export function SlashMenu({
         type="file"
         accept="image/*"
         onChange={uploadImage}
+      />
+      <input
+        ref={documentInput}
+        hidden
+        type="file"
+        multiple
+        accept={acceptedDropFiles}
+        onChange={pickFiles}
       />
       <Popper
         open={open}

@@ -28,6 +28,15 @@ import { FindReplaceBar } from "../features/editor/find/FindReplaceBar";
 import { OutlinePanel } from "../features/editor/outline/OutlinePanel";
 import { PasteBehaviour } from "../features/editor/extensions/pasteBehaviour";
 import {
+  FileDrop,
+  type DroppedFiles,
+} from "../features/editor/extensions/fileDrop";
+import {
+  useFileImport,
+  type ImportedFurniture,
+} from "../features/editor/import/useFileImport";
+import { FileDropZone } from "../features/editor/import/FileDropZone";
+import {
   validScheme,
   type NumberingScheme,
 } from "../features/editor/outline/numbering";
@@ -142,9 +151,18 @@ export function EditorPage() {
     user,
     document?.crdtGeneration ?? 0,
   );
+  // The drop handler changes with the editor and the permission, but the
+  // extension list must not be rebuilt for that — rebuilding it remakes the
+  // editor. The extension calls through a ref that always holds the latest.
+  const fileDropHandler = useRef<(drop: DroppedFiles) => void>(() => {});
   const extensions = useMemo(
     () => [
       ...documentExtensions(),
+      // Before the paste behaviour: a paste that carries a file is a file
+      // being pasted, whatever text rides along with it.
+      FileDrop.configure({
+        onFiles: (drop) => fileDropHandler.current(drop),
+      }),
       Collaboration.configure({ document: collaboration.ydoc }),
       CollaborationCaret.configure({
         provider: collaboration.provider,
@@ -174,6 +192,35 @@ export function EditorPage() {
     (document?.permission === "OWNER" || document?.permission === "EDITOR") &&
     document?.workflowStatus !== "PENDING";
   const canComment = canEdit || document?.permission === "COMMENTER";
+  // A file dropped on an empty document makes it that document: the title
+  // it carried, its header and footer and the way its paper turns are taken
+  // on, where the document has none of its own yet.
+  const takeFurniture = useCallback(
+    (furniture: ImportedFurniture) => {
+      if (!document) return;
+      const patch: Record<string, unknown> = {};
+      const untitled = !document.title.trim() || document.title === "제목 없음";
+      if (untitled && furniture.title.trim()) patch.title = furniture.title;
+      if (!document.pageHeader && furniture.header) patch.pageHeader = furniture.header;
+      if (!document.pageFooter && furniture.footer) patch.pageFooter = furniture.footer;
+      if (furniture.landscape && document.pageOrientation !== "LANDSCAPE")
+        patch.pageOrientation = "LANDSCAPE";
+      if (Object.keys(patch).length === 0) return;
+      queryClient.setQueryData(["document", documentId], (current: DocumentItem | undefined) =>
+        current ? { ...current, ...patch } : current,
+      );
+      void updateMetadata(patch);
+    },
+    // updateMetadata is a plain closure over the editor; it is not a dep.
+    [document, documentId, queryClient],
+  );
+  const fileImport = useFileImport({
+    editor,
+    documentId,
+    canEdit: canEdit && mode === "editing",
+    onFurniture: takeFurniture,
+  });
+  fileDropHandler.current = fileImport.importFiles;
   useEffect(() => {
     seeded.current = false;
     restored.current = false;
@@ -626,8 +673,15 @@ export function EditorPage() {
             }
           />
         )}
-        <Box
+        <FileDropZone
           className="muni-page-scroll"
+          editor={editor}
+          enabled={canEdit && mode === "editing"}
+          progress={fileImport.progress}
+          onFiles={(files, position) =>
+            void fileImport.importFiles({ files, position })
+          }
+          onDismiss={fileImport.dismiss}
           sx={{
             flex: 1,
             minWidth: 0,
@@ -692,9 +746,12 @@ export function EditorPage() {
               editor={editor}
               documentId={documentId}
               canEdit={canEdit && mode === "editing"}
+              onFiles={(files, position) =>
+                void fileImport.importFiles({ files, position })
+              }
             />
           </Paper>
-        </Box>
+        </FileDropZone>
         {!compact && sideOpen && (
           <Box
             className="muni-no-print"

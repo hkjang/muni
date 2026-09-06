@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -78,39 +79,17 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	if extension == "" {
 		extension = extensionFromMediaType(header.Header.Get("Content-Type"), body)
 	}
-	var content json.RawMessage
-	var assets []richdoc.Asset
 	documentID := uuid.New()
-	embeddedTitle := ""
-	// A .docx carries its classification on the page rather than in the text.
-	var furniture docx.Meta
-	switch extension {
-	case ".txt":
-		content, err = plainTextDocument(string(body))
-	case ".md", ".markdown":
-		content, assets, err = markdownDocument(string(body))
-	case ".html", ".htm":
-		content, assets, err = htmlDocument(body)
-	case ".docx":
-		content, assets, furniture, err = docxImport(body)
-	case ".hwpx":
-		content, assets, furniture, err = hwpxImport(body)
-	case ".hwp":
-		content, assets, furniture, err = hwpImport(body)
-	case ".pdf":
-		// PDF interpretation is CPU bound; bound it so one upload cannot hold
-		// a worker for the whole request timeout.
-		parseCtx, cancelParse := context.WithTimeout(r.Context(), 90*time.Second)
-		content, assets, embeddedTitle, err = pdfImport(parseCtx, body)
-		cancelParse()
-	default:
-		writeError(w, 400, "UNSUPPORTED_IMPORT", "지원 형식은 PDF, DOCX, HWP, HWPX, Markdown, TXT, HTML입니다.")
+	parsed, err := parseUpload(r.Context(), extension, body)
+	if errors.Is(err, errUnsupportedUpload) {
+		writeError(w, 400, "UNSUPPORTED_IMPORT", err.Error())
 		return
 	}
 	if err != nil {
 		writeError(w, 400, "IMPORT_PARSE_FAILED", "파일 내용을 읽지 못했습니다: "+err.Error())
 		return
 	}
+	content, assets, embeddedTitle, furniture := parsed.content, parsed.assets, parsed.title, parsed.furniture
 	// Imported images become attachments so the editor can render them and
 	// the export path can embed them again.
 	attachments, content, err := prepareImportedAssets(assets, content)
@@ -169,6 +148,148 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, &p.User.ID, "IMPORT_DOCUMENT", "DOCUMENT", &documentID, map[string]any{"format": strings.TrimPrefix(extension, "."), "bytes": len(body), "images": len(attachments)})
 	s.getDocumentByID(w, r, documentID)
+}
+
+// upload is what a document file turns into: the content, the pictures it
+// carried, the title it held in itself and what it said about the paper.
+type upload struct {
+	content   json.RawMessage
+	assets    []richdoc.Asset
+	title     string
+	furniture docx.Meta
+}
+
+var errUnsupportedUpload = errors.New("지원 형식은 PDF, DOCX, HWP, HWPX, Markdown, TXT, HTML입니다.")
+
+// parseUpload reads a document file by its extension. It is the one place
+// that knows which parser reads what, for the import that makes a document
+// and the one that puts a file into a document already open.
+func parseUpload(ctx context.Context, extension string, body []byte) (upload, error) {
+	var content json.RawMessage
+	var assets []richdoc.Asset
+	embeddedTitle := ""
+	var furniture docx.Meta
+	var err error
+	switch extension {
+	case ".txt":
+		content, err = plainTextDocument(string(body))
+	case ".md", ".markdown":
+		content, assets, err = markdownDocument(string(body))
+	case ".html", ".htm":
+		content, assets, err = htmlDocument(body)
+	case ".docx":
+		content, assets, furniture, err = docxImport(body)
+	case ".hwpx":
+		content, assets, furniture, err = hwpxImport(body)
+	case ".hwp":
+		content, assets, furniture, err = hwpImport(body)
+	case ".pdf":
+		// PDF interpretation is CPU bound; bound it so one upload cannot hold
+		// a worker for the whole request timeout.
+		parseCtx, cancelParse := context.WithTimeout(ctx, 90*time.Second)
+		content, assets, embeddedTitle, err = pdfImport(parseCtx, body)
+		cancelParse()
+	default:
+		return upload{}, errUnsupportedUpload
+	}
+	if err != nil {
+		return upload{}, err
+	}
+	return upload{content: content, assets: assets, title: embeddedTitle, furniture: furniture}, nil
+}
+
+// importIntoDocument reads a file dropped on an open document and returns
+// its content for the editor to put where it was dropped. The pictures
+// become attachments of this document now, so the content refers to them
+// the way a saved document does; the words are the editor's to place and
+// save, in one step that undo takes back.
+func (s *Server) importIntoDocument(w http.ResponseWriter, r *http.Request) {
+	documentID, ok := pathUUID(w, r, "id")
+	if !ok {
+		return
+	}
+	p, _ := principalFrom(r.Context())
+	role, err := s.documentRole(r.Context(), p.User, documentID, false)
+	if !documentAllowed(w, role, err, "EDITOR") {
+		return
+	}
+	all, err := s.settings.GetAll(r.Context(), false)
+	if err != nil {
+		writeError(w, 500, "SETTINGS_ERROR", "업로드 설정을 불러오지 못했습니다.")
+		return
+	}
+	maxBytes := int64(all.Security.MaxUploadMB) << 20
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+(1<<20))
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		writeError(w, 413, "FILE_TOO_LARGE", fmt.Sprintf("파일은 %dMB 이하여야 합니다.", all.Security.MaxUploadMB))
+		return
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, 400, "FILE_REQUIRED", "가져올 파일이 필요합니다.")
+		return
+	}
+	defer file.Close()
+	body, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	if err != nil || int64(len(body)) > maxBytes {
+		writeError(w, 413, "FILE_TOO_LARGE", "파일 크기 제한을 초과했습니다.")
+		return
+	}
+	extension := strings.ToLower(filepath.Ext(header.Filename))
+	if extension == "" {
+		extension = extensionFromMediaType(header.Header.Get("Content-Type"), body)
+	}
+	parsed, err := parseUpload(r.Context(), extension, body)
+	if errors.Is(err, errUnsupportedUpload) {
+		writeError(w, 400, "UNSUPPORTED_IMPORT", err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, 400, "IMPORT_PARSE_FAILED", "파일 내용을 읽지 못했습니다: "+err.Error())
+		return
+	}
+	attachments, content, err := prepareImportedAssets(parsed.assets, parsed.content)
+	if err != nil {
+		writeError(w, 400, "IMPORT_PARSE_FAILED", "가져온 문서를 변환하지 못했습니다: "+err.Error())
+		return
+	}
+	content, err = withBlockIDs(content)
+	if err != nil {
+		writeError(w, 400, "IMPORT_PARSE_FAILED", "가져온 문서를 변환하지 못했습니다: "+err.Error())
+		return
+	}
+	if !validDocumentJSON(content) {
+		writeError(w, 400, "IMPORT_TOO_LARGE", "가져온 문서가 너무 큽니다. 파일을 나눠서 가져와 주세요.")
+		return
+	}
+	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
+		for _, attachment := range attachments {
+			sum := sha256.Sum256(attachment.Data)
+			if _, err := tx.Exec(r.Context(), `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+				attachment.ID, documentID, p.User.ID, truncateRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		writeError(w, 500, "IMPORT_FAILED", "가져온 그림을 저장하지 못했습니다.")
+		return
+	}
+	title := strings.TrimSpace(parsed.title)
+	if title == "" {
+		title = strings.TrimSuffix(filepath.Base(header.Filename), filepath.Ext(header.Filename))
+	}
+	s.audit(r, &p.User.ID, "IMPORT_INTO_DOCUMENT", "DOCUMENT", &documentID, map[string]any{"format": strings.TrimPrefix(extension, "."), "bytes": len(body), "images": len(attachments)})
+	writeData(w, 200, map[string]any{
+		"content":   content,
+		"title":     truncateRunes(title, 240),
+		"header":    truncateRunes(parsed.furniture.Header, 200),
+		"footer":    truncateRunes(parsed.furniture.Footer, 200),
+		"landscape": parsed.furniture.Landscape,
+		"format":    strings.TrimPrefix(extension, "."),
+		"images":    len(attachments),
+	})
 }
 
 // docxImport converts a Word file, keeping headings, lists, tables, inline

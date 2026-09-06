@@ -1013,6 +1013,35 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         default: { $ref: '#/components/responses/Error' }
+  /documents/{id}/import:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Read a document file into an open document
+      description: >-
+        Parses a dropped or picked file the way POST /import does — PDF, DOCX,
+        HWP, HWPX, Markdown, TXT or HTML — and returns its content for the
+        editor to insert where the file landed, along with the title, header,
+        footer and paper orientation the file carried. Pictures in the file
+        become attachments of this document at once so the returned content
+        refers to them by URL; the document's own content is not changed until
+        the editor saves. Requires the EDITOR role on the document.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
   /documents/{id}/attachments:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }

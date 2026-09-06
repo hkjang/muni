@@ -136,6 +136,7 @@ func (s *Server) routes() {
 	s.handle("DELETE /api/v1/documents/{id}/presentations/{presentationId}", s.requireAuth(http.HandlerFunc(s.unlinkPresentation)))
 	s.handle("GET /api/v1/documents/{id}/attachments", s.requireAuth(http.HandlerFunc(s.listAttachments)))
 	s.handle("POST /api/v1/documents/{id}/attachments", s.requireAuth(http.HandlerFunc(s.uploadAttachment)))
+	s.handle("POST /api/v1/documents/{id}/import", s.requireAuth(http.HandlerFunc(s.importIntoDocument)))
 	s.handle("GET /api/v1/attachments/{id}", s.requireAuth(http.HandlerFunc(s.downloadAttachment)))
 	s.handle("DELETE /api/v1/attachments/{id}", s.requireAuth(http.HandlerFunc(s.deleteAttachment)))
 	s.handle("GET /api/v1/collab/{id}", s.requireAuth(http.HandlerFunc(s.collaboration)))
