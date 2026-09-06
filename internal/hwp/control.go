@@ -132,8 +132,15 @@ func (imp *importer) furniture(kind string, node *recordNode) {
 // anything else.
 func (imp *importer) shapeObject(node *recordNode) []*richdoc.Node {
 	out := []*richdoc.Node{}
+	sizes := drawnSizes(node)
 	for _, picture := range topRecords(node, tagShapePicture, tagListHeader) {
 		if image := imp.pictureAt(picture); image != nil {
+			if size, ok := sizes[picture]; ok {
+				if width, height := hangul.PictureSize(size[0], size[1]); width > 0 {
+					image.SetAttr("width", width)
+					image.SetAttr("height", height)
+				}
+			}
 			out = append(out, image)
 		}
 	}
@@ -158,6 +165,55 @@ func (imp *importer) note(node *recordNode) *richdoc.Node {
 		return nil
 	}
 	return &richdoc.Node{Type: richdoc.FootnoteType, Content: []*richdoc.Node{richdoc.Text(strings.Join(lines, " "))}}
+}
+
+// The size a picture is drawn at is not written on the picture; it is written
+// on the SHAPE_COMPONENT above it, which is where every drawing — a picture,
+// a text box, a group of either — says how big it is. Two sizes are there:
+// the size the picture came in at, and after it the size it is drawn at, the
+// one someone changed by dragging a corner.
+//
+// Where those numbers begin depends on where the component sits. A component
+// directly beneath the control header writes the control id twice, once for
+// the control and once for itself; one inside a group writes it once.
+const (
+	shapeComponentTopOffset   = 8
+	shapeComponentGroupOffset = 4
+	// After the id come the offsets within the group, the group level with
+	// the version, and the size the picture came in at.
+	shapeComponentDrawnSize = 4 + 4 + 4 + 4 + 4
+)
+
+// drawnSizes is how large each picture in a drawing is drawn, in HWPUNIT,
+// looked up by the picture's own record.
+func drawnSizes(node *recordNode) map[*recordNode][2]int {
+	out := map[*recordNode][2]int{}
+	var walk func(current *recordNode, offset int)
+	walk = func(current *recordNode, offset int) {
+		for _, child := range current.children {
+			if child.tag == tagListHeader {
+				// A text box's paragraphs, and any drawing of their own
+				// inside them, are read as the words they are.
+				continue
+			}
+			if child.tag != tagShapeComponent {
+				walk(child, offset)
+				continue
+			}
+			if at := offset + shapeComponentDrawnSize; len(child.data) >= at+8 {
+				width := int(binary.LittleEndian.Uint32(child.data[at:]))
+				height := int(binary.LittleEndian.Uint32(child.data[at+4:]))
+				for _, picture := range child.children {
+					if picture.tag == tagShapePicture {
+						out[picture] = [2]int{width, height}
+					}
+				}
+			}
+			walk(child, shapeComponentGroupOffset)
+		}
+	}
+	walk(node, shapeComponentTopOffset)
+	return out
 }
 
 // topRecords finds records with a tag beneath a node, without descending into
@@ -406,8 +462,8 @@ func (imp *importer) pictureStreamID(picture *recordNode) string {
 		if len(picture.data) < offset+2 {
 			continue
 		}
-		if id := binary.LittleEndian.Uint16(picture.data[offset:]); id != 0 {
-			if name := binaryName(id); imp.hasBinary(name) {
+		if number := binary.LittleEndian.Uint16(picture.data[offset:]); number != 0 {
+			if name, ok := imp.binaryAt(number); ok {
 				return name
 			}
 		}
@@ -418,15 +474,37 @@ func (imp *importer) pictureStreamID(picture *recordNode) string {
 		if offset < 0 {
 			continue
 		}
-		id := binary.LittleEndian.Uint16(picture.data[offset:])
-		if id == 0 || id > 4096 {
+		number := binary.LittleEndian.Uint16(picture.data[offset:])
+		if number == 0 || number > 4096 {
 			continue
 		}
-		if name := binaryName(id); imp.hasBinary(name) {
+		if name, ok := imp.binaryAt(number); ok {
 			return name
 		}
 	}
 	return ""
+}
+
+// binaryAt is the stream the number a picture wrote stands for.
+//
+// The number is not the stream's own. It counts DocInfo's BIN_DATA records,
+// and each of those says which stream it means — a report whose three
+// pictures were written in one order and listed in another gave every picture
+// its neighbour's image, because the number was read as the stream's. The
+// giveaway was that each picture was drawn at exactly the shape of one of the
+// others.
+//
+// A file whose records say nothing about the number — one where they were not
+// read at all — falls back to reading it as the stream's, which is what every
+// file whose two orders agree has always done.
+func (imp *importer) binaryAt(number uint16) (string, bool) {
+	if number >= 1 && int(number) <= len(imp.binaries) {
+		if named := imp.binaries[number-1]; named != "" && imp.hasBinary(named) {
+			return named, true
+		}
+	}
+	name := binaryName(number)
+	return name, imp.hasBinary(name)
 }
 
 // findRecord looks for a tag anywhere beneath a node.
