@@ -231,3 +231,157 @@ func TestColumnsAreFoundByOverlapNotByLeftEdge(t *testing.T) {
 		}
 	}
 }
+
+// pagesPDF assembles a PDF of several pages sharing one font, so the tests can
+// say what belongs to the paper and what belongs to the document.
+func pagesPDF(contents []string) []byte {
+	var out bytes.Buffer
+	out.WriteString("%PDF-1.4\n")
+	out.WriteString("1 0 obj <</Type/Catalog/Pages 2 0 R>> endobj\n")
+	kids := ""
+	for index := range contents {
+		kids += fmt.Sprintf("%d 0 R ", 4+index*2)
+	}
+	out.WriteString(fmt.Sprintf("2 0 obj <</Type/Pages/Kids[%s]/Count %d>> endobj\n", strings.TrimSpace(kids), len(contents)))
+	out.WriteString("3 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>> endobj\n")
+	for index, content := range contents {
+		page, stream := 4+index*2, 5+index*2
+		out.WriteString(fmt.Sprintf("%d 0 obj <</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]"+
+			"/Resources<</Font<</F2 3 0 R>>>>/Contents %d 0 R>> endobj\n", page, stream))
+		out.WriteString(fmt.Sprintf("%d 0 obj <</Length %d>>\nstream\n%s\nendstream endobj\n", stream, len(content), content))
+	}
+	out.WriteString(fmt.Sprintf("trailer <</Root 1 0 R/Size %d>>\n%%%%EOF\n", 4+len(contents)*2))
+	return out.Bytes()
+}
+
+func at(x, y int, text string) string {
+	return fmt.Sprintf("BT /F2 11 Tf %d %d Td (%s) Tj ET\n", x, y, text)
+}
+
+// tableRow places one row of a four-column table.
+func tableRowAt(y int, cells ...string) string {
+	out := ""
+	for index, text := range cells {
+		out += at(60+index*140, y, text)
+	}
+	return out
+}
+
+// The running head and the page number belong to the paper. A browser prints
+// the document's title across the top of every page and the address and
+// "1/2" across the foot, and all of it used to arrive as text.
+func TestTheRunningHeadAndPageNumberAreNotTheDocument(t *testing.T) {
+	page := func(number int, body string) string {
+		return at(60, 800, "Quarterly Report - Finance Division") + body +
+			at(60, 30, fmt.Sprintf("- %d -", number))
+	}
+	pdf := pagesPDF([]string{
+		page(1, at(60, 700, "The first paragraph of the document.")),
+		page(2, at(60, 700, "The second page carries on the argument.")),
+	})
+	result, err := Import(context.Background(), pdf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := result.Document.PlainText()
+	for _, unwanted := range []string{"Quarterly Report", "- 1 -", "- 2 -"} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("%q가 본문에 남았습니다:\n%s", unwanted, text)
+		}
+	}
+	for _, wanted := range []string{"first paragraph", "second page"} {
+		if !strings.Contains(text, wanted) {
+			t.Errorf("%q가 사라졌습니다:\n%s", wanted, text)
+		}
+	}
+}
+
+func firstTable(node *richdoc.Node) *richdoc.Node {
+	if node == nil {
+		return nil
+	}
+	if node.Type == "table" {
+		return node
+	}
+	for _, child := range node.Content {
+		if found := firstTable(child); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func countTables(node *richdoc.Node) int {
+	if node == nil {
+		return 0
+	}
+	total := 0
+	if node.Type == "table" {
+		total++
+	}
+	for _, child := range node.Content {
+		total += countTables(child)
+	}
+	return total
+}
+
+// A table too long for one page runs to the foot and starts again at the head
+// of the next. It is one table, and the running head that used to sit between
+// the halves made it look like two with a stray line between them.
+func TestATableCarriedOverAPageBreakIsOneTable(t *testing.T) {
+	head := at(60, 800, "Quarterly Report - Finance Division")
+	first := head + at(60, 700, "Departmental spending") +
+		tableRowAt(660, "Dept", "Project", "Amount", "Rate") +
+		tableRowAt(640, "Planning", "Upgrade", "125,000", "82.4%") +
+		tableRowAt(620, "General", "Facility", "64,300", "91.0%")
+	second := head +
+		tableRowAt(760, "Safety", "Response", "210,500", "55.7%") +
+		tableRowAt(740, "Press", "Outreach", "33,000", "70.2%")
+	result, err := Import(context.Background(), pagesPDF([]string{first, second}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count := countTables(result.Document); count != 1 {
+		t.Fatalf("표가 %d개입니다:\n%s", count, result.Document.PlainText())
+	}
+	table := firstTable(result.Document)
+	if len(table.Content) != 5 {
+		t.Fatalf("행 = %d개 (5개여야 합니다): %q", len(table.Content), table.PlainText())
+	}
+	for index, row := range table.Content {
+		if len(row.Content) != 4 {
+			t.Errorf("%d번째 행의 칸 = %d개", index, len(row.Content))
+		}
+	}
+	if !strings.Contains(table.PlainText(), "Outreach") {
+		t.Errorf("이어진 행이 표에 들어오지 않았습니다: %q", table.PlainText())
+	}
+}
+
+// A heading centred over its columns overlaps neither the names on the left
+// nor the figures on the right, and was left behind as a stray paragraph.
+func TestACentredHeadingJoinsItsTable(t *testing.T) {
+	content := at(150, 700, "Item") + at(430, 700, "Value") +
+		at(60, 680, "First") + at(520, 680, "1") +
+		at(60, 660, "Second") + at(520, 660, "22")
+	result, err := Import(context.Background(), buildPDF(content, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	table := firstTable(result.Document)
+	if table == nil {
+		t.Fatalf("표가 없습니다: %q", result.Document.PlainText())
+	}
+	if len(table.Content) != 3 {
+		t.Fatalf("행 = %d개 (머리글 포함 3개여야 합니다): %q", len(table.Content), table.PlainText())
+	}
+	heading := table.Content[0].PlainText()
+	if !strings.Contains(heading, "Item") || !strings.Contains(heading, "Value") {
+		t.Errorf("머리글 행 = %q", heading)
+	}
+	for index, row := range table.Content {
+		if len(row.Content) != 2 {
+			t.Errorf("%d번째 행의 칸 = %d개", index, len(row.Content))
+		}
+	}
+}

@@ -204,14 +204,22 @@ type listEntry struct {
 // Build converts every page's flow into the final document tree.
 func buildDocument(pages []*pageContent) (*richdoc.Node, []richdoc.Asset) {
 	dropPageFurniture(pages)
+	// The running head and the page number belong to the paper, not to the
+	// document, and they have to be recognised across the whole of it: the
+	// evidence that a line is furniture is that the same line is on the next
+	// page too. So every page is read before any of it is turned into blocks.
+	pageLines := make([][]textLine, len(pages))
+	for index, page := range pages {
+		pageLines[index] = buildLines(page.texts)
+	}
+	dropRunningFurniture(pageLines, pages)
+
 	allLines := make([]textLine, 0, 256)
 	perPage := make([][]flowElement, 0, len(pages))
 	pageRights := make([]float64, 0, len(pages))
-	for _, page := range pages {
-		lines := buildLines(page.texts)
-		lines = dropRepeatedFurniture(lines, page)
+	for pageIndex, page := range pages {
+		lines := pageLines[pageIndex]
 		allLines = append(allLines, lines...)
-		bulleted := detectIndentedRuns(lines)
 		pageRight := 0.0
 		for _, line := range lines {
 			if line.right > pageRight {
@@ -227,6 +235,21 @@ func buildDocument(pages []*pageContent) (*richdoc.Node, []richdoc.Asset) {
 			for cursor := span.start; cursor < span.end; cursor++ {
 				inTable[cursor] = spanIndex
 			}
+		}
+		// Indented runs are looked for among the lines that are still prose.
+		// A table's rows are indented too, and counting them turned the line
+		// above a table into a one-item list.
+		free := make([]textLine, 0, len(lines))
+		freeIndex := make([]int, 0, len(lines))
+		for index, line := range lines {
+			if inTable[index] < 0 {
+				free = append(free, line)
+				freeIndex = append(freeIndex, index)
+			}
+		}
+		bulleted := make([]int, len(lines))
+		for position, depth := range detectIndentedRuns(free) {
+			bulleted[freeIndex[position]] = depth
 		}
 		flow := make([]flowElement, 0, len(lines)+len(page.images))
 		for index, line := range lines {
@@ -244,11 +267,17 @@ func buildDocument(pages []*pageContent) (*richdoc.Node, []richdoc.Asset) {
 		sort.SliceStable(flow, func(a, b int) bool { return flow[a].y > flow[b].y })
 		perPage = append(perPage, flow)
 		pageRights = append(pageRights, pageRight)
+		_ = page
 	}
 
 	builder := &documentBuilder{body: bodySize(allLines), pages: len(pages)}
 	builder.headings = headingSizes(allLines, builder.body)
 
+	// A table cut in two by a page break is one table: it runs to the foot of
+	// one page and starts again at the head of the next, on the same columns.
+	var running *richdoc.Node
+	var runningColumns []columnBand
+	carriedOver := false
 	for pageIndex, flow := range perPage {
 		var previous *textLine
 		pageRight := pageRights[pageIndex]
@@ -256,12 +285,21 @@ func buildDocument(pages []*pageContent) (*richdoc.Node, []richdoc.Asset) {
 			if element.kind == flowImage {
 				builder.flush()
 				builder.addImage(element.image)
-				previous = nil
+				previous, running = nil, nil
 				continue
 			}
 			if element.kind == flowTable {
 				builder.flush()
-				builder.blocks = append(builder.blocks, element.table.node(element.lines, builder.body))
+				table := element.table.node(element.lines, builder.body)
+				// Only the table that opens a page can continue the one that
+				// closed the page before it.
+				if index == 0 && carriedOver && running != nil &&
+					sameColumns(runningColumns, element.table.columns) {
+					joinTables(running, table)
+				} else {
+					builder.blocks = append(builder.blocks, table)
+					running, runningColumns = table, element.table.columns
+				}
 				previous = nil
 				continue
 			}
@@ -279,9 +317,11 @@ func buildDocument(pages []*pageContent) (*richdoc.Node, []richdoc.Asset) {
 			builder.addLine(line, previous, gap, pageRight, element.bulleted)
 			copied := line
 			previous = &copied
+			running = nil
 			_ = index
 		}
 		builder.flush()
+		carriedOver = len(flow) > 0 && flow[len(flow)-1].kind == flowTable && running != nil
 		_ = pageIndex
 	}
 	builder.flush()
@@ -293,23 +333,171 @@ func buildDocument(pages []*pageContent) (*richdoc.Node, []richdoc.Asset) {
 	return document, builder.assets
 }
 
-// dropRepeatedFurniture removes page numbers and running headers that sit in
-// the top or bottom margin and would otherwise interrupt the text flow.
-func dropRepeatedFurniture(lines []textLine, page *pageContent) []textLine {
-	if page.height <= 0 {
-		return lines
+// sameColumns reports whether two tables stand on the same columns.
+func sameColumns(left, right []columnBand) bool {
+	if len(left) == 0 || len(left) != len(right) {
+		return false
 	}
-	out := make([]textLine, 0, len(lines))
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line.text)
-		nearBottom := line.y < page.height*0.06
-		nearTop := line.y > page.height*0.94
-		if (nearBottom || nearTop) && isPageNumber(trimmed) {
+	for index := range left {
+		a, b := left[index], right[index]
+		if a.left > b.right || b.left > a.right {
+			return false
+		}
+	}
+	return true
+}
+
+// joinTables adds the rows of a table's continuation to the table it
+// continues, leaving out a heading row repeated at the top of the new page.
+func joinTables(table, continuation *richdoc.Node) {
+	heading := ""
+	if len(table.Content) > 0 {
+		heading = strings.Join(strings.Fields(table.Content[0].PlainText()), " ")
+	}
+	for index, row := range continuation.Content {
+		if index == 0 && heading != "" &&
+			strings.Join(strings.Fields(row.PlainText()), " ") == heading {
 			continue
 		}
-		out = append(out, line)
+		// Only the table's own first row is a heading; a row that merely
+		// starts a page is not.
+		for _, cell := range row.Content {
+			if cell != nil && cell.Type == "tableHeader" {
+				cell.Type = "tableCell"
+			}
+		}
+		table.Content = append(table.Content, row)
 	}
-	return out
+}
+
+// dropRunningFurniture removes the running head, the running foot and the page
+// number: the lines that belong to the paper rather than to the document.
+//
+// Three things have to hold before a line is thrown away. It sits in the top
+// or bottom margin; it stands apart from the block of text, which is what
+// makes it a margin note rather than the first line of the page; and it looks
+// like furniture — the same line is on another page, or it is a page number,
+// or it is a web address, or it is set smaller than the body. A browser
+// printing a page writes the date and the page's title across the top and the
+// address and "1/2" across the foot, and every one of those arrived in the
+// text until now.
+func dropRunningFurniture(pageLines [][]textLine, pages []*pageContent) {
+	if len(pageLines) == 0 {
+		return
+	}
+	all := make([]textLine, 0, 256)
+	for _, lines := range pageLines {
+		all = append(all, lines...)
+	}
+	body := bodySize(all)
+
+	type candidate struct {
+		page int
+		row  int
+	}
+	repeats := map[string][]candidate{}
+	for pageIndex, lines := range pageLines {
+		if pageIndex >= len(pages) || pages[pageIndex].height <= 0 {
+			continue
+		}
+		height := pages[pageIndex].height
+		for row, line := range lines {
+			if !inMargin(line, height) || !standsApart(lines, row, body) {
+				continue
+			}
+			key := marginOf(line, height) + "\x00" + furnitureKey(line.text)
+			repeats[key] = append(repeats[key], candidate{page: pageIndex, row: row})
+		}
+	}
+
+	drop := make([]map[int]bool, len(pageLines))
+	for index := range drop {
+		drop[index] = map[int]bool{}
+	}
+	for _, found := range repeats {
+		onPages := map[int]bool{}
+		for _, item := range found {
+			onPages[item.page] = true
+		}
+		repeated := len(onPages) >= 2 && len(onPages)*2 >= len(pageLines)
+		for _, item := range found {
+			line := pageLines[item.page][item.row]
+			text := strings.TrimSpace(line.text)
+			if repeated || isPageNumber(text) || holdsAddress(text) || line.size <= body*0.85 {
+				drop[item.page][item.row] = true
+			}
+		}
+	}
+
+	for pageIndex, lines := range pageLines {
+		if len(drop[pageIndex]) == 0 {
+			continue
+		}
+		kept := make([]textLine, 0, len(lines))
+		for row, line := range lines {
+			if drop[pageIndex][row] {
+				continue
+			}
+			kept = append(kept, line)
+		}
+		pageLines[pageIndex] = kept
+	}
+}
+
+func inMargin(line textLine, height float64) bool {
+	return line.y > height*0.93 || line.y < height*0.07
+}
+
+func marginOf(line textLine, height float64) string {
+	if line.y > height*0.93 {
+		return "top"
+	}
+	return "bottom"
+}
+
+// standsApart reports whether a line is separated from the rest of the page.
+// The first line of a page sits a line's height above the second; a running
+// head sits in the margin, far above everything.
+func standsApart(lines []textLine, row int, body float64) bool {
+	gap := math.MaxFloat64
+	if row > 0 {
+		gap = math.Min(gap, lines[row-1].y-lines[row].y)
+	}
+	if row+1 < len(lines) {
+		gap = math.Min(gap, lines[row].y-lines[row+1].y)
+	}
+	return gap > math.Max(body, 1)*1.8
+}
+
+// furnitureKey is a line with its numbers taken out, so that "1/2" and "2/2"
+// — the same footer on two pages — are recognised as the same line.
+func furnitureKey(text string) string {
+	var out strings.Builder
+	digits := false
+	for _, r := range strings.TrimSpace(text) {
+		if r >= '0' && r <= '9' {
+			if !digits {
+				out.WriteByte('#')
+				digits = true
+			}
+			continue
+		}
+		digits = false
+		out.WriteRune(r)
+	}
+	return out.String()
+}
+
+// holdsAddress reports whether a line carries a web or file address, which is
+// what a browser prints across the foot of the page.
+func holdsAddress(text string) bool {
+	lower := strings.ToLower(text)
+	for _, prefix := range []string{"http://", "https://", "file:///", "www."} {
+		if strings.Contains(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isPageNumber(value string) bool {

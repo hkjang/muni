@@ -30,6 +30,33 @@ const maxTotalTextRuns = 400000
 // Import converts a PDF file into a muni document. The context bounds the
 // work: a crafted file can be expensive to interpret, so parsing stops at the
 // first page boundary after the deadline passes.
+// PageTexts returns the text of each page as it is drawn on the paper.
+//
+// Import throws away what belongs to the page rather than to the document —
+// the running head, the page number — which is right for a document being
+// brought in and wrong for a caller asking what a renderer actually printed.
+func PageTexts(ctx context.Context, body []byte) ([]string, error) {
+	doc, err := Load(body)
+	if err != nil {
+		return nil, err
+	}
+	refs := doc.pages()
+	out := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		page := doc.renderPage(ctx, ref.dict, ref.rotate, ref.mediaBox)
+		lines := buildLines(page.texts)
+		texts := make([]string, 0, len(lines))
+		for _, line := range lines {
+			texts = append(texts, line.text)
+		}
+		out = append(out, strings.Join(texts, "\n"))
+	}
+	return out, nil
+}
+
 func Import(ctx context.Context, body []byte) (*Result, error) {
 	doc, err := Load(body)
 	if err != nil {

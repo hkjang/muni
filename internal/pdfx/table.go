@@ -81,6 +81,7 @@ func detectTables(lines []textLine, body float64) []tableSpan {
 	}
 
 	spans := make([]tableSpan, 0, 2)
+	claimed := 0
 	for index := 0; index < len(lines); {
 		if segmented[index] == nil {
 			index++
@@ -100,10 +101,23 @@ func detectTables(lines []textLine, body float64) []tableSpan {
 			span := tableSpan{start: index, end: end}
 			span.columns = columnBands(segmented[index:end], body)
 			if len(span.columns) >= 2 {
-				for cursor := index; cursor < end; cursor++ {
+				// A heading row is centred over columns whose text is set to
+				// the left and the right, so it overlaps neither and is left
+				// behind as a stray paragraph above its own table. A line
+				// that splits into exactly as many cells as the table has
+				// columns, right above it, is that heading.
+				//
+				// The columns stay as the aligned rows drew them: a centred
+				// heading would otherwise add a column of its own.
+				if index > claimed && fills(segmented[index-1], len(span.columns)) &&
+					lines[index-1].y-lines[index].y < math.Max(lines[index].size, body)*4.5 {
+					span.start = index - 1
+				}
+				for cursor := span.start; cursor < end; cursor++ {
 					span.rows = append(span.rows, segmented[cursor])
 				}
 				spans = append(spans, span)
+				claimed = end
 				index = end
 				continue
 			}
@@ -119,6 +133,12 @@ func detectTables(lines []textLine, body float64) []tableSpan {
 // left edges alone will not do: a heading centred over left-aligned text, or
 // over figures set to the right, starts nowhere near them, and matching on
 // the edge invents a column for every alignment in the table.
+// fills reports whether a row splits into exactly as many cells as the table
+// has columns.
+func fills(cells []lineCell, columns int) bool {
+	return len(cells) == columns && columns >= 2
+}
+
 func columnsAlign(left, right []lineCell, body float64) bool {
 	matches := 0
 	for _, cell := range right {
@@ -185,7 +205,7 @@ func columnBands(rows [][]lineCell, body float64) []columnBand {
 }
 
 // bandFor places a cell in the column it belongs to: the one its middle sits
-// in, or failing that the one it shares most of its width with.
+// in, the one it shares most of its width with, or the nearest one.
 func bandFor(bands []columnBand, cell lineCell) int {
 	middle := (cell.left + cell.right) / 2
 	for index, band := range bands {
@@ -200,7 +220,18 @@ func bandFor(bands []columnBand, cell lineCell) int {
 			best, bestOverlap = index, shared
 		}
 	}
-	return best
+	if best >= 0 {
+		return best
+	}
+	// A heading centred over a narrow column touches none of them; the
+	// column it is nearest to is the one it names.
+	nearest, distance := -1, math.MaxFloat64
+	for index, band := range bands {
+		if away := math.Abs((band.left+band.right)/2 - middle); away < distance {
+			nearest, distance = index, away
+		}
+	}
+	return nearest
 }
 
 func (span tableSpan) node(lines []textLine, body float64) *richdoc.Node {
@@ -210,9 +241,14 @@ func (span tableSpan) node(lines []textLine, body float64) *richdoc.Node {
 	for rowIndex, cells := range span.rows {
 		row := &richdoc.Node{Type: "tableRow"}
 		texts := make([]string, columnCount)
-		for _, cell := range cells {
-			target := bandFor(span.columns, cell)
-			if target < 0 {
+		for position, cell := range cells {
+			// A row with a cell for every column needs no guessing: they are
+			// the columns, in order.
+			target := position
+			if len(cells) != columnCount {
+				target = bandFor(span.columns, cell)
+			}
+			if target < 0 || target >= columnCount {
 				continue
 			}
 			if texts[target] != "" {

@@ -70,14 +70,27 @@ func TestDevtoolsPDFHasPageNumbers(t *testing.T) {
 	if parsed.Pages < 2 {
 		t.Fatalf("expected a document long enough to paginate, got %d page(s)", parsed.Pages)
 	}
-	text := parsed.Document.PlainText()
-	// The footer Chromium drew is text on the page, so the numbering is
-	// readable back out — which is the whole point of this path.
-	if !strings.Contains(text, "1 / "+strconv.Itoa(parsed.Pages)) {
-		t.Fatalf("the page numbering is not in the document: %q", truncate(text, 300))
+	// The footer is read off the page rather than out of the document: an
+	// import drops the running head and the page number, which is what a
+	// reader wants and the opposite of what this test is asking about.
+	pageText, err := pdfx.PageTexts(context.Background(), pdf)
+	if err != nil {
+		t.Fatalf("muni could not read back the PDF it produced: %v", err)
 	}
-	if !strings.Contains(text, title) {
-		t.Fatalf("the footer should name the document: %q", truncate(text, 300))
+	first := ""
+	if len(pageText) > 0 {
+		first = pageText[0]
+	}
+	if !strings.Contains(first, "1 / "+strconv.Itoa(parsed.Pages)) {
+		t.Fatalf("the page numbering is not on the page: %q", truncate(first, 300))
+	}
+	if !strings.Contains(first, title) {
+		t.Fatalf("the footer should name the document: %q", truncate(first, 300))
+	}
+	// And the import leaves it out of the document, which is the other half
+	// of the same contract.
+	if body := parsed.Document.PlainText(); strings.Contains(body, "1 / "+strconv.Itoa(parsed.Pages)) {
+		t.Errorf("the page number was imported as text: %q", truncate(body, 200))
 	}
 	t.Logf("rendered %d pages, %d bytes", parsed.Pages, len(pdf))
 }
