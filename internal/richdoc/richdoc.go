@@ -240,3 +240,21 @@ func WithinLimits(node *Node) bool {
 	}
 	return walk(node, 0)
 }
+
+// SafeLink returns an address a document may carry, or "" for one it may not.
+//
+// A link is the one thing an imported document holds that a reader will click,
+// and a file is not a trustworthy author. Only the schemes that open something
+// are kept; the ones that run something are not addresses at all.
+func SafeLink(href string) string {
+	trimmed := strings.TrimSpace(href)
+	if trimmed == "" || len(trimmed) > 2048 {
+		return ""
+	}
+	switch lower := strings.ToLower(trimmed); {
+	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"),
+		strings.HasPrefix(lower, "mailto:"):
+		return trimmed
+	}
+	return ""
+}

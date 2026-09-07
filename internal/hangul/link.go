@@ -1,6 +1,10 @@
 package hangul
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hkjang/muni/internal/richdoc"
+)
 
 // LinkAddress reads where a hyperlink field points and answers only when the
 // address is one a document may carry.
@@ -27,10 +31,5 @@ func LinkAddress(command string) string {
 	if !strings.Contains(address, ":") {
 		address = "http://" + address
 	}
-	switch lower := strings.ToLower(address); {
-	case strings.HasPrefix(lower, "http://"), strings.HasPrefix(lower, "https://"),
-		strings.HasPrefix(lower, "mailto:"):
-		return address
-	}
-	return ""
+	return richdoc.SafeLink(address)
 }

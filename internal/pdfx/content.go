@@ -3,6 +3,7 @@ package pdfx
 import (
 	"bytes"
 	"context"
+	"github.com/hkjang/muni/internal/richdoc"
 	"math"
 	"strings"
 )
@@ -10,6 +11,11 @@ import (
 type matrix [6]float64
 
 var identityMatrix = matrix{1, 0, 0, 1, 0, 0}
+
+// applyPoint moves a point into the coordinates a matrix describes.
+func applyPoint(m matrix, x, y float64) (float64, float64) {
+	return m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]
+}
 
 func multiply(m, n matrix) matrix {
 	return matrix{
@@ -35,6 +41,16 @@ type textItem struct {
 	bold   bool
 	italic bool
 	mono   bool
+	// href is the address of the link this glyph run sits inside, if any.
+	href string
+}
+
+// linkArea is where a page says a link is. A PDF does not mark up the words
+// of a link; it draws a rectangle over them and records the address against
+// that rectangle, so the two are put back together by geometry.
+type linkArea struct {
+	left, bottom, right, top float64
+	href                     string
 }
 
 type imageItem struct {
@@ -49,6 +65,7 @@ type imageItem struct {
 type pageContent struct {
 	texts  []textItem
 	images []imageItem
+	links  []linkArea
 	width  float64
 	height float64
 }
@@ -111,8 +128,83 @@ func (d *Document) renderPage(ctx context.Context, page Dict, rotate int, mediaB
 		state:      graphicsState{ctm: base},
 		horizontal: 1,
 	}
+	content.links = d.pageLinks(page, base)
 	machine.run(d.pageContentBytes(page), d.dict(page.get("Resources")))
+	for index := range content.texts {
+		content.texts[index].href = content.linkAt(content.texts[index])
+	}
 	return content
+}
+
+// maxPageLinks bounds a page whose annotations are made rather than written.
+const maxPageLinks = 512
+
+// pageLinks reads the link annotations of a page into the same coordinates
+// the text is drawn in.
+func (d *Document) pageLinks(page Dict, base matrix) []linkArea {
+	annotations := d.array(page.get("Annots"))
+	if len(annotations) == 0 {
+		return nil
+	}
+	out := make([]linkArea, 0, len(annotations))
+	for _, item := range annotations {
+		if len(out) >= maxPageLinks {
+			break
+		}
+		annotation := d.dict(item)
+		if annotation == nil || d.name(annotation.get("Subtype")) != "Link" {
+			continue
+		}
+		action := d.dict(annotation.get("A"))
+		if action == nil || d.name(action.get("S")) != "URI" {
+			// A link to a place in the same document has nowhere to go once
+			// the document is somewhere else.
+			continue
+		}
+		address, ok := d.resolve(action.get("URI")).(String)
+		if !ok {
+			continue
+		}
+		href := richdoc.SafeLink(decodeTextString(address))
+		if href == "" {
+			continue
+		}
+		box := d.rectangle(annotation.get("Rect"))
+		if box == nil {
+			continue
+		}
+		left, bottom := applyPoint(base, box[0], box[1])
+		right, top := applyPoint(base, box[2], box[3])
+		if left > right {
+			left, right = right, left
+		}
+		if bottom > top {
+			bottom, top = top, bottom
+		}
+		out = append(out, linkArea{left: left, bottom: bottom, right: right, top: top, href: href})
+	}
+	return out
+}
+
+// linkAt reports the address of the link a run of glyphs sits inside. The
+// middle of the run has to be within the rectangle: a link ends where its
+// underline ends, and the word after it is not part of it.
+func (page *pageContent) linkAt(item textItem) string {
+	if len(page.links) == 0 {
+		return ""
+	}
+	middle := (item.x + item.endX) / 2
+	for _, area := range page.links {
+		if middle < area.left || middle > area.right {
+			continue
+		}
+		// The recorded y is the baseline; the rectangle covers the whole line.
+		if item.y+item.size*0.3 < area.bottom || item.y > area.top {
+			continue
+		}
+		return area.href
+	}
+	return ""
 }
 
 func (d *Document) pageContentBytes(page Dict) []byte {

@@ -423,3 +423,109 @@ func TestLigaturesComeBackAsLetters(t *testing.T) {
 		t.Errorf("멀쩡한 글자가 바뀌었습니다: %q", got)
 	}
 }
+
+// annotatedPDF puts link rectangles over the page, the way a PDF records a
+// hyperlink: the words are drawn as ordinary text and the address is kept
+// against a rectangle covering them.
+func annotatedPDF(content string, annotations string) []byte {
+	var out bytes.Buffer
+	out.WriteString("%PDF-1.4\n")
+	out.WriteString("1 0 obj <</Type/Catalog/Pages 2 0 R>> endobj\n")
+	out.WriteString("2 0 obj <</Type/Pages/Kids[3 0 R]/Count 1>> endobj\n")
+	out.WriteString("3 0 obj <</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]" +
+		"/Resources<</Font<</F2 4 0 R>>>>/Annots[" + annotations + "]/Contents 5 0 R>> endobj\n")
+	out.WriteString("4 0 obj <</Type/Font/Subtype/Type1/BaseFont/Helvetica/Encoding/WinAnsiEncoding>> endobj\n")
+	out.WriteString(fmt.Sprintf("5 0 obj <</Length %d>>\nstream\n%s\nendstream endobj\n", len(content), content))
+	out.WriteString("trailer <</Root 1 0 R/Size 6>>\n%%EOF\n")
+	return out.Bytes()
+}
+
+func linkedPhrases(node *richdoc.Node, found map[string]string) {
+	if node == nil {
+		return
+	}
+	for _, mark := range node.Marks {
+		if mark.Type == "link" {
+			found[node.Text] = mark.AttrString("href")
+		}
+	}
+	for _, child := range node.Content {
+		linkedPhrases(child, found)
+	}
+}
+
+// A PDF does not mark up the words of a link. It draws them as ordinary text
+// and records the address against a rectangle laid over them, so the two are
+// put back together by where they are on the page — and the words beside the
+// link are not part of it.
+func TestALinkAnnotationBecomesALinkOnTheWordsItCovers(t *testing.T) {
+	content := at(60, 700, "See ") + at(85, 700, "the notice") + at(140, 700, " for more.")
+	annotations := `<</Type/Annot/Subtype/Link/Rect[84 694 137 712]/A<</S/URI/URI(https://www.hancom.co.kr/notice)>>>>`
+	result, err := Import(context.Background(), annotatedPDF(content, annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{}
+	linkedPhrases(result.Document, found)
+	if found["the notice"] != "https://www.hancom.co.kr/notice" {
+		t.Errorf("링크 = %v; 본문 %q", found, result.Document.PlainText())
+	}
+	if len(found) != 1 {
+		t.Errorf("링크가 옆 글자에도 붙었습니다: %v", found)
+	}
+}
+
+// The same rule as every other import: an address that would run instead of
+// open is not a destination.
+func TestALinkAnnotationThatWouldRunCodeIsRefused(t *testing.T) {
+	content := at(60, 700, "Press here")
+	annotations := `<</Type/Annot/Subtype/Link/Rect[58 694 130 712]/A<</S/URI/URI(javascript:alert\(1\))>>>>`
+	result, err := Import(context.Background(), annotatedPDF(content, annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{}
+	linkedPhrases(result.Document, found)
+	if len(found) != 0 {
+		t.Errorf("실행되는 주소가 링크로 들어왔습니다: %v", found)
+	}
+	if !strings.Contains(result.Document.PlainText(), "Press here") {
+		t.Errorf("글자까지 사라졌습니다: %q", result.Document.PlainText())
+	}
+}
+
+// A line is drawn one run at a time and the runs do not all look alike. Until
+// the pieces were carried through, a line was either all bold or none of it.
+func TestBoldInTheMiddleOfALineStaysThere(t *testing.T) {
+	content := "BT /F2 11 Tf 60 700 Td (plain start ) Tj ET\n" +
+		"BT /F1 11 Tf 130 700 Td (bold middle) Tj ET\n" +
+		"BT /F2 11 Tf 200 700 Td ( plain end) Tj ET\n"
+	result, err := Import(context.Background(), buildPDF(content, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paragraph *richdoc.Node
+	for _, block := range result.Document.Content {
+		if block.Type == "paragraph" {
+			paragraph = block
+			break
+		}
+	}
+	if paragraph == nil {
+		t.Fatalf("문단이 없습니다: %q", result.Document.PlainText())
+	}
+	bold := map[string]bool{}
+	for _, node := range paragraph.Content {
+		for _, mark := range node.Marks {
+			if mark.Type == "bold" {
+				bold[strings.TrimSpace(node.Text)] = true
+			}
+		}
+	}
+	if !bold["bold middle"] {
+		t.Errorf("가운데 굵은 낱말이 굵지 않습니다: %q", paragraph.PlainText())
+	}
+	if bold["plain start"] || bold["plain end"] {
+		t.Errorf("굵기가 줄 전체에 번졌습니다: %v", bold)
+	}
+}

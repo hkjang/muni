@@ -22,7 +22,10 @@ type textLine struct {
 	italic bool
 	mono   bool
 	text   string
-	items  []textItem
+	// spans is the same text as the pieces it was drawn in, so a link or a
+	// bold word inside a line survives as itself.
+	spans spanText
+	items []textItem
 }
 
 type flowKind int
@@ -97,6 +100,7 @@ func assembleLine(items []textItem) (textLine, bool) {
 	weight := 0.0
 	sizeTotal := 0.0
 	previousEnd := items[0].x
+	spans := make(spanText, 0, len(items))
 	for index, item := range items {
 		if index > 0 {
 			gap := item.x - previousEnd
@@ -106,9 +110,14 @@ func assembleLine(items []textItem) (textLine, bool) {
 			// script; anything smaller is kerning between adjacent glyphs.
 			if gap > reference*0.22 && !strings.HasSuffix(existing, " ") && !strings.HasPrefix(item.text, " ") {
 				builder.WriteString(" ")
+				spans = append(spans, textSpan{text: " "})
 			}
 		}
 		builder.WriteString(item.text)
+		spans = append(spans, textSpan{
+			text: item.text, bold: item.bold, italic: item.italic,
+			mono: item.mono, href: item.href,
+		})
 		previousEnd = item.endX
 		if item.endX > line.right {
 			line.right = item.endX
@@ -135,6 +144,7 @@ func assembleLine(items []textItem) (textLine, bool) {
 	// Indentation is carried by the line's own left edge, not by spaces in
 	// front of its text.
 	line.text = strings.Trim(builder.String(), " ")
+	line.spans = spans.trimSpace()
 	if strings.TrimSpace(line.text) == "" {
 		return textLine{}, false
 	}
@@ -189,14 +199,14 @@ type documentBuilder struct {
 }
 
 type paragraphAccumulator struct {
-	text  string
+	spans spanText
 	bold  bool
 	right float64
 	size  float64
 }
 
 type listEntry struct {
-	text    string
+	spans   spanText
 	level   int
 	checked *bool
 }
@@ -560,37 +570,43 @@ func (b *documentBuilder) headingLevel(line textLine) int {
 }
 
 func (b *documentBuilder) addLine(line textLine, previous *textLine, gap, pageRight float64, bulleted int) {
-	text := strings.TrimSpace(line.text)
-	if text == "" {
+	spans := line.spans.trimSpace()
+	text := spans.String()
+	if strings.TrimSpace(text) == "" {
 		return
 	}
 
-	if checked, rest, ok := checkboxPrefix(text); ok {
+	// The pieces a line was drawn in are carried through every branch: the
+	// words after a bullet keep the link that was on them.
+	rest := func(from int) spanText { return spans.slice(from, len(text)).trimSpace() }
+
+	if checked, _, ok := checkboxPrefix(text); ok {
+		if at := checkboxLine.FindStringSubmatchIndex(text); at != nil {
+			b.flushParagraph()
+			b.appendListItem("task", listEntry{spans: rest(at[4]), level: b.levelFor(line.left), checked: &checked})
+			return
+		}
+	}
+	if at := bulletPattern.FindStringSubmatchIndex(text); at != nil {
 		b.flushParagraph()
-		b.appendListItem("task", listEntry{text: rest, level: b.levelFor(line.left), checked: &checked})
+		b.appendListItem("bullet", listEntry{spans: rest(at[4]), level: b.levelFor(line.left)})
 		return
 	}
-	if match := bulletPattern.FindStringSubmatch(text); match != nil {
+	if at := orderedPattern.FindStringSubmatchIndex(text); at != nil && b.headingLevel(line) == 0 {
 		b.flushParagraph()
-		b.appendListItem("bullet", listEntry{text: strings.TrimSpace(match[2]), level: b.levelFor(line.left)})
-		return
-	}
-	if match := orderedPattern.FindStringSubmatch(text); match != nil && b.headingLevel(line) == 0 {
-		rest := match[len(match)-1]
-		b.flushParagraph()
-		b.appendListItem("ordered", listEntry{text: strings.TrimSpace(rest), level: b.levelFor(line.left)})
+		b.appendListItem("ordered", listEntry{spans: rest(at[len(at)-2]), level: b.levelFor(line.left)})
 		return
 	}
 
 	if bulleted > 0 && b.headingLevel(line) == 0 {
 		b.flushParagraph()
-		b.appendListItem("bullet", listEntry{text: text, level: bulleted - 1})
+		b.appendListItem("bullet", listEntry{spans: spans, level: bulleted - 1})
 		return
 	}
 
 	if level := b.headingLevel(line); level > 0 && level <= 6 {
 		b.flush()
-		heading := &richdoc.Node{Type: "heading", Content: []*richdoc.Node{richdoc.Text(text)}}
+		heading := &richdoc.Node{Type: "heading", Content: spans.nodes()}
 		heading.SetAttr("level", level)
 		b.blocks = append(b.blocks, heading)
 		return
@@ -605,7 +621,7 @@ func (b *documentBuilder) addLine(line textLine, previous *textLine, gap, pageRi
 		reachedMargin := b.pending.right >= pageRight-math.Max(b.body*2.5, 12)
 		sameIndent := math.Abs(line.left-previousLeft(previous, line)) < b.body*2.5
 		if gap > 0 && gap <= lineHeight && reachedMargin && sameIndent {
-			b.pending.text = joinWrapped(b.pending.text, text)
+			b.pending.spans = joinSpans(b.pending.spans, spans)
 			b.pending.right = line.right
 			if !line.bold {
 				b.pending.bold = false
@@ -614,7 +630,7 @@ func (b *documentBuilder) addLine(line textLine, previous *textLine, gap, pageRi
 		}
 	}
 	b.flushParagraph()
-	b.pending = &paragraphAccumulator{text: text, bold: line.bold, right: line.right, size: line.size}
+	b.pending = &paragraphAccumulator{spans: spans, bold: line.bold, right: line.right, size: line.size}
 }
 
 func previousLeft(previous *textLine, current textLine) float64 {
@@ -622,22 +638,6 @@ func previousLeft(previous *textLine, current textLine) float64 {
 		return current.left
 	}
 	return previous.left
-}
-
-func joinWrapped(left, right string) string {
-	if left == "" {
-		return right
-	}
-	leftRunes := []rune(left)
-	rightRunes := []rune(right)
-	last := leftRunes[len(leftRunes)-1]
-	if last == '-' && len(rightRunes) > 0 && unicode.IsLower(rightRunes[0]) {
-		return string(leftRunes[:len(leftRunes)-1]) + right
-	}
-	if isCJK(last) || (len(rightRunes) > 0 && isCJK(rightRunes[0])) {
-		return left + right
-	}
-	return left + " " + right
 }
 
 func (b *documentBuilder) appendListItem(kind string, entry listEntry) {
@@ -652,13 +652,15 @@ func (b *documentBuilder) flushParagraph() {
 	if b.pending == nil {
 		return
 	}
-	text := strings.TrimSpace(b.pending.text)
-	if text != "" {
+	spans := b.pending.spans.trimSpace()
+	if !spans.empty() {
 		marks := []richdoc.Mark{}
 		if b.pending.bold {
 			marks = append(marks, richdoc.Mark{Type: "bold"})
 		}
-		b.blocks = append(b.blocks, richdoc.Paragraph(richdoc.Text(text, marks...)))
+		if nodes := spans.nodes(marks...); len(nodes) > 0 {
+			b.blocks = append(b.blocks, richdoc.Paragraph(nodes...))
+		}
 	}
 	b.pending = nil
 }
@@ -692,7 +694,7 @@ func buildNestedList(entries []listEntry, kind string, depth int) *richdoc.Node 
 	index := 0
 	for index < len(entries) {
 		entry := entries[index]
-		item := &richdoc.Node{Type: itemType, Content: []*richdoc.Node{richdoc.Paragraph(richdoc.Text(entry.text))}}
+		item := &richdoc.Node{Type: itemType, Content: []*richdoc.Node{richdoc.Paragraph(entry.spans.nodes()...)}}
 		if entry.checked != nil {
 			item.SetAttr("checked", *entry.checked)
 		}
