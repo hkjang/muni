@@ -203,3 +203,40 @@ func (n *Node) IsBlank() bool {
 	}
 	return true
 }
+
+// MaxDepth and MaxNodes bound a document to what a person could have written.
+//
+// Everything that reads a document — turning it back into JSON, rendering it,
+// exporting it — walks it recursively, and Go cannot recover from running out
+// of stack. An imported file is the one place a document arrives from outside
+// with a shape nobody chose, so it is checked here before it is stored.
+const (
+	MaxDepth = 128
+	MaxNodes = 300000
+)
+
+// WithinLimits reports whether a document is shaped like one somebody wrote:
+// not nested past what any editor can produce, and not made of more pieces
+// than a document has.
+func WithinLimits(node *Node) bool {
+	remaining := MaxNodes
+	var walk func(*Node, int) bool
+	walk = func(current *Node, depth int) bool {
+		if current == nil {
+			return true
+		}
+		if depth > MaxDepth {
+			return false
+		}
+		if remaining--; remaining < 0 {
+			return false
+		}
+		for _, child := range current.Content {
+			if !walk(child, depth+1) {
+				return false
+			}
+		}
+		return true
+	}
+	return walk(node, 0)
+}

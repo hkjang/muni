@@ -387,9 +387,18 @@ func decodeUTF16BE(value Object) string {
 	return strings.TrimRight(string(utf16.Decode(units)), "\x00")
 }
 
+// charCode is one character code and the number of bytes it was written in.
+// The width matters: word spacing is added to a space written as one byte and
+// never to one written as two, which is the difference between a Latin font
+// and a Korean one.
+type charCode struct {
+	value uint32
+	width int
+}
+
 // decode splits a PDF string into character codes using the font's codespace.
-func (f *fontInfo) decode(data []byte) []uint32 {
-	out := make([]uint32, 0, len(data))
+func (f *fontInfo) decode(data []byte) []charCode {
+	out := make([]charCode, 0, len(data))
 	if len(f.codespaces) > 0 {
 		for index := 0; index < len(data); {
 			matched := false
@@ -397,7 +406,7 @@ func (f *fontInfo) decode(data []byte) []uint32 {
 				value, _ := codeFromBytes(data[index : index+length])
 				for _, space := range f.codespaces {
 					if space.length == length && value >= space.low && value <= space.high {
-						out = append(out, value)
+						out = append(out, charCode{value: value, width: length})
 						index += length
 						matched = true
 						break
@@ -410,10 +419,10 @@ func (f *fontInfo) decode(data []byte) []uint32 {
 			if !matched {
 				if f.twoByte && index+1 < len(data) {
 					value, _ := codeFromBytes(data[index : index+2])
-					out = append(out, value)
+					out = append(out, charCode{value: value, width: 2})
 					index += 2
 				} else {
-					out = append(out, uint32(data[index]))
+					out = append(out, charCode{value: uint32(data[index]), width: 1})
 					index++
 				}
 			}
@@ -422,15 +431,15 @@ func (f *fontInfo) decode(data []byte) []uint32 {
 	}
 	if f.twoByte {
 		for index := 0; index+1 < len(data); index += 2 {
-			out = append(out, uint32(data[index])<<8|uint32(data[index+1]))
+			out = append(out, charCode{value: uint32(data[index])<<8 | uint32(data[index+1]), width: 2})
 		}
 		if len(data)%2 == 1 {
-			out = append(out, uint32(data[len(data)-1]))
+			out = append(out, charCode{value: uint32(data[len(data)-1]), width: 1})
 		}
 		return out
 	}
 	for _, item := range data {
-		out = append(out, uint32(item))
+		out = append(out, charCode{value: uint32(item), width: 1})
 	}
 	return out
 }
@@ -452,11 +461,11 @@ func (f *fontInfo) text(code uint32) (string, bool) {
 	// otherwise.
 	if !hasMapped || sameAsCode(code, mapped) {
 		if value, ok := f.glyphText[f.glyph(code)]; ok {
-			return value, true
+			return readableText(value), true
 		}
 	}
 	if hasMapped {
-		return mapped, true
+		return readableText(mapped), true
 	}
 	if f.twoByte {
 		if f.ucs2CMap && code > 0 {
@@ -471,7 +480,7 @@ func (f *fontInfo) text(code uint32) (string, bool) {
 		return "", false
 	}
 	if value, ok := f.encoding[byte(code)]; ok && value != "" {
-		return value, true
+		return readableText(value), true
 	}
 	if code >= 32 && code < 127 {
 		return string(rune(code)), true
@@ -485,6 +494,43 @@ func (f *fontInfo) glyph(code uint32) uint32 {
 		return f.cidToGID[code]
 	}
 	return code
+}
+
+// ligatures are single glyphs holding several letters. A typesetter uses them
+// for the look of the page; a reader searching for "file" must still find the
+// word, so they are written back out as the letters they stand for.
+var ligatures = map[rune]string{
+	'\ufb00': "ff", '\ufb01': "fi", '\ufb02': "fl", '\ufb03': "ffi",
+	'\ufb04': "ffl", '\ufb05': "st", '\ufb06': "st",
+}
+
+// readableText turns what a font draws into what a document says: ligatures
+// become their letters, and the marks that only guide typesetting — a soft
+// hyphen, a zero-width space, a byte-order mark — are left out.
+func readableText(value string) string {
+	needs := false
+	for _, r := range value {
+		if _, ok := ligatures[r]; ok || r == 0x00AD || r == 0x200B || r == 0x200C || r == 0x200D || r == 0xFEFF {
+			needs = true
+			break
+		}
+	}
+	if !needs {
+		return value
+	}
+	var out strings.Builder
+	for _, r := range value {
+		if expanded, ok := ligatures[r]; ok {
+			out.WriteString(expanded)
+			continue
+		}
+		switch r {
+		case 0x00AD, 0x200B, 0x200C, 0x200D, 0xFEFF:
+			continue
+		}
+		out.WriteRune(r)
+	}
+	return out.String()
 }
 
 // printableText reports whether a mapping produced something a document
@@ -529,12 +575,16 @@ func (f *fontInfo) width(code uint32) float64 {
 	return f.defaultWidth
 }
 
-func (f *fontInfo) isSpace(code uint32) bool {
-	if f.hasSpaceCode && code == f.spaceCode {
-		return true
-	}
-	value, ok := f.text(code)
-	return ok && value == " "
+// takesWordSpacing reports whether the word spacing set by Tw is added to a
+// character's advance.
+//
+// The format is exact about this: it applies to the single-byte code 32 and to
+// nothing else — "it shall not apply to occurrences of the byte value 32 in
+// multiple-byte codes". A reader that adds it to every space of a Korean
+// document, where the codes are two bytes wide, walks the pen further than the
+// page did and loses the gaps that tell words and table columns apart.
+func (f *fontInfo) takesWordSpacing(code charCode) bool {
+	return code.width == 1 && code.value == 32
 }
 
 func glyphToUnicode(glyph string) string {

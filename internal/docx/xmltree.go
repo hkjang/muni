@@ -2,6 +2,7 @@ package docx
 
 import (
 	"encoding/xml"
+	"errors"
 	"io"
 	"strings"
 )
@@ -44,6 +45,12 @@ func prefixFor(space string) string {
 	return ""
 }
 
+// maxDepth bounds how deeply a part may nest. The tree is built without
+// recursion, but everything that reads it afterwards walks it recursively,
+// and a Go program cannot recover from running out of stack: it dies. No
+// document written by Word comes close to this.
+const maxDepth = 512
+
 func parseXML(reader io.Reader) (*xnode, error) {
 	decoder := xml.NewDecoder(reader)
 	decoder.Strict = false
@@ -60,6 +67,9 @@ func parseXML(reader io.Reader) (*xnode, error) {
 		}
 		switch typed := token.(type) {
 		case xml.StartElement:
+			if len(stack) >= maxDepth {
+				return nil, errors.New("DOCX 파일이 너무 깊게 중첩되어 있습니다")
+			}
 			node := &xnode{Space: typed.Name.Space, Local: typed.Name.Local, Attrs: map[string]string{}}
 			for _, attribute := range typed.Attr {
 				name := attribute.Name.Local

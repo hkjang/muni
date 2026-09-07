@@ -379,3 +379,33 @@ func TestAParagraphHoldingOnlyABreakIsTheBreak(t *testing.T) {
 		t.Fatalf("블록 = %v", types)
 	}
 }
+
+// A link is the one thing an imported document carries that a reader will
+// click. Word, HTML and Markdown imports have always checked the scheme;
+// these two did not, and a file could name one that runs instead of opens.
+func TestAHyperlinkThatWouldRunCodeIsNotALink(t *testing.T) {
+	field := func(command string) string {
+		return `<hp:p paraPrIDRef="0" styleIDRef="0">` +
+			`<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldBegin id="7" type="HYPERLINK"><hp:parameters cnt="1" name="">` +
+			`<hp:stringParam name="Command">` + command + `</hp:stringParam></hp:parameters></hp:fieldBegin></hp:ctrl></hp:run>` +
+			`<hp:run charPrIDRef="0"><hp:t>눌러보세요</hp:t></hp:run>` +
+			`<hp:run charPrIDRef="0"><hp:ctrl><hp:fieldEnd beginIDRef="7"/></hp:ctrl></hp:run></hp:p>`
+	}
+	document, _, _, err := Parse(hangulFile(t, field(`javascript\:alert(1);1;0;0;`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marks := markedText(t, document, "눌러보세요"); has(marks, "link") {
+		t.Errorf("실행되는 주소가 링크로 들어왔습니다: %v", marks)
+	}
+	if text := document.PlainText(); !strings.Contains(text, "눌러보세요") {
+		t.Errorf("글자까지 사라졌습니다: %q", text)
+	}
+	document, _, _, err = Parse(hangulFile(t, field(`https\://example.com;1;0;0;`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marks := markedText(t, document, "눌러보세요"); !has(marks, "link") {
+		t.Errorf("멀쩡한 주소가 링크가 되지 않았습니다: %v", marks)
+	}
+}

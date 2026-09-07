@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hkjang/muni/internal/hangul"
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
@@ -96,6 +97,9 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	archive, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
 		return nil, nil, Meta{}, fmt.Errorf("HWPX 압축을 열지 못했습니다: %w", err)
+	}
+	if err := hangul.CheckArchive(archive); err != nil {
+		return nil, nil, Meta{}, err
 	}
 	files := map[string]*zip.File{}
 	for _, file := range archive.File {

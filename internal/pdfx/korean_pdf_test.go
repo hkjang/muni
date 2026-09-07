@@ -385,3 +385,41 @@ func TestACentredHeadingJoinsItsTable(t *testing.T) {
 		}
 	}
 }
+
+// The format is exact: word spacing applies to the single-byte code 32 and to
+// nothing else. Adding it to the two-byte codes a Korean font uses walks the
+// pen past where the page put it, and the gaps that tell words and table
+// columns apart go with it.
+func TestWordSpacingAppliesOnlyToASingleByteSpace(t *testing.T) {
+	simple := &fontInfo{toUnicode: map[uint32]string{}, encoding: map[byte]string{}, widths: map[uint32]float64{}}
+	if !simple.takesWordSpacing(charCode{value: 32, width: 1}) {
+		t.Errorf("한 바이트 빈칸에 낱말 간격이 붙지 않았습니다")
+	}
+	if simple.takesWordSpacing(charCode{value: 32, width: 2}) {
+		t.Errorf("두 바이트 코드에 낱말 간격이 붙었습니다")
+	}
+	if simple.takesWordSpacing(charCode{value: 0x0020, width: 2}) {
+		t.Errorf("두 바이트로 쓰인 32번에 낱말 간격이 붙었습니다")
+	}
+	if simple.takesWordSpacing(charCode{value: 0x24, width: 1}) {
+		t.Errorf("빈칸이 아닌 코드에 낱말 간격이 붙었습니다")
+	}
+}
+
+// A typesetter's ligature is one glyph holding several letters. Left as it is,
+// searching a document for "file" does not find "ﬁle".
+func TestLigaturesComeBackAsLetters(t *testing.T) {
+	if got := readableText("ﬁle"); got != "file" {
+		t.Errorf("합자 = %q", got)
+	}
+	if got := readableText("ofﬂoading"); got != "offloading" {
+		t.Errorf("합자 = %q", got)
+	}
+	// A soft hyphen guides typesetting and says nothing.
+	if got := readableText("문­서​"); got != "문서" {
+		t.Errorf("보이지 않는 표시가 남았습니다: %q", got)
+	}
+	if got := readableText("보통 글자"); got != "보통 글자" {
+		t.Errorf("멀쩡한 글자가 바뀌었습니다: %q", got)
+	}
+}

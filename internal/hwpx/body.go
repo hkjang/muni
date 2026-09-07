@@ -271,8 +271,8 @@ func (imp *importer) runs(paragraph *node) []*richdoc.Node {
 }
 
 // fieldAddress reads where a hyperlink field points: the Command parameter,
-// which is the address, then options, separated by semicolons, with the
-// colon of the scheme escaped. Any other kind of field is not a link.
+// read the way both Hangul formats write one. Any other kind of field is not
+// a link.
 func fieldAddress(begin *node) string {
 	if !strings.EqualFold(strings.TrimSpace(begin.attr("type")), "HYPERLINK") {
 		return ""
@@ -283,18 +283,7 @@ func fieldAddress(begin *node) string {
 			command = param.allText()
 		}
 	})
-	address := command
-	if cut := strings.Index(command, ";"); cut >= 0 {
-		address = command[:cut]
-	}
-	address = strings.TrimSpace(strings.ReplaceAll(address, `\:`, ":"))
-	if address == "" {
-		return ""
-	}
-	if !strings.Contains(address, ":") && !strings.HasPrefix(address, "#") {
-		address = "http://" + address
-	}
-	return address
+	return hangul.LinkAddress(command)
 }
 
 // note reads a footnote or endnote into muni's one kind of note, as the text

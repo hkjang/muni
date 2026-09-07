@@ -372,10 +372,22 @@ func prepareImportedAssets(assets []richdoc.Asset, content json.RawMessage) ([]i
 	}
 	sources := map[string]string{}
 	out := make([]importedAttachment, 0, len(assets))
+	// A document's pictures are kept whole, one row each. Both how many and
+	// how much they come to are bounded: the file said how many to make, and
+	// the file came from outside.
+	const (
+		maxImportedAssets     = 512
+		maxImportedAssetBytes = 192 << 20
+	)
+	stored := 0
 	for index, asset := range assets {
 		if len(asset.Data) == 0 || !safeInlineImageType(asset.MediaType) {
 			continue
 		}
+		if len(out) >= maxImportedAssets || stored+len(asset.Data) > maxImportedAssetBytes {
+			continue
+		}
+		stored += len(asset.Data)
 		id := uuid.New()
 		name := strings.TrimSpace(asset.Name)
 		if name == "" {

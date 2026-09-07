@@ -74,25 +74,13 @@ func (imp *importer) pageDef(node *recordNode) {
 
 // fieldLink reads the address a hyperlink field points at. After the id,
 // the property word and one flag byte comes the command as a length-
-// prefixed string: the address, then options, separated by semicolons, with
-// the colon of the scheme escaped the way Hangul writes it.
+// prefixed string, in the form both Hangul formats use.
 func fieldLink(node *recordNode) string {
 	if controlID(node.data) != "%hlk" {
 		return ""
 	}
 	command, _ := readWideString(node.data, 9)
-	address := command
-	if cut := strings.Index(command, ";"); cut >= 0 {
-		address = command[:cut]
-	}
-	address = strings.TrimSpace(strings.ReplaceAll(address, `\:`, ":"))
-	if address == "" {
-		return ""
-	}
-	if !strings.Contains(address, ":") && !strings.HasPrefix(address, "#") {
-		address = "http://" + address
-	}
-	return address
+	return hangul.LinkAddress(command)
 }
 
 // furniture keeps the words of a header or footer. muni holds one line of

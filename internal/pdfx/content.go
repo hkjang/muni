@@ -385,7 +385,7 @@ func (m *interpreter) show(items Array) {
 			}
 		case String:
 			for _, code := range m.font.decode(typed) {
-				text, ok := m.font.text(code)
+				text, ok := m.font.text(code.value)
 				if ok {
 					m.mapped++
 					if !silent {
@@ -394,8 +394,8 @@ func (m *interpreter) show(items Array) {
 				} else {
 					m.unmapped++
 				}
-				advance := (m.font.width(code)*m.fontSize + m.charSpace)
-				if m.font.isSpace(code) {
+				advance := (m.font.width(code.value)*m.fontSize + m.charSpace)
+				if m.font.takesWordSpacing(code) {
 					advance += m.wordSpace
 				}
 				m.textMat = multiply(translation(advance*m.horizontal, 0), m.textMat)

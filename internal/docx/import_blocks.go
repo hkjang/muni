@@ -46,6 +46,8 @@ func (imp *importer) blocks(nodes []*xnode) []block {
 			if content := node.child("w", "sdtContent"); content != nil {
 				out = append(out, imp.blocks(content.Children)...)
 			}
+		case node.is("w", "altChunk"):
+			out = append(out, imp.altChunk(node)...)
 		case node.is("mc", "AlternateContent"):
 			branch := alternateContent(node)
 			if holdsBlocks(branch) {

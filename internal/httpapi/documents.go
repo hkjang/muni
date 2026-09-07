@@ -640,7 +640,17 @@ func validDocumentJSON(raw json.RawMessage) bool {
 		Type    string `json:"type"`
 		Content []any  `json:"content"`
 	}
-	return len(raw) <= 10<<20 && json.Unmarshal(raw, &value) == nil && value.Type == "doc"
+	if len(raw) > 10<<20 || json.Unmarshal(raw, &value) != nil || value.Type != "doc" {
+		return false
+	}
+	// Size alone does not say a document is safe to walk: a megabyte of
+	// nothing but opening brackets is small and a hundred thousand levels
+	// deep, and every reader of it recurses.
+	document, err := richdoc.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return richdoc.WithinLimits(document)
 }
 func extractDocumentText(raw json.RawMessage) string {
 	var value any

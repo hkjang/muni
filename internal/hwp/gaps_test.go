@@ -377,3 +377,48 @@ func textStyleOf(t *testing.T, document *richdoc.Node, phrase string) map[string
 	}
 	return out
 }
+
+func TestAHyperlinkThatWouldRunCodeIsNotALink(t *testing.T) {
+	body := func(command string) []byte {
+		code := units("앞 ")
+		code = append(code, 3)
+		code = append(code, make([]uint16, 7)...)
+		code = append(code, units("눌러보세요")...)
+		code = append(code, 4)
+		code = append(code, make([]uint16, 7)...)
+		return append(paragraphRecords(code), linkControl(command)...)
+	}
+	linked := func(document *richdoc.Node) bool {
+		found := false
+		var walk func(*richdoc.Node)
+		walk = func(node *richdoc.Node) {
+			for _, mark := range node.Marks {
+				if mark.Type == "link" {
+					found = true
+				}
+			}
+			for _, child := range node.Content {
+				walk(child)
+			}
+		}
+		walk(document)
+		return found
+	}
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, nil, body(`javascript\:alert(1);1;0;0;`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linked(document) {
+		t.Errorf("실행되는 주소가 링크로 들어왔습니다: %q", document.PlainText())
+	}
+	if !strings.Contains(document.PlainText(), "눌러보세요") {
+		t.Errorf("글자까지 사라졌습니다: %q", document.PlainText())
+	}
+	document, _, _, err = Parse(hwpFileWithDocInfo(t, nil, body(`https\://example.com;1;0;0;`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !linked(document) {
+		t.Errorf("멀쩡한 주소가 링크가 되지 않았습니다: %q", document.PlainText())
+	}
+}

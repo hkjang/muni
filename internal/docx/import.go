@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/hkjang/muni/internal/hangul"
 	"io"
 	"path"
 	"strconv"
@@ -13,7 +14,13 @@ import (
 	"github.com/hkjang/muni/internal/richdoc"
 )
 
-const maxImportedImageBytes = 24 << 20
+const (
+	maxImportedImageBytes = 24 << 20
+	// maxImportedMediaBytes is what every picture in one file may come to.
+	maxImportedMediaBytes = 192 << 20
+	// maxEmbeddedChunkBytes bounds a document inserted into this one.
+	maxEmbeddedChunkBytes = 32 << 20
+)
 
 type relTarget struct {
 	target   string
@@ -49,15 +56,27 @@ type importer struct {
 	listKinds map[string]string // "numId:ilvl" -> bullet|ordered
 	assets    []richdoc.Asset
 	assetByID map[string]string
+	// files is the package itself, kept so an embedded document can be
+	// found; chunks counts how many have been opened, and how deeply.
+	files      map[string]*zip.File
+	chunks     int
+	chunkDepth int
 }
 
 // Parse converts a .docx package into a document tree plus the images it
 // embedded. Image nodes point at Asset.Placeholder so the caller can store the
 // bytes wherever it keeps attachments and rewrite the source.
 func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
+	return parseNested(body, 0)
+}
+
+func parseNested(body []byte, chunkDepth int) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	archive, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
 	if err != nil {
 		return nil, nil, Meta{}, fmt.Errorf("DOCX 압축을 열지 못했습니다: %w", err)
+	}
+	if err := hangul.CheckArchive(archive); err != nil {
+		return nil, nil, Meta{}, err
 	}
 	files := map[string]*zip.File{}
 	for _, file := range archive.File {
@@ -78,12 +97,14 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 	}
 
 	imp := &importer{
-		rels:      map[string]relTarget{},
-		media:     map[string][]byte{},
-		styles:    map[string]styleInfo{},
-		footnotes: map[string][]*richdoc.Node{},
-		listKinds: map[string]string{},
-		assetByID: map[string]string{},
+		rels:       map[string]relTarget{},
+		media:      map[string][]byte{},
+		styles:     map[string]styleInfo{},
+		footnotes:  map[string][]*richdoc.Node{},
+		listKinds:  map[string]string{},
+		assetByID:  map[string]string{},
+		files:      files,
+		chunkDepth: chunkDepth,
 	}
 	imp.loadRelationships(files["word/_rels/document.xml.rels"])
 	imp.loadStyles(files["word/styles.xml"])
@@ -250,12 +271,89 @@ func isCheckboxGlyph(text string) bool {
 	return false
 }
 
+// altChunk reads a document Word embedded inside this one.
+//
+// Inserting a file into a Word document does not merge it: Word writes the
+// file whole as its own part and leaves a single <w:altChunk> pointing at it,
+// to be merged when the document is next opened. A reader that does not
+// follow the pointer loses everything the inserted file said, silently.
+//
+// Only an embedded .docx is followed. Word also accepts HTML and RTF chunks;
+// those parts are left alone rather than half-read.
+func (imp *importer) altChunk(node *xnode) []block {
+	if imp.chunkDepth >= 3 || imp.chunks >= 8 {
+		return nil
+	}
+	rel, ok := imp.rels[node.attr("r:id")]
+	if !ok || rel.external || rel.target == "" {
+		return nil
+	}
+	name := rel.target
+	if strings.HasPrefix(name, "/") {
+		name = strings.TrimPrefix(name, "/")
+	} else {
+		name = path.Join("word", name)
+	}
+	file := imp.files[path.Clean(name)]
+	if file == nil || file.UncompressedSize64 > maxEmbeddedChunkBytes {
+		return nil
+	}
+	reader, err := file.Open()
+	if err != nil {
+		return nil
+	}
+	body, err := io.ReadAll(io.LimitReader(reader, maxEmbeddedChunkBytes))
+	reader.Close()
+	// A .docx is a zip; anything else here is HTML or RTF, which this does
+	// not read.
+	if err != nil || !bytes.HasPrefix(body, []byte("PK")) {
+		return nil
+	}
+	imp.chunks++
+	inner, assets, _, err := parseNested(body, imp.chunkDepth+1)
+	if err != nil || inner == nil {
+		return nil
+	}
+	// The inner document numbered its pictures from one, as every import
+	// does. They are renumbered into this one before they collide.
+	for _, asset := range assets {
+		placeholder := richdoc.Placeholder(len(imp.assets) + 1)
+		renamePlaceholder(inner, asset.Placeholder, placeholder)
+		asset.Placeholder = placeholder
+		imp.assets = append(imp.assets, asset)
+	}
+	out := make([]block, 0, len(inner.Content))
+	for _, child := range inner.Content {
+		if child != nil {
+			out = append(out, block{node: child})
+		}
+	}
+	return out
+}
+
+// renamePlaceholder repoints an image at the number it has in the document it
+// ended up in.
+func renamePlaceholder(node *richdoc.Node, from, to string) {
+	if node == nil {
+		return
+	}
+	if node.Type == "image" && node.AttrString("src") == from {
+		node.SetAttr("src", to)
+	}
+	for _, child := range node.Content {
+		renamePlaceholder(child, from, to)
+	}
+}
+
 func (imp *importer) loadMedia(files map[string]*zip.File) {
+	// Each picture is bounded, and so is what they come to together: a
+	// document with a thousand of them is not one somebody wrote.
+	loaded := int64(0)
 	for name, file := range files {
 		if !strings.HasPrefix(name, "word/media/") && !strings.HasPrefix(name, "word/embeddings/") {
 			continue
 		}
-		if file.UncompressedSize64 > maxImportedImageBytes {
+		if file.UncompressedSize64 > maxImportedImageBytes || loaded > maxImportedMediaBytes {
 			continue
 		}
 		reader, err := file.Open()
@@ -267,6 +365,7 @@ func (imp *importer) loadMedia(files map[string]*zip.File) {
 		if err != nil || len(data) == 0 {
 			continue
 		}
+		loaded += int64(len(data))
 		imp.media[name] = data
 	}
 }
