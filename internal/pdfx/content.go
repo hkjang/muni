@@ -85,6 +85,7 @@ type interpreter struct {
 	actualDepth   int
 	actualText    string
 	actualPending bool
+	actualRuns    int
 }
 
 func (d *Document) renderPage(ctx context.Context, page Dict, rotate int, mediaBox [4]float64) *pageContent {
@@ -282,6 +283,7 @@ func (m *interpreter) operator(name string, operands []Object, resources Dict, p
 		if m.actualDepth == 0 && len(operands) >= 2 {
 			if value := m.actualTextOf(operands[len(operands)-1], resources); value != "" {
 				m.actualDepth, m.actualText, m.actualPending = m.markDepth, value, true
+				m.actualRuns = 0
 			}
 		}
 	case "EMC":
@@ -363,6 +365,14 @@ func (m *interpreter) show(items Array) {
 	var builder strings.Builder
 	// Inside a span that declares its own text, the glyphs still move the
 	// pen but say nothing: the declaration is the text, once.
+	//
+	// A span stands for a word at most. One that runs on has lost its EMC,
+	// and believing it would silence the rest of the page.
+	if m.actualDepth > 0 {
+		if m.actualRuns++; m.actualRuns > 64 {
+			m.actualDepth, m.actualText, m.actualPending = 0, "", false
+		}
+	}
 	silent := m.actualDepth > 0
 	for _, item := range items {
 		switch typed := item.(type) {
