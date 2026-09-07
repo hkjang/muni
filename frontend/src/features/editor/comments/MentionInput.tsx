@@ -4,6 +4,7 @@ import { Box, Paper, Popper, Stack, TextField, Typography } from "@mui/material"
 import { api } from "../../../lib/api";
 import type { User } from "../../../types";
 import { readMention, applyMention } from "./mentions";
+import { confirmsInput } from "../../../lib/keyboard";
 
 /**
  * MentionInput is the comment box, with a list of people that opens when an
@@ -90,7 +91,7 @@ export function MentionInput({
               setActive((current) => (current - 1 + matches.length) % matches.length);
               return;
             }
-            if (event.key === "Enter" || event.key === "Tab") {
+            if (confirmsInput(event) || event.key === "Tab") {
               const person = matches[active];
               if (person) {
                 event.preventDefault();

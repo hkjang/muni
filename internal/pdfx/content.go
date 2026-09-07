@@ -78,6 +78,13 @@ type interpreter struct {
 	depth      int
 	unmapped   int
 	mapped     int
+	// A marked-content span may declare what its glyphs actually say. It is
+	// the producer's own correction to a font it could not describe, and it
+	// is where a Chromium PDF keeps the spaces its /ToUnicode gets wrong.
+	markDepth     int
+	actualDepth   int
+	actualText    string
+	actualPending bool
 }
 
 func (d *Document) renderPage(ctx context.Context, page Dict, rotate int, mediaBox [4]float64) *pageContent {
@@ -268,7 +275,44 @@ func (m *interpreter) operator(name string, operands []Object, resources Dict, p
 		}
 	case "BI":
 		skipInlineImage(parser)
+	case "BMC":
+		m.markDepth++
+	case "BDC":
+		m.markDepth++
+		if m.actualDepth == 0 && len(operands) >= 2 {
+			if value := m.actualTextOf(operands[len(operands)-1], resources); value != "" {
+				m.actualDepth, m.actualText, m.actualPending = m.markDepth, value, true
+			}
+		}
+	case "EMC":
+		if m.actualDepth == m.markDepth {
+			m.actualDepth, m.actualText, m.actualPending = 0, "", false
+		}
+		if m.markDepth > 0 {
+			m.markDepth--
+		}
 	}
+}
+
+// actualTextOf reads the text a marked-content span says it really shows.
+// The properties are either written out or named in the page's resources.
+func (m *interpreter) actualTextOf(properties Object, resources Dict) string {
+	dict, ok := m.doc.resolve(properties).(Dict)
+	if !ok {
+		name, isName := properties.(Name)
+		if !isName {
+			return ""
+		}
+		dict = m.doc.dict(m.doc.dict(resources.get("Properties")).get(name))
+		if dict == nil {
+			return ""
+		}
+	}
+	value, ok := m.doc.resolve(dict.get("ActualText")).(String)
+	if !ok {
+		return ""
+	}
+	return decodeTextString(value)
 }
 
 func (m *interpreter) nextLine() {
@@ -317,6 +361,9 @@ func (m *interpreter) show(items Array) {
 	startX, startY := combined[4], combined[5]
 
 	var builder strings.Builder
+	// Inside a span that declares its own text, the glyphs still move the
+	// pen but say nothing: the declaration is the text, once.
+	silent := m.actualDepth > 0
 	for _, item := range items {
 		switch typed := item.(type) {
 		case float64, int64:
@@ -331,7 +378,9 @@ func (m *interpreter) show(items Array) {
 				text, ok := m.font.text(code)
 				if ok {
 					m.mapped++
-					builder.WriteString(text)
+					if !silent {
+						builder.WriteString(text)
+					}
 				} else {
 					m.unmapped++
 				}
@@ -344,7 +393,16 @@ func (m *interpreter) show(items Array) {
 		}
 	}
 	text := builder.String()
-	if strings.TrimSpace(text) == "" {
+	if silent {
+		text = ""
+		if m.actualPending {
+			text, m.actualPending = m.actualText, false
+		}
+	}
+	// A run that draws only a space is still a space the author typed, and
+	// dropping it leaves the reader to guess the word breaks back from the
+	// gaps between glyphs.
+	if text == "" {
 		return
 	}
 	end := multiply(m.textMat, m.state.ctm)

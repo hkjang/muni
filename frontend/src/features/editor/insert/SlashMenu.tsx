@@ -221,7 +221,9 @@ export function SlashMenu({
         });
         return;
       }
-      if (event.key === "Enter" || event.key === "Tab") {
+      // Enter finishes a Korean syllable before it does anything else: a
+      // menu that acts on it inserts a block while the word is half-typed.
+      if ((event.key === "Enter" && !event.isComposing) || event.key === "Tab") {
         const command = matches[active];
         if (!command) return;
         event.preventDefault();

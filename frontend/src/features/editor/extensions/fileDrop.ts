@@ -23,8 +23,10 @@ export const documentFileExtensions = [
 ];
 
 /** The accept list for a file picker that takes what a drop takes. */
-export const acceptedDropFiles =
-  documentFileExtensions.join(",") + ",image/*";
+export const acceptedDropFiles = documentFileExtensions.join(",") + ",image/*";
+
+/** The accept list for a picker that takes documents only. */
+export const acceptedDocumentFiles = documentFileExtensions.join(",");
 
 /** The label people see for what can be dropped. */
 export const droppableFilesLabel =

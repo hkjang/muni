@@ -19,6 +19,7 @@ import {
   TextFieldsOutlined,
 } from "@mui/icons-material";
 import { percentFor, pixelsFor, widthPresets } from "./extensions/imageAttributes";
+import { confirmsInput } from "../../lib/keyboard";
 
 /**
  * ImageMenu appears while an image is selected.
@@ -132,7 +133,7 @@ export function ImageMenu({
                 setAlt(null);
               }}
               onKeyDown={(event) => {
-                if (event.key === "Enter") {
+                if (confirmsInput(event)) {
                   event.preventDefault();
                   editor.chain().focus().updateAttributes("image", { alt }).run();
                   setAlt(null);

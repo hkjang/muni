@@ -23,6 +23,7 @@ import { DocumentCard } from "../components/DocumentCard";
 import { EmptyState } from "../components/EmptyState";
 import { NewDocumentDialog } from "../components/NewDocumentDialog";
 import { useAuth } from "../contexts/AuthContext";
+import { FileDropTarget } from "../components/FileDropTarget";
 
 export function DashboardPage({
   scope = "recent",
@@ -32,6 +33,7 @@ export function DashboardPage({
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const [dialog, setDialog] = useState(params.get("new") === "1");
+  const [dropped, setDropped] = useState<File[]>([]);
   const client = useQueryClient();
   useEffect(() => {
     if (params.get("new") === "1") setDialog(true);
@@ -83,13 +85,26 @@ export function DashboardPage({
   }[scope];
   const close = () => {
     setDialog(false);
+    setDropped([]);
     if (params.has("new")) {
       params.delete("new");
       setParams(params, { replace: true });
     }
   };
+  // A file dropped on the list opens the same dialog the button opens, with
+  // the file already in it: this screen does not know which workspace the
+  // document belongs in, and that is the one thing the dialog asks.
+  const takeFiles = (files: File[]) => {
+    setDropped(files);
+    setDialog(true);
+  };
   return (
-    <Box sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1480, mx: "auto" }}>
+    <FileDropTarget
+      enabled={scope !== "trash"}
+      onFiles={takeFiles}
+      hint="여기에 놓으면 문서로 가져옵니다"
+      sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1480, mx: "auto" }}
+    >
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
@@ -154,7 +169,7 @@ export function DashboardPage({
           onAction={() => setDialog(true)}
         />
       )}
-      <NewDocumentDialog open={dialog} onClose={close} />
-    </Box>
+      <NewDocumentDialog open={dialog} onClose={close} initialFiles={dropped} />
+    </FileDropTarget>
   );
 }

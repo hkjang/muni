@@ -15,6 +15,7 @@ import {
   LinkOffOutlined,
   OpenInNew,
 } from "@mui/icons-material";
+import { confirmsInput } from "../../lib/keyboard";
 
 /**
  * LinkMenu is what appears when the caret is inside a link.
@@ -80,7 +81,7 @@ export function LinkMenu({
                 placeholder="https://"
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") {
+                  if (confirmsInput(event)) {
                     event.preventDefault();
                     save();
                   }

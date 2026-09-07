@@ -44,6 +44,8 @@ import { folderPaths } from "../features/editor/folderTree";
 import { DocumentCard } from "../components/DocumentCard";
 import { EmptyState } from "../components/EmptyState";
 import { NewDocumentDialog } from "../components/NewDocumentDialog";
+import { confirmsInput } from "../lib/keyboard";
+import { FileDropTarget } from "../components/FileDropTarget";
 
 type WorkspaceMember = {
   id: string;
@@ -65,6 +67,7 @@ export function WorkspacePage() {
   const [params, setParams] = useSearchParams();
   const folderId = params.get("folder") ?? "";
   const [dialog, setDialog] = useState(false);
+  const [dropped, setDropped] = useState<File[]>([]);
   const [folderDialog, setFolderDialog] = useState(false);
   const [folderName, setFolderName] = useState("");
   // Folders could be created and listed and nothing else, so one named by
@@ -198,8 +201,23 @@ export function WorkspacePage() {
   });
   const selectFolder = (id: string) =>
     setParams(id ? { folder: id } : {}, { replace: true });
+  // Dropped here the workspace and folder are already known, so the dialog
+  // opens with everything filled in and only waits for a confirmation.
+  const takeFiles = (files: File[]) => {
+    setDropped(files);
+    setDialog(true);
+  };
   return (
-    <Box sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1480, mx: "auto" }}>
+    <FileDropTarget
+      enabled={workspace?.role !== "VIEWER"}
+      onFiles={takeFiles}
+      hint={
+        folderId
+          ? "여기에 놓으면 이 폴더로 가져옵니다"
+          : "여기에 놓으면 이 워크스페이스로 가져옵니다"
+      }
+      sx={{ p: { xs: 2.5, sm: 4, lg: 5 }, maxWidth: 1480, mx: "auto" }}
+    >
       <Stack
         direction={{ xs: "column", sm: "row" }}
         justifyContent="space-between"
@@ -298,7 +316,7 @@ export function WorkspacePage() {
             inputProps={{ maxLength: 120 }}
             onChange={(event) => setRenameValue(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && renameValue.trim())
+              if (confirmsInput(event) && renameValue.trim())
                 renameFolder.mutate();
             }}
             sx={{ mt: 1 }}
@@ -356,7 +374,7 @@ export function WorkspacePage() {
             value={bulkTag}
             onChange={(event) => setBulkTag(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && bulkTag.trim())
+              if (confirmsInput(event) && bulkTag.trim())
                 bulk.mutate({ action: "addTags", tags: [bulkTag.trim()] });
             }}
             sx={{ width: 180 }}
@@ -616,10 +634,14 @@ export function WorkspacePage() {
       </Dialog>
       <NewDocumentDialog
         open={dialog}
-        onClose={() => setDialog(false)}
+        onClose={() => {
+          setDialog(false);
+          setDropped([]);
+        }}
         initialWorkspaceId={workspaceId}
         initialFolderId={folderId}
+        initialFiles={dropped}
       />
-    </Box>
+    </FileDropTarget>
   );
 }

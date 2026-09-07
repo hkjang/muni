@@ -27,6 +27,11 @@ type fontInfo struct {
 	identityCID  bool
 	spaceCode    uint32
 	hasSpaceCode bool
+	// glyphText is the embedded font's own account of what each glyph
+	// draws, and cidToGID the map from character code to glyph when the
+	// font does not use them interchangeably.
+	glyphText glyphMap
+	cidToGID  map[uint32]uint32
 }
 
 func (d *Document) loadFont(dict Dict) *fontInfo {
@@ -67,10 +72,13 @@ func (d *Document) loadFont(dict Dict) *fontInfo {
 			descendant := d.dict(descendants[0])
 			font.defaultWidth = d.number(descendant.get("DW"), 1000) / 1000
 			font.readCIDWidths(d, d.array(descendant.get("W")))
+			font.readEmbeddedFont(d, d.dict(descendant.get("FontDescriptor")))
+			font.readCIDToGID(d, descendant.get("CIDToGIDMap"))
 		}
 	} else {
 		font.readSimpleEncoding(d, dict)
 		font.readSimpleWidths(d, dict)
+		font.readEmbeddedFont(d, d.dict(dict.get("FontDescriptor")))
 		if strings.Contains(lower, "symbol") || strings.Contains(lower, "dingbat") {
 			font.hasSpaceCode = false
 		}
@@ -82,6 +90,50 @@ func (d *Document) loadFont(dict Dict) *fontInfo {
 		}
 	}
 	return font
+}
+
+// readEmbeddedFont keeps the font programme's own character map, which is
+// the only trustworthy answer when the producer's /ToUnicode is not one.
+func (f *fontInfo) readEmbeddedFont(d *Document, descriptor Dict) {
+	if descriptor == nil {
+		return
+	}
+	for _, key := range []string{"FontFile2", "FontFile3", "FontFile"} {
+		stream, ok := d.resolve(descriptor.get(Name(key))).(*Stream)
+		if !ok {
+			continue
+		}
+		data, err := d.StreamData(stream)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		if mapped := parseGlyphMap(data); len(mapped) > 0 {
+			f.glyphText = mapped
+			return
+		}
+	}
+}
+
+// readCIDToGID reads the table that turns a character code into a glyph
+// number. The usual value is the name "Identity", where they are the same.
+func (f *fontInfo) readCIDToGID(d *Document, value Object) {
+	stream, ok := d.resolve(value).(*Stream)
+	if !ok {
+		return
+	}
+	data, err := d.StreamData(stream)
+	if err != nil || len(data) < 2 {
+		return
+	}
+	if len(data) > 2<<20 {
+		data = data[:2<<20]
+	}
+	f.cidToGID = make(map[uint32]uint32, len(data)/2)
+	for index := 0; index+1 < len(data); index += 2 {
+		if glyph := uint32(data[index])<<8 | uint32(data[index+1]); glyph != 0 {
+			f.cidToGID[uint32(index/2)] = glyph
+		}
+	}
 }
 
 func (f *fontInfo) readSimpleEncoding(d *Document, dict Dict) {
@@ -386,8 +438,25 @@ func (f *fontInfo) decode(data []byte) []uint32 {
 // text maps a character code to its Unicode string; ok is false when the font
 // carries no usable mapping (typical of subset fonts without /ToUnicode).
 func (f *fontInfo) text(code uint32) (string, bool) {
-	if value, ok := f.toUnicode[code]; ok {
-		return value, true
+	mapped, hasMapped := f.toUnicode[code]
+	if hasMapped && !printableText(mapped) {
+		// A control character is never text anybody typed. Producers write
+		// one when they cannot name a glyph, and a reader that believes it
+		// scatters U+0001 through the words.
+		hasMapped = false
+	}
+	// A producer that cannot name a glyph writes the glyph's own number as
+	// its "Unicode": the space of a Chromium PDF is declared U+0001, and in
+	// a font whose space sits at glyph 36 it is declared "$". Both are the
+	// glyph number wearing a character's clothes, and the font itself says
+	// otherwise.
+	if !hasMapped || sameAsCode(code, mapped) {
+		if value, ok := f.glyphText[f.glyph(code)]; ok {
+			return value, true
+		}
+	}
+	if hasMapped {
+		return mapped, true
 	}
 	if f.twoByte {
 		if f.ucs2CMap && code > 0 {
@@ -408,6 +477,49 @@ func (f *fontInfo) text(code uint32) (string, bool) {
 		return string(rune(code)), true
 	}
 	return "", false
+}
+
+// glyph is the glyph number a character code draws.
+func (f *fontInfo) glyph(code uint32) uint32 {
+	if f.cidToGID != nil {
+		return f.cidToGID[code]
+	}
+	return code
+}
+
+// printableText reports whether a mapping produced something a document
+// could actually contain.
+func printableText(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if printableRune(r) {
+			return true
+		}
+	}
+	return false
+}
+
+func printableRune(r rune) bool {
+	if r == 0xFFFD || r > 0x10FFFF {
+		return false
+	}
+	if r < 0x20 {
+		return r == '\t' || r == '\n'
+	}
+	// The private use areas carry a font's own doodles, not text.
+	if r >= 0xE000 && r <= 0xF8FF {
+		return false
+	}
+	return r != 0x7F
+}
+
+// sameAsCode reports whether a mapping says nothing more than the code it
+// was looked up by.
+func sameAsCode(code uint32, value string) bool {
+	runes := []rune(value)
+	return len(runes) == 1 && uint32(runes[0]) == code
 }
 
 func (f *fontInfo) width(code uint32) float64 {

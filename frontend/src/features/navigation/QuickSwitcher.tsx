@@ -22,6 +22,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import type { DocumentItem, Workspace } from "../../types";
 import { groupCommands, rank, type QuickCommand } from "./commands";
+import { confirmsInput } from "../../lib/keyboard";
 
 type SearchResult = {
   id: string;
@@ -296,7 +297,7 @@ export function QuickSwitcher({
               event.preventDefault();
               setActive((current) => Math.max(current - 1, 0));
             }
-            if (event.key === "Enter") {
+            if (confirmsInput(event)) {
               event.preventDefault();
               choose(flat[active]);
             }

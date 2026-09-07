@@ -132,7 +132,9 @@ func assembleLine(items []textItem) (textLine, bool) {
 	if weight > 0 {
 		line.size = sizeTotal / weight
 	}
-	line.text = strings.TrimRight(builder.String(), " ")
+	// Indentation is carried by the line's own left edge, not by spaces in
+	// front of its text.
+	line.text = strings.Trim(builder.String(), " ")
 	if strings.TrimSpace(line.text) == "" {
 		return textLine{}, false
 	}

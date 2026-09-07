@@ -31,6 +31,7 @@ import {
   type SelectionShape,
 } from "./selectionContent";
 import { useAIStream } from "./useAIStream";
+import { confirmsInput } from "../../../lib/keyboard";
 
 type Range = { from: number; to: number };
 
@@ -187,7 +188,7 @@ export function AISelectionMenu({
               value={custom}
               onChange={(event) => setCustom(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter" && custom.trim()) {
+                if (confirmsInput(event) && custom.trim()) {
                   event.preventDefault();
                   void start(custom.trim(), "직접 지시");
                 }

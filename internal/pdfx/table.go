@@ -59,8 +59,14 @@ func segmentCells(line textLine, body float64) []lineCell {
 type tableSpan struct {
 	start   int
 	end     int // exclusive
-	columns []float64
+	columns []columnBand
 	rows    [][]lineCell
+}
+
+// columnBand is the horizontal strip of the page one column occupies.
+type columnBand struct {
+	left  float64
+	right float64
 }
 
 // detectTables finds runs of neighbouring lines whose cells line up in the
@@ -92,7 +98,7 @@ func detectTables(lines []textLine, body float64) []tableSpan {
 		}
 		if end-index >= 2 {
 			span := tableSpan{start: index, end: end}
-			span.columns = columnPositions(segmented[index:end], body)
+			span.columns = columnBands(segmented[index:end], body)
 			if len(span.columns) >= 2 {
 				for cursor := index; cursor < end; cursor++ {
 					span.rows = append(span.rows, segmented[cursor])
@@ -107,11 +113,17 @@ func detectTables(lines []textLine, body float64) []tableSpan {
 	return spans
 }
 
+// columnsAlign reports whether two rows are laid out on the same columns.
+//
+// Two cells are in the same column when the strips they occupy overlap. The
+// left edges alone will not do: a heading centred over left-aligned text, or
+// over figures set to the right, starts nowhere near them, and matching on
+// the edge invents a column for every alignment in the table.
 func columnsAlign(left, right []lineCell, body float64) bool {
 	matches := 0
 	for _, cell := range right {
 		for _, reference := range left {
-			if math.Abs(cell.left-reference.left) < math.Max(body*0.8, 6) {
+			if overlaps(cell, reference, body) {
 				matches++
 				break
 			}
@@ -120,33 +132,78 @@ func columnsAlign(left, right []lineCell, body float64) bool {
 	return matches >= 2
 }
 
-func columnPositions(rows [][]lineCell, body float64) []float64 {
-	positions := make([]float64, 0, 8)
-	tolerance := math.Max(body*0.8, 6)
+func overlaps(a, b lineCell, body float64) bool {
+	padding := columnPadding(body)
+	return a.left-padding < b.right && b.left-padding < a.right
+}
+
+func columnPadding(body float64) float64 {
+	return math.Max(body*0.3, 2)
+}
+
+// columnBands works out where the columns of a table are: every strip of the
+// page that a cell sits in, with overlapping strips merged.
+//
+// The grid is taken from the rows that fill it — the ones with the most cells
+// — so that a title spanning the whole width does not swallow every column
+// into one.
+func columnBands(rows [][]lineCell, body float64) []columnBand {
+	widest := 0
 	for _, row := range rows {
-		for _, cell := range row {
-			found := false
-			for index, position := range positions {
-				if math.Abs(position-cell.left) < tolerance {
-					positions[index] = math.Min(position, cell.left)
-					found = true
-					break
-				}
-			}
-			if !found {
-				positions = append(positions, cell.left)
-			}
+		if len(row) > widest {
+			widest = len(row)
 		}
 	}
-	sort.Float64s(positions)
-	if len(positions) > 24 {
+	if widest < 2 {
 		return nil
 	}
-	return positions
+	padding := columnPadding(body)
+	spans := make([]columnBand, 0, widest*len(rows))
+	for _, row := range rows {
+		if len(row) < widest {
+			continue
+		}
+		for _, cell := range row {
+			spans = append(spans, columnBand{left: cell.left - padding, right: cell.right + padding})
+		}
+	}
+	sort.Slice(spans, func(a, b int) bool { return spans[a].left < spans[b].left })
+	bands := make([]columnBand, 0, widest)
+	for _, span := range spans {
+		if len(bands) > 0 && span.left <= bands[len(bands)-1].right {
+			if span.right > bands[len(bands)-1].right {
+				bands[len(bands)-1].right = span.right
+			}
+			continue
+		}
+		bands = append(bands, span)
+	}
+	if len(bands) < 2 || len(bands) > 24 {
+		return nil
+	}
+	return bands
+}
+
+// bandFor places a cell in the column it belongs to: the one its middle sits
+// in, or failing that the one it shares most of its width with.
+func bandFor(bands []columnBand, cell lineCell) int {
+	middle := (cell.left + cell.right) / 2
+	for index, band := range bands {
+		if middle >= band.left && middle <= band.right {
+			return index
+		}
+	}
+	best, bestOverlap := -1, 0.0
+	for index, band := range bands {
+		shared := math.Min(cell.right, band.right) - math.Max(cell.left, band.left)
+		if shared > bestOverlap {
+			best, bestOverlap = index, shared
+		}
+	}
+	return best
 }
 
 func (span tableSpan) node(lines []textLine, body float64) *richdoc.Node {
-	tolerance := math.Max(body*0.8, 6)
 	columnCount := len(span.columns)
 	table := &richdoc.Node{Type: "table"}
 	headerRow := lines[span.start].bold
@@ -154,14 +211,8 @@ func (span tableSpan) node(lines []textLine, body float64) *richdoc.Node {
 		row := &richdoc.Node{Type: "tableRow"}
 		texts := make([]string, columnCount)
 		for _, cell := range cells {
-			target := 0
-			bestDistance := math.MaxFloat64
-			for index, position := range span.columns {
-				if distance := math.Abs(position - cell.left); distance < bestDistance {
-					target, bestDistance = index, distance
-				}
-			}
-			if bestDistance > tolerance*3 {
+			target := bandFor(span.columns, cell)
+			if target < 0 {
 				continue
 			}
 			if texts[target] != "" {

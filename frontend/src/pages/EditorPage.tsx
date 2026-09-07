@@ -12,6 +12,7 @@ import { EditorStatusBar } from "../features/editor/EditorStatusBar";
 import { ImageMenu } from "../features/editor/ImageMenu";
 import { NotificationBell } from "../features/notifications/NotificationBell";
 import { DocumentTags } from "../features/editor/DocumentTags";
+import { DocumentTitleField } from "../features/editor/DocumentTitleField";
 import { ApprovalLineDialog } from "../features/editor/ApprovalLineDialog";
 import { MoveDocumentDialog } from "../features/editor/MoveDocumentDialog";
 import {
@@ -497,30 +498,10 @@ export function EditorPage() {
           <Box sx={{ display: { xs: "none", sm: "block" }, mr: 1 }}>
             <Brand compact />
           </Box>
-          <TextField
-            variant="standard"
-            value={document.title}
-            onChange={(event) =>
-              queryClient.setQueryData<DocumentItem>(
-                ["document", documentId],
-                (current) =>
-                  current ? { ...current, title: event.target.value } : current,
-              )
-            }
-            onBlur={(event) =>
-              void updateMetadata({ title: event.target.value })
-            }
-            disabled={!canEdit}
-            inputProps={{ "aria-label": "문서 제목", maxLength: 240 }}
-            InputProps={{
-              disableUnderline: true,
-              sx: {
-                fontWeight: 720,
-                fontSize: { xs: 15, sm: 17 },
-                minWidth: { xs: 120, sm: 280 },
-              },
-            }}
-            sx={{ flex: { xs: 1, md: "0 1 480px" } }}
+          <DocumentTitleField
+            title={document.title}
+            canEdit={canEdit}
+            onCommit={(title) => updateMetadata({ title })}
           />
           <EditorStatus state={saveState} />
           <Box sx={{ flex: 1 }} />

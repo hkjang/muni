@@ -19,6 +19,7 @@ import {
 } from "@mui/icons-material";
 import { searchState } from "../extensions/searchHighlight";
 import { nextMatchIndex, step, type FindOptions } from "./findMatches";
+import { confirmsInput } from "../../../lib/keyboard";
 
 /**
  * FindReplaceBar is the editor's own find, because the browser's cannot see
@@ -162,7 +163,7 @@ export function FindReplaceBar({
               search(event.target.value, options);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter") {
+              if (confirmsInput(event)) {
                 event.preventDefault();
                 move(event.shiftKey ? -1 : 1);
               }
@@ -248,7 +249,7 @@ export function FindReplaceBar({
               value={replacement}
               onChange={(event) => setReplacement(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") {
+                if (confirmsInput(event)) {
                   event.preventDefault();
                   replaceOne();
                 }

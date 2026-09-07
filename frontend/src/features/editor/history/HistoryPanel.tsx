@@ -20,6 +20,7 @@ import {
 import { api, formatDate, jsonBody } from "../../../lib/api";
 import type { DocumentItem, RevisionItem } from "../../../types";
 import { RevisionDiffView } from "./RevisionDiffView";
+import { confirmsInput } from "../../../lib/keyboard";
 
 export function HistoryPanel({ document }: { document: DocumentItem }) {
   const client = useQueryClient();
@@ -184,7 +185,7 @@ export function HistoryPanel({ document }: { document: DocumentItem }) {
                   inputProps={{ maxLength: 80 }}
                   onChange={(event) => setDraftName(event.target.value)}
                   onKeyDown={(event) => {
-                    if (event.key === "Enter")
+                    if (confirmsInput(event))
                       rename.mutate({
                         revision: item.revision,
                         name: draftName,
