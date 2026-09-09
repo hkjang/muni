@@ -51,9 +51,14 @@ const (
 	tagShapePicture   = 0x055
 )
 
+// maxRecords bounds how many pieces a stream may be made of. A record costs
+// far more held in a tree than it does on disk, and the stream it comes from
+// is only bounded after it is decompressed.
+const maxRecords = 1 << 21
+
 func readRecords(raw []byte) []record {
 	out := []record{}
-	for offset := 0; offset+4 <= len(raw); {
+	for offset := 0; offset+4 <= len(raw) && len(out) < maxRecords; {
 		header := binary.LittleEndian.Uint32(raw[offset:])
 		offset += 4
 		tag := uint16(header & 0x3FF)

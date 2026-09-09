@@ -529,3 +529,64 @@ func TestBoldInTheMiddleOfALineStaysThere(t *testing.T) {
 		t.Errorf("굵기가 줄 전체에 번졌습니다: %v", bold)
 	}
 }
+
+func markedRuns(node *richdoc.Node, kind string, found map[string]bool) {
+	if node == nil {
+		return
+	}
+	for _, mark := range node.Marks {
+		if mark.Type == kind {
+			found[node.Text] = true
+		}
+	}
+	for _, child := range node.Content {
+		markedRuns(child, kind, found)
+	}
+}
+
+// A PDF has no idea what a superscript is: the 2 of ㎡, the 2 of H₂O and a
+// footnote's number are all ordinary text, drawn smaller and a little off the
+// line the rest of the sentence sits on. Read flat, "3㎡" becomes "32".
+func TestRaisedAndLoweredRunsBecomeScripts(t *testing.T) {
+	// The baseline is 700; the raised run sits above it and the lowered one
+	// below, both in a smaller font, as a typesetter sets them.
+	content := "BT /F2 11 Tf 60 700 Td (Area is 125m) Tj ET\n" +
+		"BT /F2 7 Tf 130 704 Td (2) Tj ET\n" +
+		"BT /F2 11 Tf 136 700 Td ( and water is H) Tj ET\n" +
+		"BT /F2 7 Tf 215 697 Td (2) Tj ET\n" +
+		"BT /F2 11 Tf 220 700 Td (O.) Tj ET\n"
+	result, err := Import(context.Background(), buildPDF(content, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raised, lowered := map[string]bool{}, map[string]bool{}
+	markedRuns(result.Document, "superscript", raised)
+	markedRuns(result.Document, "subscript", lowered)
+	if !raised["2"] {
+		t.Errorf("올려 쓴 글자가 첨자가 되지 않았습니다: %q", result.Document.PlainText())
+	}
+	if !lowered["2"] {
+		t.Errorf("내려 쓴 글자가 아래첨자가 되지 않았습니다: %q", result.Document.PlainText())
+	}
+	if raised["Area is 125m"] || lowered["Area is 125m"] {
+		t.Errorf("본문에 첨자가 잘못 붙었습니다")
+	}
+}
+
+// A line set entirely in one size and on one baseline has no scripts in it,
+// however many numbers it holds.
+func TestOrdinaryTextIsNotMistakenForAScript(t *testing.T) {
+	content := at(60, 700, "The year 2026 and the figure 125 are ordinary.") +
+		at(60, 680, "So is a second line of the same paragraph text here.")
+	result, err := Import(context.Background(), buildPDF(content, false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []string{"superscript", "subscript"} {
+		found := map[string]bool{}
+		markedRuns(result.Document, kind, found)
+		if len(found) != 0 {
+			t.Errorf("%s가 잘못 붙었습니다: %v", kind, found)
+		}
+	}
+}

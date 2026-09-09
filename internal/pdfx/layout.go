@@ -95,6 +95,7 @@ func buildLines(items []textItem) []textLine {
 
 func assembleLine(items []textItem) (textLine, bool) {
 	sort.SliceStable(items, func(a, b int) bool { return items[a].x < items[b].x })
+	scripts := raisedRuns(items)
 	var builder strings.Builder
 	line := textLine{y: items[0].y, left: items[0].x, right: items[0].endX, bold: true, mono: true}
 	weight := 0.0
@@ -116,7 +117,7 @@ func assembleLine(items []textItem) (textLine, bool) {
 		builder.WriteString(item.text)
 		spans = append(spans, textSpan{
 			text: item.text, bold: item.bold, italic: item.italic,
-			mono: item.mono, href: item.href,
+			mono: item.mono, href: item.href, script: scripts[index],
 		})
 		previousEnd = item.endX
 		if item.endX > line.right {
@@ -150,6 +151,65 @@ func assembleLine(items []textItem) (textLine, bool) {
 	}
 	line.items = append(line.items, items...)
 	return line, true
+}
+
+// raisedRuns says which runs of a line are set above or below its baseline.
+//
+// A PDF has no idea what a superscript is. A footnote's number, the 2 of ㎡
+// and the 2 of H₂O are all drawn as ordinary text, in a smaller font, a
+// little off the line everything else sits on. Reading them flat turns "3㎡"
+// into "32" and a sentence's footnote marks into stray digits in the middle
+// of the words.
+func raisedRuns(items []textItem) []string {
+	out := make([]string, len(items))
+	if len(items) < 2 {
+		return out
+	}
+	// The line's own baseline and size are the ones most of its letters sit
+	// on, so a short raised run cannot drag them.
+	baseline, size := dominantLine(items)
+	if size <= 0 {
+		return out
+	}
+	for index, item := range items {
+		if strings.TrimSpace(item.text) == "" {
+			continue
+		}
+		// A superscript is smaller than the text it belongs to. Something the
+		// same size sitting high is a different line, not a superscript.
+		if item.size > size*0.86 {
+			continue
+		}
+		switch offset := item.y - baseline; {
+		case offset > size*0.13:
+			out[index] = "superscript"
+		case offset < -size*0.06:
+			out[index] = "subscript"
+		}
+	}
+	return out
+}
+
+// dominantLine is the baseline and size that most of a line's letters share.
+func dominantLine(items []textItem) (float64, float64) {
+	weights := map[[2]int]float64{}
+	for _, item := range items {
+		if strings.TrimSpace(item.text) == "" {
+			continue
+		}
+		key := [2]int{int(math.Round(item.y * 4)), int(math.Round(item.size * 2))}
+		weights[key] += float64(len([]rune(item.text)))
+	}
+	best, bestWeight := [2]int{}, 0.0
+	for key, weight := range weights {
+		if weight > bestWeight || (weight == bestWeight && key[1] > best[1]) {
+			best, bestWeight = key, weight
+		}
+	}
+	if bestWeight == 0 {
+		return 0, 0
+	}
+	return float64(best[0]) / 4, float64(best[1]) / 2
 }
 
 func isCJK(r rune) bool {

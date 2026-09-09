@@ -36,11 +36,16 @@ const textName = "#text"
 // a panic one request can recover from.
 const maxDepth = 512
 
+// maxElements bounds how many pieces a part may be made of. The bytes are
+// already bounded, but a tree costs many times what its text does.
+const maxElements = 1 << 20
+
 func parse(reader io.Reader) (*node, error) {
 	decoder := xml.NewDecoder(reader)
 	decoder.Strict = false
 	var root *node
 	stack := []*node{}
+	elements := 0
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -53,6 +58,9 @@ func parse(reader io.Reader) (*node, error) {
 		case xml.StartElement:
 			if len(stack) >= maxDepth {
 				return nil, errors.New("HWPX 파일이 너무 깊게 중첩되어 있습니다")
+			}
+			if elements++; elements > maxElements {
+				return nil, errors.New("HWPX 파일의 조각이 너무 많습니다")
 			}
 			current := &node{name: typed.Name.Local, attrs: map[string]string{}}
 			for _, attribute := range typed.Attr {

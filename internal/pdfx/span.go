@@ -23,6 +23,9 @@ type textSpan struct {
 	italic bool
 	mono   bool
 	href   string
+	// script is "superscript", "subscript" or nothing — a footnote's number,
+	// the 2 of ㎡, the 2 of H₂O.
+	script string
 }
 
 type spanText []textSpan
@@ -145,6 +148,9 @@ func (s spanText) nodes(extra ...richdoc.Mark) []*richdoc.Node {
 		if span.href != "" {
 			marks = append(marks, richdoc.Mark{Type: "link", Attrs: map[string]any{"href": span.href}})
 		}
+		if span.script != "" {
+			marks = append(marks, richdoc.Mark{Type: span.script})
+		}
 		out = append(out, richdoc.Text(span.text, marks...))
 	}
 	if len(out) == 0 {
@@ -155,7 +161,7 @@ func (s spanText) nodes(extra ...richdoc.Mark) []*richdoc.Node {
 
 func (s textSpan) sameLook(other textSpan) bool {
 	return s.bold == other.bold && s.italic == other.italic &&
-		s.mono == other.mono && s.href == other.href
+		s.mono == other.mono && s.href == other.href && s.script == other.script
 }
 
 func hasMark(marks []richdoc.Mark, kind string) bool {

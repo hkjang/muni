@@ -51,12 +51,18 @@ func prefixFor(space string) string {
 // document written by Word comes close to this.
 const maxDepth = 512
 
+// maxElements bounds how many pieces a part may be made of. The bytes are
+// already bounded, but a tree costs many times what its text does — a part of
+// nothing but empty tags turns a small upload into a large heap.
+const maxElements = 1 << 20
+
 func parseXML(reader io.Reader) (*xnode, error) {
 	decoder := xml.NewDecoder(reader)
 	decoder.Strict = false
 	decoder.CharsetReader = func(_ string, input io.Reader) (io.Reader, error) { return input, nil }
 	var root *xnode
 	stack := make([]*xnode, 0, 32)
+	elements := 0
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
@@ -69,6 +75,9 @@ func parseXML(reader io.Reader) (*xnode, error) {
 		case xml.StartElement:
 			if len(stack) >= maxDepth {
 				return nil, errors.New("DOCX 파일이 너무 깊게 중첩되어 있습니다")
+			}
+			if elements++; elements > maxElements {
+				return nil, errors.New("DOCX 파일의 조각이 너무 많습니다")
 			}
 			node := &xnode{Space: typed.Name.Space, Local: typed.Name.Local, Attrs: map[string]string{}}
 			for _, attribute := range typed.Attr {
