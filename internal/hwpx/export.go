@@ -231,10 +231,7 @@ func (b *builder) block(node *richdoc.Node, ctx blockContext) {
 		child := ctx
 		child.mono = true
 		child.indent++
-		text := node.PlainText()
-		for _, line := range strings.Split(text, "\n") {
-			b.paragraph(nil, child, []*richdoc.Node{richdoc.Text(line)}, "")
-		}
+		b.codeBlock(node, child)
 	case "bulletList", "orderedList":
 		b.list(node, ctx, node.Type)
 	case "taskList":
@@ -322,6 +319,23 @@ func (b *builder) listItem(item *richdoc.Node, ctx blockContext) {
 	}
 }
 
+// codeBlock writes the whole block as one paragraph, its lines parted by
+// Hangul's own line break — the shape the .docx writer gives one, and for the
+// same reason. A paragraph to a line would be a run of paragraphs whose end
+// nothing marks, and two code blocks side by side would come back as one.
+func (b *builder) codeBlock(node *richdoc.Node, ctx blockContext) {
+	inline := []*richdoc.Node{}
+	for index, line := range strings.Split(node.PlainText(), "\n") {
+		if index > 0 {
+			inline = append(inline, &richdoc.Node{Type: "hardBreak"})
+		}
+		if line != "" {
+			inline = append(inline, richdoc.Text(line))
+		}
+	}
+	b.paragraph(nil, ctx, inline, "")
+}
+
 // paragraph writes one <hp:p>, taking its shape from the node and the context.
 func (b *builder) paragraph(node *richdoc.Node, ctx blockContext, inline []*richdoc.Node, prefix string) {
 	key := paraKey{indent: ctx.indent * indentUnits}
@@ -340,8 +354,16 @@ func (b *builder) paragraph(node *richdoc.Node, ctx blockContext, inline []*rich
 		key.lineRate = node.AttrString("lineHeight")
 	}
 	style := 0
-	if ctx.heading > 0 {
+	switch {
+	case ctx.heading > 0:
 		style = ctx.heading
+	case ctx.listKind != "":
+		// An item of a list is that first. Naming it a quotation as well
+		// would make the reader take the run of items for one.
+	case ctx.mono:
+		style = styleCode
+	case ctx.quote:
+		style = styleQuote
 	}
 	b.body.WriteString(b.openParagraph(b.paraPrID(key), style, false))
 	if prefix != "" {

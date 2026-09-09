@@ -209,6 +209,37 @@ func OutlineLevel(names ...string) int {
 	return 0
 }
 
+// BlockStyle reads a style name as the block muni draws the paragraph as:
+// "quote" for a quotation, "code" for a code block, nothing for body text.
+//
+// Hangul has no built-in quotation or code style, and a paragraph that is
+// merely indented or set in a fixed-width face says nothing about what it is
+// — which is why muni's writer plants two styles of its own and names them,
+// the way the .docx writer plants a Quote and a CodeBlock style. A document
+// that came from Word through some other converter carries Word's names, so
+// those are read too.
+func BlockStyle(names ...string) string {
+	for _, name := range names {
+		switch styleKey(name) {
+		case "인용", "인용구", "quote", "intensequote", "blockquote":
+			return "quote"
+		case "코드", "코드블록", "code", "codeblock", "sourcecode", "preformattedtext", "htmlpreformatted":
+			return "code"
+		}
+	}
+	return ""
+}
+
+// styleKey is a style name with the differences that are not differences —
+// case, spaces, the hyphens and underscores a converter puts in — taken out.
+func styleKey(name string) string {
+	key := strings.ToLower(strings.TrimSpace(name))
+	for _, drop := range []string{" ", "-", "_"} {
+		key = strings.ReplaceAll(key, drop, "")
+	}
+	return key
+}
+
 // FontSize turns a character height into the size muni's editor draws. Both
 // formats write it in hundredths of a point — the .hwpx as an attribute, the
 // .hwp as the base size in its CHAR_SHAPE — so ten point, Hangul's own

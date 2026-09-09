@@ -52,6 +52,17 @@ const (
 	tableBorder     = 3
 )
 
+// The styles the body refers to by number: 0 is body text, 1 to 6 are the
+// outline levels Hangul names its own, and the last two are muni's. Hangul
+// has none for a quotation or a code block, and an indented paragraph set in
+// a fixed-width face is not one to a reader — the .docx writer plants a style
+// for the same reason.
+const (
+	styleQuote = 7
+	styleCode  = 8
+	styleCount = 9
+)
+
 // pack writes every part into a zip, the mimetype first and uncompressed, the
 // way the format asks.
 func (b *builder) pack() ([]byte, error) {
@@ -263,12 +274,18 @@ func (b *builder) headerXML() string {
 
 	// Style 0 is body text; 1 to 6 are the outline levels, named the way
 	// Hangul names its own so a reader — muni's or Hangul's — knows them.
-	out.WriteString(`<hh:styles itemCnt="7">`)
+	// The quotation and the code block are named in both languages, since a
+	// name is all either of them leaves behind.
+	out.WriteString(`<hh:styles itemCnt="` + strconv.Itoa(styleCount) + `">`)
 	out.WriteString(`<hh:style id="0" type="PARA" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0" nextStyleIDRef="0" langID="1042" lockForm="0"/>`)
 	for level := 1; level <= 6; level++ {
 		out.WriteString(`<hh:style id="` + strconv.Itoa(level) + `" type="PARA" name="개요 ` + strconv.Itoa(level) +
 			`" engName="Outline ` + strconv.Itoa(level) + `" paraPrIDRef="0" charPrIDRef="0" nextStyleIDRef="` + strconv.Itoa(level) + `" langID="1042" lockForm="0"/>`)
 	}
+	out.WriteString(`<hh:style id="` + strconv.Itoa(styleQuote) + `" type="PARA" name="인용" engName="Quote" paraPrIDRef="0" charPrIDRef="0" nextStyleIDRef="` +
+		strconv.Itoa(styleQuote) + `" langID="1042" lockForm="0"/>`)
+	out.WriteString(`<hh:style id="` + strconv.Itoa(styleCode) + `" type="PARA" name="코드" engName="Code" paraPrIDRef="0" charPrIDRef="0" nextStyleIDRef="` +
+		strconv.Itoa(styleCode) + `" langID="1042" lockForm="0"/>`)
 	out.WriteString(`</hh:styles>`)
 
 	out.WriteString(`</hh:refList>`)

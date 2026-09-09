@@ -70,8 +70,10 @@ func (imp *importer) sectionIsLandscape(root *node) bool {
 func (imp *importer) blocks(root *node) []*richdoc.Node {
 	out := []*richdoc.Node{}
 	var lists hangul.ListStack
+	var quote quoteRun
 	for _, child := range root.children {
 		kind, level := imp.listShape(child)
+		quoted := imp.blockStyle(child) == "quote"
 		for _, block := range imp.block(child) {
 			if block.Type == "pageBreak" && len(out) == 0 {
 				// Nothing to break away from: the document would open on a
@@ -79,15 +81,45 @@ func (imp *importer) blocks(root *node) []*richdoc.Node {
 				continue
 			}
 			if kind != "" && block.Type == "paragraph" {
+				quote.close()
 				out = lists.Add(out, kind, level, block)
 				continue
 			}
 			// Anything else — a heading, a table, a plain paragraph — ends
 			// the list that was open.
 			lists.Close()
+			if quoted && block.Type == "paragraph" {
+				out = quote.add(out, block)
+				continue
+			}
+			quote.close()
 			out = append(out, block)
 		}
 	}
+	return out
+}
+
+// A quotation has no beginning and no end in HWPX any more than a list does:
+// it is a run of paragraphs whose style names them, so the quotation muni
+// needs — one block holding its paragraphs — has to be put together from the
+// run. A code block does not need this: the writer keeps one to a paragraph,
+// its lines parted by line breaks, so that two code blocks side by side do
+// not come back as one.
+type quoteRun struct {
+	node *richdoc.Node
+}
+
+// close ends the quotation that was open: what comes next starts afresh.
+func (q *quoteRun) close() { q.node = nil }
+
+// add puts a paragraph into the open quotation, opening one at the top of out
+// when none is, and returns out with any quotation it opened there.
+func (q *quoteRun) add(out []*richdoc.Node, block *richdoc.Node) []*richdoc.Node {
+	if q.node == nil {
+		q.node = &richdoc.Node{Type: "blockquote"}
+		out = append(out, q.node)
+	}
+	q.node.Content = append(q.node.Content, block)
 	return out
 }
 
@@ -98,6 +130,24 @@ func (imp *importer) listShape(current *node) (kind string, level int) {
 	}
 	shape := imp.paraShapes[strings.TrimSpace(current.attr("paraPrIDRef"))]
 	return shape.list, shape.level
+}
+
+// blockStyle says whether a paragraph's style makes it a quotation or a line
+// of code. What its shape says comes first: an item of a list and a heading
+// are those however they are styled, and a run of them is not a quotation.
+func (imp *importer) blockStyle(current *node) string {
+	if !current.is("p") {
+		return ""
+	}
+	style := imp.styles[strings.TrimSpace(current.attr("styleIDRef"))]
+	if style.block == "" {
+		return ""
+	}
+	shape := imp.paraShapes[firstNonEmpty(strings.TrimSpace(current.attr("paraPrIDRef")), style.paraShapeID)]
+	if shape.list != "" || style.headingLevel > 0 || shape.outline > 0 {
+		return ""
+	}
+	return style.block
 }
 
 func (imp *importer) block(current *node) []*richdoc.Node {
@@ -155,6 +205,17 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 		level = shape.outline
 	}
 
+	// A code block is one paragraph, so it is built here rather than from a
+	// run of them: its lines are parted by the line breaks inside it, and a
+	// code block holds text and nothing else.
+	if imp.blockStyle(current) == "code" {
+		code := &richdoc.Node{Type: "codeBlock"}
+		if text := codeText(inline); text != "" {
+			code.Content = []*richdoc.Node{richdoc.Text(text)}
+		}
+		return append(before, append([]*richdoc.Node{code}, lifted...)...)
+	}
+
 	if len(inline) == 0 {
 		if len(lifted) > 0 {
 			return append(before, lifted...)
@@ -178,8 +239,16 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 		if shape.align != "" {
 			block.SetAttr("textAlign", shape.align)
 		}
-		if shape.indent > 0 {
-			block.SetAttr("indent", shape.indent)
+		indent := shape.indent
+		if imp.blockStyle(current) == "quote" && indent > 0 {
+			// The step a quotation is written in from the margin is how a
+			// quotation is drawn, not an indent the author asked for, and
+			// keeping it would push the quotation one step further out
+			// every time the document went out and came back.
+			indent--
+		}
+		if indent > 0 {
+			block.SetAttr("indent", indent)
 		}
 		if shape.firstLin {
 			block.SetAttr("firstLine", true)
@@ -189,6 +258,33 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 		}
 	}
 	return append(before, append([]*richdoc.Node{block}, lifted...)...)
+}
+
+// codeText joins what a code paragraph holds back into the block's text: a
+// line break is a line, and the marks the runs carry are not part of it —
+// a code block holds text and draws it its own way.
+//
+// The text is taken whole rather than through PlainText, which trims: the
+// spaces a first line opens with are the indentation of the code.
+func codeText(inline []*richdoc.Node) string {
+	var out strings.Builder
+	var walk func([]*richdoc.Node)
+	walk = func(nodes []*richdoc.Node) {
+		for _, node := range nodes {
+			if node == nil {
+				continue
+			}
+			switch node.Type {
+			case "text":
+				out.WriteString(node.Text)
+			case "hardBreak":
+				out.WriteString("\n")
+			}
+			walk(node.Content)
+		}
+	}
+	walk(inline)
+	return out.String()
 }
 
 // isTrue reads a flag the format writes as a number. Hangul writes
