@@ -82,10 +82,11 @@ type importer struct {
 	// faceNames is the document's font table in the order the FACE_NAME
 	// records came, which is the order a CHAR_SHAPE's face numbers index.
 	faceNames []string
-	// borderFills is the shade each BORDER_FILL paints, in the order the
-	// records came — which is the order a table cell's number points into,
-	// counting from one.
-	borderFills []string
+	// borderFills is what each BORDER_FILL says — the shade it paints and
+	// whether its lines rule a divider — in the order the records came,
+	// which is the order a table cell's or a paragraph shape's number points
+	// into, counting from one.
+	borderFills []borderFill
 	// binaries is the stream each BIN_DATA record names, in the order the
 	// records came — which is the order a picture's number counts, and not
 	// the order the streams are numbered in.
@@ -209,7 +210,7 @@ func (imp *importer) readDocInfo() {
 		case tagBorderFill:
 			// Every BORDER_FILL is kept, shade or none, because a cell's
 			// number counts the records rather than the shaded ones.
-			imp.borderFills = append(imp.borderFills, readBorderFillShade(item.data))
+			imp.borderFills = append(imp.borderFills, readBorderFill(item.data))
 		case tagCharShape:
 			imp.charShapes = append(imp.charShapes, readCharShape(item.data))
 		case tagParaShape:

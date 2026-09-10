@@ -45,11 +45,14 @@ const namespaces = `xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app"` +
 
 // The border definitions every file carries, by the numbers the body uses.
 // Hangul's own first two are these — no lines round a paragraph, none round
-// a character — and a table refers to the third.
+// a character — and a table refers to the third. The fourth is muni's: a
+// line under a paragraph and nothing on the other three sides, which is the
+// only thing either Hangul format has to draw a divider with.
 const (
 	paragraphBorder = 1
 	characterBorder = 2
 	tableBorder     = 3
+	ruleBorder      = 4
 )
 
 // The styles the body refers to by number: 0 is body text, 1 to 6 are the
@@ -231,17 +234,21 @@ func (b *builder) headerXML() string {
 	}
 	out.WriteString(`</hh:fontfaces>`)
 
-	out.WriteString(`<hh:borderFills itemCnt="` + strconv.Itoa(tableBorder+len(b.cellFillOrder)) + `">`)
+	out.WriteString(`<hh:borderFills itemCnt="` + strconv.Itoa(ruleBorder+len(b.cellFillOrder)) + `">`)
 	out.WriteString(borderFillXML(paragraphBorder, "NONE", "0.1 mm", ""))
 	out.WriteString(borderFillXML(characterBorder, "NONE", "0.1 mm", `<hc:fillBrush><hc:winBrush faceColor="none" hatchColor="#000000" alpha="0"/></hc:fillBrush>`))
 	out.WriteString(borderFillXML(tableBorder, "SOLID", "0.12 mm", ""))
+	// The divider: a line under the paragraph that wears it and nothing on
+	// the sides, which is what tells it apart from a box drawn round a
+	// paragraph when the file is read back.
+	out.WriteString(sidedBorderFillXML(ruleBorder, "NONE", "NONE", "NONE", "SOLID", "0.12 mm", ""))
 	// A shaded cell's borderFill draws the table's own lines and fills the
 	// inside with the colour; the cell names it and says nothing else about
 	// the colour, which is the only place HWPX keeps one. The brush is shaped
 	// like the one Hangul writes, hatch colour and all — nothing hatches
 	// without a hatch style, and a loader still expects the attribute.
 	for index, shade := range b.cellFillOrder {
-		out.WriteString(borderFillXML(tableBorder+1+index, "SOLID", "0.12 mm",
+		out.WriteString(borderFillXML(ruleBorder+1+index, "SOLID", "0.12 mm",
 			`<hc:fillBrush><hc:winBrush faceColor="`+escape(shade)+`" hatchColor="#999999" alpha="0"/></hc:fillBrush>`))
 	}
 	out.WriteString(`</hh:borderFills>`)
@@ -297,12 +304,19 @@ func (b *builder) headerXML() string {
 }
 
 func borderFillXML(id int, line, width, fill string) string {
-	side := func(name string) string {
+	return sidedBorderFillXML(id, line, line, line, line, width, fill)
+}
+
+// sidedBorderFillXML writes a borderFill whose four sides are not all drawn
+// alike. The order is the format's own — left, right, top, bottom — and the
+// sides a file leaves undrawn are written as NONE rather than left out.
+func sidedBorderFillXML(id int, left, right, top, bottom, width, fill string) string {
+	side := func(name, line string) string {
 		return `<hh:` + name + ` type="` + line + `" width="` + width + `" color="#000000"/>`
 	}
 	return `<hh:borderFill id="` + strconv.Itoa(id) + `" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0">` +
 		`<hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/>` +
-		side("leftBorder") + side("rightBorder") + side("topBorder") + side("bottomBorder") +
+		side("leftBorder", left) + side("rightBorder", right) + side("topBorder", top) + side("bottomBorder", bottom) +
 		`<hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/>` + fill +
 		`</hh:borderFill>`
 }
@@ -408,7 +422,11 @@ func paraPrXML(id int, key paraKey) string {
 	out.WriteString(`<hh:autoSpacing eAsianEng="0" eAsianNum="0"/>`)
 	out.WriteString(`<hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar">` + metrics + `</hp:case>` +
 		`<hp:default>` + metrics + `</hp:default></hp:switch>`)
-	out.WriteString(`<hh:border borderFillIDRef="` + strconv.Itoa(paragraphBorder) + `" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>`)
+	border := paragraphBorder
+	if key.rule {
+		border = ruleBorder
+	}
+	out.WriteString(`<hh:border borderFillIDRef="` + strconv.Itoa(border) + `" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/>`)
 	out.WriteString(`</hh:paraPr>`)
 	return out.String()
 }

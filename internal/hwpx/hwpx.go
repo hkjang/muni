@@ -47,6 +47,9 @@ type importer struct {
 	// id a table cell names it with; a fill that paints nothing muni can hold
 	// is not in it.
 	cellFills map[string]string
+	// ruleFills holds the borderFills that draw a divider — a line above or
+	// below and no sides — by the id a paragraph shape names one with.
+	ruleFills map[string]bool
 	// binaryParts is where each picture is; binary is the bytes of the ones
 	// something actually asked for.
 	binaryParts map[string]*zip.File
@@ -82,6 +85,10 @@ type paraShape struct {
 	// "bulletList" or "orderedList" — and level how deep; "" is no list.
 	list  string
 	level int
+	// border is the borderFill the shape draws around the paragraph, by the
+	// id the header numbers it with. It is kept rather than resolved because
+	// nothing says the fills are read before the shapes that name them.
+	border string
 }
 
 type styleInfo struct {
@@ -114,6 +121,7 @@ func Parse(body []byte) (*richdoc.Node, []richdoc.Asset, Meta, error) {
 		paraShapes:  map[string]paraShape{},
 		styles:      map[string]styleInfo{},
 		cellFills:   map[string]string{},
+		ruleFills:   map[string]bool{},
 		binaryParts: map[string]*zip.File{},
 		binary:      map[string][]byte{},
 		assetByID:   map[string]string{},

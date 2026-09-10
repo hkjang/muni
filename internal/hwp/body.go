@@ -197,8 +197,18 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 		notes = append(notes, inline...)
 	}
 
+	var shape paraShape
+	if int(refs.shape) < len(imp.paraShapes) {
+		shape = imp.paraShapes[refs.shape]
+	}
+	// A divider has no record of its own in HWP. It is an empty paragraph
+	// with a line ruled under it — what Hangul makes of a row of hyphens
+	// typed on their own — and an empty paragraph is otherwise dropped, so
+	// the line went out of the document with it.
+	rule := imp.borderFillAt(shape.border).rule
+
 	if textRecord == nil {
-		return append(before, after...)
+		return append(before, ruled(rule, nil, after)...)
 	}
 	text := readParagraphText(textRecord.data)
 	var runs []charRun
@@ -233,11 +243,6 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 	if int(refs.style) < len(imp.styles) {
 		level = imp.styles[refs.style].headingLevel
 	}
-	var shape paraShape
-	if int(refs.shape) < len(imp.paraShapes) {
-		shape = imp.paraShapes[refs.shape]
-	}
-
 	blocks := []*richdoc.Node{}
 	for _, line := range splitLines(inline) {
 		if blankInline(line) {
@@ -266,7 +271,18 @@ func (imp *importer) paragraph(node *recordNode) []*richdoc.Node {
 		}
 		blocks = append(blocks, block)
 	}
-	return append(before, append(blocks, after...)...)
+	return append(before, ruled(rule, blocks, after)...)
+}
+
+// ruled puts the divider a paragraph's border draws in front of what the
+// paragraph holds, and only when it holds nothing of its own: a line ruled
+// under words is how those words are drawn, and a paragraph that anchors a
+// table is there for the table.
+func ruled(rule bool, blocks, after []*richdoc.Node) []*richdoc.Node {
+	if rule && len(blocks) == 0 && len(after) == 0 {
+		blocks = []*richdoc.Node{{Type: "horizontalRule"}}
+	}
+	return append(blocks, after...)
 }
 
 // splitLines breaks inline content at the line breaks a paragraph carries.

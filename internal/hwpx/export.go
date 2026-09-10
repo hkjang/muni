@@ -152,6 +152,9 @@ type paraKey struct {
 	// deep: a list in HWPX is a shape its paragraphs share, not an element.
 	list  string
 	level int
+	// rule marks the shape a divider wears: a line ruled under a paragraph
+	// that holds nothing, which is all HWPX has to draw one with.
+	rule bool
 }
 
 type blockContext struct {
@@ -237,9 +240,13 @@ func (b *builder) block(node *richdoc.Node, ctx blockContext) {
 	case "taskList":
 		b.taskList(node, ctx)
 	case "horizontalRule":
-		key := paraKey{align: "center"}
-		b.body.WriteString(b.openParagraph(b.paraPrID(key), 0, false) +
-			`<hp:run charPrIDRef="0"><hp:t>` + strings.Repeat("─", 30) + `</hp:t></hp:run></hp:p>`)
+		// A divider is drawn the way Hangul draws one: an empty paragraph
+		// with a line ruled under it. The row of box-drawing characters this
+		// used to write was a picture of a rule and came back as thirty
+		// characters of text, so a document that went out and in twice had a
+		// paragraph of them in place of the line.
+		b.body.WriteString(b.openParagraph(b.paraPrID(paraKey{rule: true}), 0, false) +
+			`<hp:run charPrIDRef="0"><hp:t/></hp:run></hp:p>`)
 	case "pageBreak":
 		b.body.WriteString(b.openParagraph(0, 0, true) + `<hp:run charPrIDRef="0"><hp:t/></hp:run></hp:p>`)
 	case "table":
@@ -886,9 +893,9 @@ func (b *builder) cellBorderFill(cell *richdoc.Node) int {
 	if id, ok := b.cellFills[shade]; ok {
 		return id
 	}
-	// The three the header always writes come first, and a shade takes the
+	// The four the header always writes come first, and a shade takes the
 	// next number after them.
-	id := tableBorder + 1 + len(b.cellFillOrder)
+	id := ruleBorder + 1 + len(b.cellFillOrder)
 	b.cellFills[shade] = id
 	b.cellFillOrder = append(b.cellFillOrder, shade)
 	return id

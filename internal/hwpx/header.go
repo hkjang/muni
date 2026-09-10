@@ -45,6 +45,17 @@ func (imp *importer) loadHeader(files map[string]*zip.File) {
 		if shade := brushShade(current.child("fillBrush")); shade != "" {
 			imp.cellFills[id] = shade
 		}
+		// The same fill is where a paragraph's border lives, and a paragraph
+		// with a line under it and nothing in it is how both formats draw a
+		// divider.
+		if hangul.RuleBorder(
+			lineIsDrawn(current.child("leftBorder")),
+			lineIsDrawn(current.child("rightBorder")),
+			lineIsDrawn(current.child("topBorder")),
+			lineIsDrawn(current.child("bottomBorder")),
+		) {
+			imp.ruleFills[id] = true
+		}
 	})
 	root.each("charPr", func(current *node) {
 		id := current.attr("id")
@@ -87,7 +98,7 @@ func readCharShape(current *node) charShape {
 		bold:      current.child("bold") != nil,
 		italic:    current.child("italic") != nil,
 		strike:    current.child("strikeout") != nil,
-		underline: underlineIsDrawn(current.child("underline")),
+		underline: lineIsDrawn(current.child("underline")),
 		// The format spells the raised one "supscript", without the "er".
 		script: hangul.Script(current.child("supscript") != nil, current.child("subscript") != nil),
 		// The shade is an attribute rather than an element, and Hangul writes
@@ -130,17 +141,14 @@ func (imp *importer) fontFace(ref string) string {
 	return ""
 }
 
-// underlineIsDrawn reports whether an underline element actually draws one.
-// Hangul writes type="NONE" rather than leaving the element out.
-func underlineIsDrawn(current *node) bool {
+// lineIsDrawn reports whether an element that names a kind of line actually
+// draws one. Hangul writes type="NONE" rather than leaving the element out,
+// for an underline that underlines nothing and for a border side alike.
+func lineIsDrawn(current *node) bool {
 	if current == nil {
 		return false
 	}
-	switch strings.ToUpper(strings.TrimSpace(current.attr("type"))) {
-	case "", "NONE":
-		return false
-	}
-	return true
+	return hangul.BorderIsDrawn(current.attr("type"))
 }
 
 func readParaShape(current *node) paraShape {
@@ -186,6 +194,11 @@ func readParaShape(current *node) paraShape {
 		case "NUMBER":
 			shape.list, shape.level = "orderedList", level
 		}
+	}
+	// A paragraph draws no border of its own either: it names one of the
+	// header's borderFills, the same list a table cell takes its shade from.
+	if border := current.child("border"); border != nil {
+		shape.border = strings.TrimSpace(border.attr("borderFillIDRef"))
 	}
 	return shape
 }
