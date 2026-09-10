@@ -2,6 +2,8 @@
 
 `muni`는 오프라인·폐쇄망 배포를 우선으로 설계한 Go + React 협업 문서 플랫폼입니다. Tiptap/ProseMirror 문서 모델, Yjs CRDT 공동편집, revision, 댓글·제안, 문서 ACL, 조건부 검토·승인, OpenAI 호환 스트리밍 AI, Keycloak OIDC, REST API와 MCP를 한 이미지로 제공합니다.
 
+화면을 쓰는 사람은 [사용자 가이드](docs/USER_GUIDE.md)([PDF](docs/USER_GUIDE.pdf)), 그 화면을 띄워 놓고 지키는 사람은 [관리자 가이드](docs/ADMIN_GUIDE.md)([PDF](docs/ADMIN_GUIDE.pdf))를 보세요. 둘 다 실제 화면 캡처를 싣고 있습니다.
+
 개인·팀 Workspace, 중첩 Folder, 최근/공유/즐겨찾기/휴지통, 팀 멤버, PDF·DOCX·HWP·HWPX·Markdown·TXT·HTML Import, DOCX·HWPX·PDF·HTML·Markdown·TXT Export, 첨부파일, PostgreSQL FTS, 감사 로그를 포함합니다. 개인 설정과 서비스 관리 영역은 라우트·권한·UI 수준에서 분리됩니다.
 
 ## 기술 선택
