@@ -3,6 +3,7 @@ package hwpx
 import (
 	"archive/zip"
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -23,17 +24,20 @@ const headerXML = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:charPr id="1" height="1000"><hh:bold/><hh:underline type="BOTTOM"/></hh:charPr>
    <hh:charPr id="2" height="1400" textColor="#C00000"><hh:italic/><hh:fontRef hangul="맑은 고딕"/></hh:charPr>
   </hh:charProperties>
-  <hh:paraProperties itemCnt="2">
+  <hh:paraProperties itemCnt="3">
    <hh:paraPr id="0"><hh:align horizontal="LEFT"/></hh:paraPr>
    <hh:paraPr id="1">
     <hh:align horizontal="CENTER"/>
     <hh:margin><hc:left value="3600"/><hc:intent value="1000"/></hh:margin>
     <hh:lineSpacing type="PERCENT" value="160"/>
    </hh:paraPr>
+   <hh:paraPr id="2"><hh:align horizontal="LEFT"/><hh:margin><hc:left value="1800"/></hh:margin></hh:paraPr>
   </hh:paraProperties>
-  <hh:styles itemCnt="2">
+  <hh:styles itemCnt="4">
    <hh:style id="0" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/>
    <hh:style id="1" name="개요 1" engName="Outline 1" paraPrIDRef="0" charPrIDRef="1"/>
+   <hh:style id="2" name="인용" engName="Quote" paraPrIDRef="2" charPrIDRef="0"/>
+   <hh:style id="3" name="코드" engName="Source Code" paraPrIDRef="2" charPrIDRef="0"/>
   </hh:styles>
  </hh:refList>
 </hh:head>`
@@ -287,6 +291,48 @@ func TestAPictureIsKeptAtTheSizeItIsDrawn(t *testing.T) {
 	// 3600 HWPUNIT is half an inch, and the editor draws an inch as 96.
 	if width, height := image.AttrInt("width", 0), image.AttrInt("height", 0); width != 48 || height != 24 {
 		t.Errorf("그린 크기 = %dx%d, 48x24이어야 합니다", width, height)
+	}
+}
+
+// A quotation is a run of paragraphs whose style names them, with nothing to
+// mark where it begins or ends — the whole run is one quotation, and the
+// paragraph after it is not part of it. The step the quotation is written in
+// from the margin is how it is drawn, not an indent of its own.
+func TestAQuotationIsTheRunOfParagraphsItsStyleNames(t *testing.T) {
+	document := parseFile(t, `<hp:p paraPrIDRef="2" styleIDRef="2"><hp:run charPrIDRef="0"><hp:t>첫 인용</hp:t></hp:run></hp:p>`+
+		`<hp:p paraPrIDRef="2" styleIDRef="2"><hp:run charPrIDRef="0"><hp:t>둘째 인용</hp:t></hp:run></hp:p>`+
+		`<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>본문</hp:t></hp:run></hp:p>`, nil)
+	if got := blockTypes(document); !reflect.DeepEqual(got, []string{"blockquote", "paragraph"}) {
+		t.Fatalf("블록 = %v", got)
+	}
+	quote := document.Content[0]
+	if len(quote.Content) != 2 {
+		t.Fatalf("인용 안의 문단 = %d개", len(quote.Content))
+	}
+	if got := quote.PlainText(); got != "첫 인용\n둘째 인용" {
+		t.Errorf("인용문 = %q", got)
+	}
+	if indent := quote.Content[0].AttrInt("indent", 0); indent != 0 {
+		t.Errorf("인용 문단에 들여쓰기 %d 가 남았습니다", indent)
+	}
+}
+
+// A code block is one paragraph, its lines parted by line breaks, so two of
+// them side by side stay two — a run of paragraphs would have no end.
+func TestACodeBlockIsOneParagraphWithItsLinesInside(t *testing.T) {
+	document := parseFile(t, `<hp:p paraPrIDRef="2" styleIDRef="3"><hp:run charPrIDRef="0"><hp:t>첫 줄</hp:t></hp:run>`+
+		`<hp:run charPrIDRef="0"><hp:t><hp:lineBreak/></hp:t></hp:run>`+
+		`<hp:run charPrIDRef="0"><hp:t>  둘째 줄</hp:t></hp:run></hp:p>`+
+		`<hp:p paraPrIDRef="2" styleIDRef="3"><hp:run charPrIDRef="0"><hp:t>다른 블록</hp:t></hp:run></hp:p>`, nil)
+	if got := blockTypes(document); !reflect.DeepEqual(got, []string{"codeBlock", "codeBlock"}) {
+		t.Fatalf("블록 = %v", got)
+	}
+	// The spaces a line opens with are the indentation of the code.
+	if got := document.Content[0].Content[0].Text; got != "첫 줄\n  둘째 줄" {
+		t.Errorf("코드 = %q", got)
+	}
+	if got := document.Content[1].PlainText(); got != "다른 블록" {
+		t.Errorf("둘째 코드 = %q", got)
 	}
 }
 

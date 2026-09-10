@@ -160,6 +160,41 @@ func TestParagraphLayoutSurvives(t *testing.T) {
 	}
 }
 
+// Hangul has no quotation and no code block, so muni writes its own two
+// styles and names them. Without a name the reader has only an indented
+// paragraph in a fixed-width face, which is not enough to tell what it was.
+func TestAQuotationAndACodeBlockSurviveTheRoundTrip(t *testing.T) {
+	source := `{"type":"doc","content":[` +
+		`{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"인용 첫 줄"}]},{"type":"paragraph","content":[{"type":"text","text":"인용 둘째 줄"}]}]},` +
+		`{"type":"paragraph","content":[{"type":"text","text":"사이의 본문"}]},` +
+		`{"type":"codeBlock","content":[{"type":"text","text":"첫 줄\n  둘째 줄"}]},` +
+		`{"type":"codeBlock","content":[{"type":"text","text":"다른 블록"}]},` +
+		`{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"목록 항목"}]}]}]}` +
+		`]}`
+	node, err := richdoc.Parse(json.RawMessage(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	back := roundTrip(t, node)
+	want := []string{"blockquote", "paragraph", "codeBlock", "codeBlock", "bulletList"}
+	if got := blockTypesOf(back); !reflect.DeepEqual(got, want) {
+		t.Fatalf("블록 = %v, %v 이어야 합니다", got, want)
+	}
+	quote := back.Content[0]
+	if len(quote.Content) != 2 || quote.PlainText() != "인용 첫 줄\n인용 둘째 줄" {
+		t.Errorf("인용문 = %q (문단 %d개)", quote.PlainText(), len(quote.Content))
+	}
+	if indent := quote.Content[0].AttrInt("indent", 0); indent != 0 {
+		t.Errorf("인용 문단에 들여쓰기 %d 가 남았습니다", indent)
+	}
+	if got := back.Content[2].Content[0].Text; got != "첫 줄\n  둘째 줄" {
+		t.Errorf("코드 = %q", got)
+	}
+	if got := back.Content[3].PlainText(); got != "다른 블록" {
+		t.Errorf("둘째 코드 = %q", got)
+	}
+}
+
 func TestAPictureSurvivesTheRoundTrip(t *testing.T) {
 	pixel := []byte{
 		0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 'I', 'H', 'D', 'R',

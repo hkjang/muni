@@ -74,6 +74,7 @@ func (imp *importer) loadHeader(files map[string]*zip.File) {
 			charShapeID: current.attr("charPrIDRef"),
 		}
 		info.headingLevel = hangul.OutlineLevel(info.name, info.englishName)
+		info.block = hangul.BlockStyle(info.name, info.englishName)
 		imp.styles[id] = info
 	})
 }

@@ -90,6 +90,9 @@ type styleInfo struct {
 	paraShapeID  string
 	charShapeID  string
 	headingLevel int
+	// block is "quote" or "code" when the style names the paragraph a
+	// quotation or a line of code, and nothing when it names body text.
+	block string
 }
 
 // Parse reads a .hwpx into muni's document model.

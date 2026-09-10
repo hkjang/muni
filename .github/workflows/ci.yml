@@ -50,6 +50,19 @@ jobs:
       - name: Frontend unit tests
         run: npm test
         working-directory: frontend
+      # gofmt and vet are what every change to the Go side is run through by
+      # hand before it is committed. A check that lives in someone's habit is
+      # a check that is skipped the once it would have caught something.
+      - name: Go formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt -w 가 필요한 파일:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: Go vet
+        run: go vet ./...
       - name: Go tests
         run: go test ./...
         env:
