@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"io"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -113,16 +114,16 @@ func TestACellsShadeIsWrittenAsABorderFillOfItsOwn(t *testing.T) {
 	}
 	parts := partsOf(t, built)
 	header, body := parts["Contents/header.xml"], parts["Contents/section0.xml"]
-	// The three every file carries, and one more for the one colour used.
-	if !strings.Contains(header, `<hh:borderFills itemCnt="4">`) ||
-		!strings.Contains(header, `<hh:borderFill id="4"`) ||
+	// The four every file carries, and one more for the one colour used.
+	if !strings.Contains(header, `<hh:borderFills itemCnt="5">`) ||
+		!strings.Contains(header, `<hh:borderFill id="5"`) ||
 		!strings.Contains(header, `<hc:winBrush faceColor="#D9E2F3"`) {
 		t.Errorf("음영이 borderFill 로 쓰이지 않았습니다: %s", header)
 	}
 	// Two cells the same colour share one fill; the unshaded ones keep the
 	// table's own.
-	if got := strings.Count(body, `borderFillIDRef="4"`); got != 2 {
-		t.Errorf("4번 채우기를 쓰는 칸 = %d개", got)
+	if got := strings.Count(body, `borderFillIDRef="5"`); got != 2 {
+		t.Errorf("5번 채우기를 쓰는 칸 = %d개", got)
 	}
 	if got := strings.Count(body, `<hp:tc name="" header="0" hasMargin="0" protect="0" editable="0" dirty="0" borderFillIDRef="3">`); got != 2 {
 		t.Errorf("음영 없는 칸이 표의 채우기를 쓰지 않았습니다: %d개", got)
@@ -174,7 +175,7 @@ func TestTheElementsAreShapedLikeHanguls(t *testing.T) {
 		t.Errorf("글꼴 표가 한글의 모양이 아닙니다")
 	}
 	// Every id the body refers to is defined: tab 0, borders 1-3.
-	for _, want := range []string{`<hh:tabPr id="0"`, `<hh:borderFill id="1"`, `<hh:borderFill id="2"`, `<hh:borderFill id="3"`, `<hh:numbering id="1"`, `<hh:bullet id="1"`} {
+	for _, want := range []string{`<hh:tabPr id="0"`, `<hh:borderFill id="1"`, `<hh:borderFill id="2"`, `<hh:borderFill id="3"`, `<hh:borderFill id="4"`, `<hh:numbering id="1"`, `<hh:bullet id="1"`} {
 		if !strings.Contains(header, want) {
 			t.Errorf("%s가 없습니다", want)
 		}
@@ -281,6 +282,46 @@ func TestTheHeaderAndFooterAreWrittenAndReadBack(t *testing.T) {
 	}
 	if meta.Header != "회의록 — 대외비" || meta.Footer != "무니" {
 		t.Errorf("머리말/꼬리말 = %q / %q", meta.Header, meta.Footer)
+	}
+}
+
+// A divider is written as the line Hangul draws one with — a paragraph
+// wearing a border that rules underneath it and nothing at the sides — rather
+// than as a row of box-drawing characters. The characters were a picture of a
+// rule: they came back as thirty characters of text, so a document that went
+// out and in twice carried a paragraph of them where the line had been.
+func TestADividerIsWrittenAsARuleAndReadBackAsOne(t *testing.T) {
+	document := &richdoc.Node{Type: "doc", Content: []*richdoc.Node{
+		richdoc.Paragraph(richdoc.Text("위")),
+		{Type: "horizontalRule"},
+		richdoc.Paragraph(richdoc.Text("아래")),
+	}}
+	built, err := Build(document, Options{Title: "구분선"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parts := partsOf(t, built)
+	if strings.Contains(parts["Contents/section0.xml"], "\u2500") {
+		t.Errorf("구분선이 글자로 그려졌습니다: %s", parts["Contents/section0.xml"])
+	}
+	if !strings.Contains(parts["Contents/header.xml"],
+		`<hh:borderFill id="4" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="NONE" width="0.12 mm" color="#000000"/><hh:rightBorder type="NONE" width="0.12 mm" color="#000000"/><hh:topBorder type="NONE" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/>`) {
+		t.Errorf("구분선의 borderFill 이 아래에만 선을 긋지 않았습니다: %s", parts["Contents/header.xml"])
+	}
+	if !strings.Contains(parts["Contents/header.xml"], `<hh:border borderFillIDRef="4" `) {
+		t.Errorf("구분선 문단이 그 borderFill 을 가리키지 않습니다: %s", parts["Contents/header.xml"])
+	}
+
+	back, _, _, err := Parse(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := []string{}
+	for _, block := range back.Content {
+		types = append(types, block.Type)
+	}
+	if !reflect.DeepEqual(types, []string{"paragraph", "horizontalRule", "paragraph"}) {
+		t.Fatalf("왕복 뒤 블록 = %v", types)
 	}
 }
 

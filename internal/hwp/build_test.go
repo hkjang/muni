@@ -372,6 +372,35 @@ func borderFillRecord(fillKind uint32, face uint32) []byte {
 	return append(recordHeader(tagBorderFill, 0, len(data)), data...)
 }
 
+// ruledBorderFillRecord writes one BORDER_FILL that draws lines and fills
+// nothing, with the kind of line each of the four sides gets — zero for a
+// side that is not drawn.
+//
+// The sides come before the fill and in the format's own order — left, right,
+// top, bottom — each opening with its kind.
+func ruledBorderFillRecord(left, right, top, bottom byte) []byte {
+	const property, border = 2, 1 + 1 + 4
+	fillOffset := property + 5*border
+	data := make([]byte, fillOffset+4+4+4+4)
+	for index, kind := range []byte{left, right, top, bottom} {
+		data[property+index*border] = kind
+	}
+	return append(recordHeader(tagBorderFill, 0, len(data)), data...)
+}
+
+// borderedParaShapeRecord writes a PARA_SHAPE that names a BORDER_FILL,
+// counting from one.
+//
+// Laid out from the format: the property word, the two margins and the
+// indent, the spacing before and after and the old line spacing, then the ids
+// of the tab set and the numbering, and then this one — 4 + 6×4 + 2 + 2.
+func borderedParaShapeRecord(borderFill uint16) []byte {
+	const offset = 4 + 6*4 + 2 + 2
+	data := make([]byte, 54)
+	binary.LittleEndian.PutUint16(data[offset:], borderFill)
+	return append(recordHeader(tagParaShape, 0, len(data)), data...)
+}
+
 // colorRefBytes writes a colour the way a COLORREF holds it: 0x00BBGGRR, blue
 // first.
 func colorRefBytes(red, green, blue uint32) uint32 {

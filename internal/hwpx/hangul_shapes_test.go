@@ -23,11 +23,12 @@ const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:fontface lang="HANGUL" fontCnt="2"><hh:font id="0" face="함초롬바탕" type="TTF"/><hh:font id="1" face="맑은 고딕" type="TTF"/></hh:fontface>
    <hh:fontface lang="LATIN" fontCnt="2"><hh:font id="0" face="Times New Roman" type="TTF"/><hh:font id="1" face="Arial" type="TTF"/></hh:fontface>
   </hh:fontfaces>
-  <hh:borderFills itemCnt="4">
+  <hh:borderFills itemCnt="5">
    <hh:borderFill id="1" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill>
    <hh:borderFill id="2" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/><hc:fillBrush><hc:winBrush faceColor="#D9E2F3" hatchColor="#333333" alpha="0"/></hc:fillBrush></hh:borderFill>
    <hh:borderFill id="3" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/><hc:fillBrush><hc:winBrush faceColor="#FFFFFF" hatchColor="#333333" alpha="0"/></hc:fillBrush></hh:borderFill>
    <hh:borderFill id="4" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:rightBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:topBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/><hc:fillBrush><hc:gradation type="LINEAR" angle="90" centerX="0" centerY="0" step="50"><hc:color value="#FF0000"/><hc:color value="#0000FF"/></hc:gradation></hc:fillBrush></hh:borderFill>
+   <hh:borderFill id="5" threeD="0" shadow="0" centerLine="NONE" breakCellSeparateLine="0"><hh:slash type="NONE" Crooked="0" isCounter="0"/><hh:backSlash type="NONE" Crooked="0" isCounter="0"/><hh:leftBorder type="NONE" width="0.1 mm" color="#000000"/><hh:rightBorder type="NONE" width="0.1 mm" color="#000000"/><hh:topBorder type="NONE" width="0.1 mm" color="#000000"/><hh:bottomBorder type="SOLID" width="0.12 mm" color="#000000"/><hh:diagonal type="SOLID" width="0.1 mm" color="#000000"/></hh:borderFill>
   </hh:borderFills>
   <hh:charProperties itemCnt="6">
    <hh:charPr id="0" height="1000" shadeColor="none"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
@@ -37,7 +38,7 @@ const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
    <hh:charPr id="4" height="1000" shadeColor="#FFF3A3"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
    <hh:charPr id="5" height="1000" shadeColor="#FFFFFF"><hh:fontRef hangul="0" latin="0"/></hh:charPr>
   </hh:charProperties>
-  <hh:paraProperties itemCnt="4">
+  <hh:paraProperties itemCnt="6">
    <hh:paraPr id="0"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/></hh:paraPr>
    <hh:paraPr id="1"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/>
     <hp:switch><hp:case hp:required-namespace="http://www.hancom.co.kr/hwpml/2016/HwpUnitChar"><hh:margin><hc:intent value="1800" unit="HWPUNIT"/><hc:left value="3600" unit="HWPUNIT"/></hh:margin><hh:lineSpacing type="PERCENT" value="200" unit="HWPUNIT"/></hp:case>
@@ -45,6 +46,8 @@ const hangulHeader = `<?xml version="1.0" encoding="UTF-8"?>
    </hh:paraPr>
    <hh:paraPr id="2"><hh:align horizontal="LEFT"/><hh:heading type="BULLET" idRef="1" level="0"/></hh:paraPr>
    <hh:paraPr id="3"><hh:align horizontal="LEFT"/><hh:heading type="NUMBER" idRef="1" level="1"/></hh:paraPr>
+   <hh:paraPr id="4"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/><hh:border borderFillIDRef="5" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/></hh:paraPr>
+   <hh:paraPr id="5"><hh:align horizontal="LEFT"/><hh:heading type="NONE" idRef="0" level="0"/><hh:border borderFillIDRef="1" offsetLeft="0" offsetRight="0" offsetTop="0" offsetBottom="0" connect="0" ignoreMargin="0"/></hh:paraPr>
   </hh:paraProperties>
   <hh:styles itemCnt="1"><hh:style id="0" name="바탕글" engName="Normal" paraPrIDRef="0" charPrIDRef="0"/></hh:styles>
  </hh:refList>
@@ -407,5 +410,40 @@ func TestAHyperlinkThatWouldRunCodeIsNotALink(t *testing.T) {
 	}
 	if marks := markedText(t, document, "눌러보세요"); !has(marks, "link") {
 		t.Errorf("멀쩡한 주소가 링크가 되지 않았습니다: %v", marks)
+	}
+}
+
+// A divider is not an element in HWPX. Hangul draws one as an empty paragraph
+// with a line ruled under it — what it makes of a row of hyphens typed on
+// their own — and the paragraph shape names the border by number the same way
+// a table cell names its shade. Reading only what a paragraph holds found
+// nothing there, so the line went out of the document with the empty
+// paragraph and muni's own writer wrote thirty box-drawing characters instead.
+func TestALineRuledUnderAnEmptyParagraphIsADivider(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t,
+		`<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>위</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="4" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t/></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="0" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>아래</hp:t></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph", "horizontalRule", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+}
+
+// A line under a paragraph that has words is how those words are drawn, and a
+// box round an empty one is a box: neither is a divider. Reading every border
+// as a rule would put a line across the page wherever a report underlined a
+// heading.
+func TestABorderThatIsNotARuleIsNotADivider(t *testing.T) {
+	document, _, _, err := Parse(hangulFile(t,
+		`<hp:p paraPrIDRef="4" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t>밑줄 그은 문단</hp:t></hp:run></hp:p>`+
+			`<hp:p paraPrIDRef="5" styleIDRef="0"><hp:run charPrIDRef="0"><hp:t/></hp:run></hp:p>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
 	}
 }

@@ -220,6 +220,13 @@ func (imp *importer) paragraph(current *node) []*richdoc.Node {
 		if len(lifted) > 0 {
 			return append(before, lifted...)
 		}
+		// A divider has no element of its own in HWPX. It is an empty
+		// paragraph with a line ruled under it — what Hangul makes of a row
+		// of hyphens typed on their own, and what muni's writer writes —
+		// which is nothing at all to a reader that only counts the words.
+		if imp.ruleFills[shape.border] {
+			return append(before, &richdoc.Node{Type: "horizontalRule"})
+		}
 		// A paragraph that holds nothing but the break is the break: keeping
 		// the empty paragraph too would push the next page down a line every
 		// time the document went out and came back.

@@ -266,7 +266,7 @@ func (imp *importer) table(node *recordNode) (table *richdoc.Node, captions []*r
 		built.SetAttr("colspan", int(address.span))
 		built.SetAttr("rowspan", int(address.rowSpan))
 		built.SetAttr("verticalAlign", address.verticalAlign)
-		if shade := imp.borderFillShade(address.borderFill); shade != "" {
+		if shade := imp.borderFillAt(address.borderFill).shade; shade != "" {
 			built.SetAttr("backgroundColor", shade)
 		}
 		placedCells = append(placedCells, placed{
@@ -376,12 +376,12 @@ func readCellAddress(raw []byte) (cellAddress, bool) {
 	return address, true
 }
 
-// borderFillShade is the background of the BORDER_FILL a cell names. The
-// records are counted from one in the order DocInfo wrote them, so a cell
-// naming none says zero.
-func (imp *importer) borderFillShade(id uint16) string {
+// borderFillAt is the BORDER_FILL a cell or a paragraph shape names. The
+// records are counted from one in the order DocInfo wrote them, so one naming
+// none says zero.
+func (imp *importer) borderFillAt(id uint16) borderFill {
 	if id < 1 || int(id) > len(imp.borderFills) {
-		return ""
+		return borderFill{}
 	}
 	return imp.borderFills[id-1]
 }

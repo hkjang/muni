@@ -111,6 +111,34 @@ func CellShade(value string) string {
 	return "#" + digits
 }
 
+// RuleBorder says whether the border a paragraph wears is the divider muni
+// holds, given which of its four sides are drawn.
+//
+// Neither Hangul format has a divider of its own. What Hangul makes of a row
+// of hyphens typed on their own — and what muni's own writer now writes — is
+// an empty paragraph with a line ruled under it, so that is what a divider
+// reads back from. A line on all four sides is a box drawn around whatever
+// the paragraph holds, not a rule, and an empty one is left as the empty
+// paragraph it is rather than turned into a line across the page.
+func RuleBorder(left, right, top, bottom bool) bool {
+	return (top || bottom) && !left && !right
+}
+
+// BorderIsDrawn reads a .hwpx border type. Hangul writes type="NONE" for a
+// side it does not draw rather than leaving the element out, the same way it
+// writes an underline that underlines nothing.
+func BorderIsDrawn(kind string) bool {
+	switch strings.ToUpper(strings.TrimSpace(kind)) {
+	case "", "NONE":
+		return false
+	}
+	return true
+}
+
+// BorderIsDrawnCode reads the same thing from a .hwp, where a border's kind
+// is a byte and the undrawn side is zero.
+func BorderIsDrawnCode(code byte) bool { return code != 0 }
+
 // TextShade is the shading behind a run's words — Hangul's 글자 음영, which
 // muni draws as a highlight — worth recording, given the same way.
 //

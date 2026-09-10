@@ -2,6 +2,7 @@ package hwp
 
 import (
 	"encoding/binary"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -210,4 +211,48 @@ func firstTable(t *testing.T, document *richdoc.Node) *richdoc.Node {
 	}
 	t.Fatalf("표가 나오지 않았습니다: %v", blockTypes(document))
 	return nil
+}
+
+// A divider is not a record in HWP. Hangul draws one as an empty paragraph
+// with a line ruled under it — what it makes of a row of hyphens typed on
+// their own — and the paragraph shape names the border by number, in the same
+// BORDER_FILL list a table cell takes its shade from. An empty paragraph is
+// dropped, so the line left the document with it.
+func TestALineRuledUnderAnEmptyParagraphIsADivider(t *testing.T) {
+	const solid = 1
+	docInfo := ruledBorderFillRecord(0, 0, 0, solid)                // 1번: 아래에만
+	docInfo = append(docInfo, ruledBorderFillRecord(0, 0, 0, 0)...) // 2번: 아무 선도 없음
+	docInfo = append(docInfo, borderedParaShapeRecord(2)...)        // 0번 모양: 선 없음
+	docInfo = append(docInfo, borderedParaShapeRecord(1)...)        // 1번 모양: 구분선
+	body := styledParagraph(units("위"), 0, 0)
+	body = append(body, styledParagraph(nil, 1, 0)...)
+	body = append(body, styledParagraph(units("아래"), 0, 0)...)
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, docInfo, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph", "horizontalRule", "paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
+}
+
+// A line under a paragraph that has words is how those words are drawn, and a
+// box round an empty one is a box: neither is a divider. Reading every border
+// as a rule would put a line across the page wherever a report underlined a
+// heading.
+func TestABorderThatIsNotARuleIsNotADivider(t *testing.T) {
+	const solid = 1
+	docInfo := ruledBorderFillRecord(0, 0, 0, solid)                                // 1번: 아래에만
+	docInfo = append(docInfo, ruledBorderFillRecord(solid, solid, solid, solid)...) // 2번: 네 면 상자
+	docInfo = append(docInfo, borderedParaShapeRecord(1)...)                        // 0번 모양: 밑줄
+	docInfo = append(docInfo, borderedParaShapeRecord(2)...)                        // 1번 모양: 상자
+	body := styledParagraph(units("밑줄 그은 문단"), 0, 0)
+	body = append(body, styledParagraph(nil, 1, 0)...)
+	document, _, _, err := Parse(hwpFileWithDocInfo(t, docInfo, body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if types := blockTypes(document); !reflect.DeepEqual(types, []string{"paragraph"}) {
+		t.Fatalf("블록 = %v", types)
+	}
 }

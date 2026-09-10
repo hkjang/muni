@@ -23,6 +23,9 @@ type paraShape struct {
 	// lineRate is the line spacing as a multiple of the font, "" for the
 	// default.
 	lineRate string
+	// border is which of DocInfo's BORDER_FILL records draws the lines round
+	// a paragraph wearing this shape, counting from one; 0 is none.
+	border uint16
 }
 
 // readParaShape reads one PARA_SHAPE record.
@@ -51,6 +54,14 @@ func readParaShape(raw []byte) paraShape {
 		shape.list = "bulletList"
 	}
 	shape.level = int((property >> 25) & 0x07)
+	// The border and fill drawn round the paragraph follows the margins, the
+	// line spacing and the ids of the tab set and the numbering: 4 + 6×4 +
+	// 2 + 2. It is a number in the same BORDER_FILL list a table cell takes
+	// its shade from, and a paragraph with a line under it and nothing in it
+	// is how a .hwp draws a divider.
+	if len(raw) >= 34 {
+		shape.border = binary.LittleEndian.Uint16(raw[32:])
+	}
 	// The line spacing is written twice — at 24 for readers of the old
 	// version and at 50 for the new, with its kind in the third property
 	// word — and real files put the same number in both. Only a percentage
@@ -74,29 +85,52 @@ func readParaShape(raw []byte) paraShape {
 // what every .hwp report arrived as, while the same document saved as .hwpx
 // kept its shading.
 //
-// borderFillFillOffset is where the fill information begins: a UINT16 of
-// switches, then five borders — the four sides and then the diagonal — each a
-// line kind, a thickness and a COLORREF.
+// borderFillSideOffset is where the four sides begin, after a UINT16 of
+// switches, and borderFillSide how wide one is: a line kind, a thickness and
+// a COLORREF. borderFillFillOffset is where the fill information begins,
+// after the four sides and the diagonal.
 const (
-	borderFillFillOffset = 2 + 5*(1+1+4)
+	borderFillSideOffset = 2
+	borderFillSide       = 1 + 1 + 4
+	borderFillFillOffset = borderFillSideOffset + 5*borderFillSide
 	borderFillFaceOffset = borderFillFillOffset + 4
 )
 
-// readBorderFillShade reads the background one BORDER_FILL paints.
+// borderFill is what muni reads out of one BORDER_FILL: the colour it paints
+// behind a table cell, and whether the lines it draws round a paragraph make
+// that paragraph a divider.
+type borderFill struct {
+	shade string
+	rule  bool
+}
+
+// readBorderFill reads one BORDER_FILL.
 //
 // The fill can be a colour, a picture or a gradient, and only the first is a
 // shade muni can hold: the kind is a word of switches whose lowest bit says
 // so, and the background colour follows it. A record that claims no colour
 // fill is left alone rather than read for one, which is what keeps a
 // gradient's first stop from arriving as a flat shade.
-func readBorderFillShade(raw []byte) string {
+//
+// The sides come before the fill, in the format's own order — left, right,
+// top, bottom — each opening with the kind of line it draws, of which zero is
+// none.
+func readBorderFill(raw []byte) borderFill {
+	fill := borderFill{}
+	if len(raw) >= borderFillFillOffset {
+		side := func(index int) bool {
+			return hangul.BorderIsDrawnCode(raw[borderFillSideOffset+index*borderFillSide])
+		}
+		fill.rule = hangul.RuleBorder(side(0), side(1), side(2), side(3))
+	}
 	if len(raw) < borderFillFaceOffset+4 {
-		return ""
+		return fill
 	}
 	if binary.LittleEndian.Uint32(raw[borderFillFillOffset:])&0x01 == 0 {
-		return ""
+		return fill
 	}
-	return hangul.CellShade(colorRef(binary.LittleEndian.Uint32(raw[borderFillFaceOffset:])))
+	fill.shade = hangul.CellShade(colorRef(binary.LittleEndian.Uint32(raw[borderFillFaceOffset:])))
+	return fill
 }
 
 type styleInfo struct {
