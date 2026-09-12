@@ -913,6 +913,41 @@ paths:
       responses:
         '200': { $ref: '#/components/responses/Success' }
         default: { $ref: '#/components/responses/Error' }
+  /tracking/csp-report:
+    post:
+      summary: 브라우저가 보내는 콘텐츠 보안 정책 위반 신고
+      description: >-
+        방문 추적이 켜져 있는 동안 페이지 정책에 `report-uri` 로 적히는 주소입니다.
+        브라우저가 자격 증명 없이 보내므로 인증이 없고, 8KB 까지만 읽으며, 차단된
+        출처와 지시어를 메모리의 고리 버퍼(100개)에 남길 뿐 무엇도 저장하지 않습니다.
+        언제나 204 로 답합니다.
+      responses:
+        '204': { description: 신고를 받았습니다 }
+  /admin/tracking/violations:
+    get:
+      summary: 정책이 차단한 출처 목록
+      description: >-
+        `{origin, directive, page, count, firstSeen, lastSeen, allowed}` 의 배열을
+        최근 것부터 돌려줍니다. `allowed` 는 지금 설정이 이미 허용하는 출처입니다.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      summary: 기록된 차단 출처를 비움
+      responses:
+        '204': { description: 비웠습니다 }
+        default: { $ref: '#/components/responses/Error' }
+  /admin/tracking/allow:
+    post:
+      summary: 차단된 출처 하나를 방문 추적 허용 목록에 더함
+      description: >-
+        `{origin}` 을 받아 `tracking.allowed_hosts` 하나만 저장합니다. 설정 화면의
+        저장하지 않은 값은 건드리지 않습니다. 새 허용 목록을 `{allowedHosts}` 로
+        돌려줍니다.
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+        '400': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
   /admin/users/{id}/password:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }

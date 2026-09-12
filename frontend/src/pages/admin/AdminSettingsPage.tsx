@@ -9,6 +9,7 @@ import {
   AutoDeleteOutlined,
   MailOutlined,
   SlideshowOutlined,
+  QueryStatsOutlined,
   VpnKeyOutlined,
 } from "@mui/icons-material";
 import {
@@ -33,6 +34,7 @@ import {
 import { api, errorMessage, jsonBody } from "../../lib/api";
 import type { Settings } from "../../types";
 import { useAuth } from "../../contexts/AuthContext";
+import { TrackingSettings } from "./TrackingSettings";
 
 const blank: Settings = {
   general: {
@@ -96,6 +98,20 @@ const blank: Settings = {
     defaultTheme: "",
     defaultLocale: "ko",
     timeoutSeconds: 120,
+  },
+  tracking: {
+    enabled: false,
+    provider: "none",
+    momentoUrl: "",
+    momentoSiteId: "",
+    momentoProxy: true,
+    measurementId: "",
+    matomoUrl: "",
+    matomoSiteId: "",
+    customSnippet: "",
+    allowedHosts: "",
+    includeAdmin: false,
+    placement: "head",
   },
 };
 export function AdminSettingsPage() {
@@ -259,6 +275,11 @@ export function AdminSettingsPage() {
           icon={<AutoDeleteOutlined />}
           iconPosition="start"
           label="보존 정책"
+        />
+        <Tab
+          icon={<QueryStatsOutlined />}
+          iconPosition="start"
+          label="방문 추적"
         />
       </Tabs>
       <Card sx={{ p: { xs: 2, sm: 3 }, mt: 2 }}>
@@ -1033,6 +1054,18 @@ export function AdminSettingsPage() {
               </Button>
             </Stack>
           </Stack>
+        )}
+        {tab === 8 && (
+          <TrackingSettings
+            value={form.tracking}
+            onChange={(tracking) => setGroup("tracking", tracking)}
+            onAllowedHosts={(allowedHosts) =>
+              setForm((current) => ({
+                ...current,
+                tracking: { ...current.tracking, allowedHosts },
+              }))
+            }
+          />
         )}
       </Card>
     </Box>

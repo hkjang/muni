@@ -11,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/cryptoutil"
+	"github.com/hkjang/muni/internal/tracking"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -159,6 +161,9 @@ type All struct {
 	Ptium     Ptium     `json:"ptium"`
 	Retention Retention `json:"retention"`
 	SMTP      SMTP      `json:"smtp"`
+	// Tracking is the visitor tracking snippet. Off by default: a fresh
+	// install serves the page exactly as before until an administrator asks.
+	Tracking tracking.Config `json:"tracking"`
 }
 
 type Store struct {
@@ -245,6 +250,22 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "ptium.default_theme", &out.Ptium.DefaultTheme)
 	decode(values, "ptium.default_locale", &out.Ptium.DefaultLocale)
 	decode(values, "ptium.timeout_seconds", &out.Ptium.TimeoutSeconds)
+	// The proxy is the default for a collector that was never configured,
+	// because it is the one arrangement that leaves the policy alone.
+	out.Tracking.MomentoProxy = true
+	decode(values, "tracking.enabled", &out.Tracking.Enabled)
+	decode(values, "tracking.provider", &out.Tracking.Provider)
+	decode(values, "tracking.momento_url", &out.Tracking.MomentoURL)
+	decode(values, "tracking.momento_site_id", &out.Tracking.MomentoSiteID)
+	decode(values, "tracking.momento_proxy", &out.Tracking.MomentoProxy)
+	decode(values, "tracking.measurement_id", &out.Tracking.MeasurementID)
+	decode(values, "tracking.matomo_url", &out.Tracking.MatomoURL)
+	decode(values, "tracking.matomo_site_id", &out.Tracking.MatomoSiteID)
+	decode(values, "tracking.custom_snippet", &out.Tracking.CustomSnippet)
+	decode(values, "tracking.allowed_hosts", &out.Tracking.AllowedHosts)
+	decode(values, "tracking.include_admin", &out.Tracking.IncludeAdmin)
+	decode(values, "tracking.placement", &out.Tracking.Placement)
+	out.Tracking = out.Tracking.Normalize()
 
 	out.OIDC.SecretSet = len(secrets["oidc.client_secret"]) > 0
 	out.AI.APIKeySet = len(secrets["ai.api_key"]) > 0
@@ -293,6 +314,7 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 	if err := Validate(all); err != nil {
 		return err
 	}
+	all.Tracking = all.Tracking.Normalize()
 	plain := map[string]any{
 		"general.service_name": all.General.ServiceName, "general.allow_local_login": all.General.AllowLocalLogin,
 		"general.default_locale": all.General.DefaultLocale, "general.page_size": all.General.PageSize,
@@ -315,6 +337,12 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"smtp.username": all.SMTP.Username, "smtp.security": all.SMTP.Security,
 		"smtp.from": all.SMTP.From, "smtp.from_name": all.SMTP.FromName,
 		"smtp.skip_verify": all.SMTP.SkipVerify, "smtp.base_url": all.SMTP.BaseURL,
+		"tracking.enabled": all.Tracking.Enabled, "tracking.provider": all.Tracking.Provider,
+		"tracking.momento_url": all.Tracking.MomentoURL, "tracking.momento_site_id": all.Tracking.MomentoSiteID,
+		"tracking.momento_proxy": all.Tracking.MomentoProxy, "tracking.measurement_id": all.Tracking.MeasurementID,
+		"tracking.matomo_url": all.Tracking.MatomoURL, "tracking.matomo_site_id": all.Tracking.MatomoSiteID,
+		"tracking.custom_snippet": all.Tracking.CustomSnippet, "tracking.allowed_hosts": all.Tracking.AllowedHosts,
+		"tracking.include_admin": all.Tracking.IncludeAdmin, "tracking.placement": all.Tracking.Placement,
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -322,14 +350,7 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	for key, value := range plain {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return err
-		}
-		category := strings.SplitN(key, ".", 2)[0]
-		if _, err := tx.Exec(ctx, `INSERT INTO app_settings(key,category,value,is_secret,updated_by,updated_at)
-			VALUES($1,$2,$3,false,$4,now()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted_value=NULL,
-			is_secret=false, updated_by=excluded.updated_by, updated_at=now()`, key, category, encoded, actor); err != nil {
+		if err := putPlain(ctx, tx, key, value, actor); err != nil {
 			return err
 		}
 	}
@@ -349,6 +370,29 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// PutValue stores one plain setting on its own. Save writes the whole form,
+// which is right for the settings screen and wrong for a one-click fix that
+// must not carry whatever else the form happened to hold.
+func (s *Store) PutValue(ctx context.Context, key string, value any, actor uuid.UUID) error {
+	return putPlain(ctx, s.db, key, value, actor)
+}
+
+type execer interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func putPlain(ctx context.Context, db execer, key string, value any, actor uuid.UUID) error {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	category := strings.SplitN(key, ".", 2)[0]
+	_, err = db.Exec(ctx, `INSERT INTO app_settings(key,category,value,is_secret,updated_by,updated_at)
+		VALUES($1,$2,$3,false,$4,now()) ON CONFLICT(key) DO UPDATE SET value=excluded.value, encrypted_value=NULL,
+		is_secret=false, updated_by=excluded.updated_by, updated_at=now()`, key, category, encoded, actor)
+	return err
 }
 
 func Validate(all All) error {
@@ -455,5 +499,5 @@ func Validate(all All) error {
 	if all.Ptium.TimeoutSeconds != 0 && (all.Ptium.TimeoutSeconds < 5 || all.Ptium.TimeoutSeconds > 900) {
 		return errors.New("Ptium 제한 시간은 5~900초여야 합니다")
 	}
-	return nil
+	return all.Tracking.Validate()
 }
