@@ -12,6 +12,7 @@ import (
 	"github.com/hkjang/muni/internal/cryptoutil"
 	"github.com/hkjang/muni/internal/realtime"
 	"github.com/hkjang/muni/internal/settings"
+	"github.com/hkjang/muni/internal/tracking"
 	"github.com/hkjang/muni/webui"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -43,10 +44,13 @@ type Server struct {
 	aiCompat *aiCompatibility
 	logins   *loginAttempts
 	metrics  *metrics
+	// violations remembers what the content security policy refused while a
+	// tracking snippet is on, so the console can show what to allow.
+	violations *tracking.Recorder
 }
 
 func New(db *pgxpool.Pool, sealer *cryptoutil.Sealer, info BuildInfo, logger *slog.Logger) *Server {
-	s := &Server{db: db, sealer: sealer, settings: settings.NewStore(db, sealer), info: info, logger: logger, hub: realtime.NewHub(), mux: http.NewServeMux(), aiCompat: newAICompatibility(), logins: newLoginAttempts(), metrics: newMetrics()}
+	s := &Server{db: db, sealer: sealer, settings: settings.NewStore(db, sealer), info: info, logger: logger, hub: realtime.NewHub(), mux: http.NewServeMux(), aiCompat: newAICompatibility(), logins: newLoginAttempts(), metrics: newMetrics(), violations: tracking.NewRecorder()}
 	s.routes()
 	return s
 }
@@ -192,6 +196,13 @@ func (s *Server) routes() {
 	s.handle("GET /api/v1/admin/ai-usage", s.requireAdmin(http.HandlerFunc(s.listAIUsage)))
 	s.handle("GET /api/v1/admin/key-policies", s.requireAdmin(http.HandlerFunc(s.listKeyPolicies)))
 	s.handle("PUT /api/v1/admin/key-policies/{role}", s.requireAdmin(http.HandlerFunc(s.updateKeyPolicy)))
+	// Browsers post policy reports without credentials, so this one is open;
+	// it accepts a bounded body and keeps a bounded list.
+	s.handleFunc("POST "+cspReportPath, s.receiveCSPReport)
+	s.handle("GET /api/v1/admin/tracking/violations", s.requireAdmin(http.HandlerFunc(s.listTrackingViolations)))
+	s.handle("DELETE /api/v1/admin/tracking/violations", s.requireAdmin(http.HandlerFunc(s.clearTrackingViolations)))
+	s.handle("POST /api/v1/admin/tracking/allow", s.requireAdmin(http.HandlerFunc(s.allowTrackingHost)))
+	s.handleFunc(tracking.ProxyPath+"/", s.momentoProxy)
 
 	s.handleFunc("/", s.static)
 }
@@ -202,7 +213,10 @@ func (s *Server) securityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		// The page itself may replace this with one naming its nonce; see
+		// servePage. Everything else keeps the policy it always had, or a
+		// narrower one when it is not a page at all.
+		w.Header().Set("Content-Security-Policy", policyFor(tracking.Config{}, r.URL.Path, ""))
 		next.ServeHTTP(w, r)
 	})
 }
@@ -250,13 +264,13 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if name == "index.html" {
+		s.servePage(w, r, file, s.trackingConfig(r.Context()))
+		return
+	}
 	if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
-	if name == "index.html" {
-		w.Header().Set("Cache-Control", "no-cache")
-	} else {
-		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	}
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	_, _ = w.Write(file)
 }

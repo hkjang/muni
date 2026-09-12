@@ -400,11 +400,51 @@ async function main() {
   await page.getByRole("dialog").waitFor();
   await shoot(page, "admin-users-create", { settle: 1000 });
 
+  await shootTracking(page);
+
   await probe(page);
 
   await context.close();
   await browser.close();
   console.log(`\n${shots.length}장을 ${OUT} 에 저장했습니다.`);
+}
+
+// 방문 추적 탭은 설정을 켜야 볼 것이 생기므로, 저장된 설정을 읽어 두었다가
+// 찍은 뒤 그대로 되돌립니다. 차단 신고는 브라우저가 보내는 것과 같은 모양으로
+// 하나 넣어 「허용」 단추가 보이게 합니다.
+async function shootTracking(page) {
+  const saved = await api(page, "GET", "/api/v1/admin/settings");
+  try {
+    await api(page, "PUT", "/api/v1/admin/settings", {
+      ...saved,
+      tracking: {
+        ...saved.tracking,
+        enabled: true,
+        provider: "momento",
+        momentoUrl: "https://momento.internal",
+        momentoSiteId: "muni",
+        momentoProxy: true,
+      },
+    });
+    await page.request.post(`${baseURL}/api/v1/tracking/csp-report`, {
+      headers: { "Content-Type": "application/csp-report" },
+      data: JSON.stringify({
+        "csp-report": {
+          "blocked-uri": "https://pixel.internal/p.gif",
+          "effective-directive": "img-src",
+          "document-uri": `${baseURL}/`,
+        },
+      }),
+    });
+    await page.goto(`${baseURL}/admin/settings`);
+    await page.getByRole("tab", { name: "방문 추적" }).click();
+    await page.getByText("https://pixel.internal").waitFor();
+    await page.getByRole("heading", { name: "정책이 차단한 출처" }).scrollIntoViewIfNeeded();
+    await shoot(page, "admin-tracking", { settle: 1200 });
+  } finally {
+    await api(page, "PUT", "/api/v1/admin/settings", saved);
+    await api(page, "DELETE", "/api/v1/admin/tracking/violations");
+  }
 }
 
 // 화면마다 어떤 조작 대상이 있는지 확인할 때 씁니다 (MUNI_GUIDE_PROBE=1).

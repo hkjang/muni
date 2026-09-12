@@ -155,6 +155,44 @@ export type Settings = {
     defaultLocale: string;
     timeoutSeconds: number;
   };
+  tracking: TrackingSettings;
+};
+
+export type TrackingProvider =
+  | "none"
+  | "momento"
+  | "ga4"
+  | "gtm"
+  | "matomo"
+  | "custom";
+
+/** The visitor tracking snippet. Off by default; see the admin guide for why
+ * the content security policy is the hard part. */
+export type TrackingSettings = {
+  enabled: boolean;
+  provider: TrackingProvider;
+  momentoUrl: string;
+  momentoSiteId: string;
+  momentoProxy: boolean;
+  measurementId: string;
+  matomoUrl: string;
+  matomoSiteId: string;
+  customSnippet: string;
+  allowedHosts: string;
+  includeAdmin: boolean;
+  placement: "head" | "body";
+};
+
+/** One origin the content security policy refused, as the server remembers
+ * it from the browser's report. */
+export type TrackingViolation = {
+  origin: string;
+  directive: string;
+  page: string;
+  count: number;
+  firstSeen: string;
+  lastSeen: string;
+  allowed: boolean;
 };
 
 export type Template = {
