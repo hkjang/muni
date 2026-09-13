@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/cryptoutil"
+	"github.com/hkjang/muni/internal/handoff"
 	"github.com/hkjang/muni/internal/tracking"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -169,6 +170,10 @@ type All struct {
 	// Tracking is the visitor tracking snippet. Off by default: a fresh
 	// install serves the page exactly as before until an administrator asks.
 	Tracking tracking.Config `json:"tracking"`
+	// Handoff is the list of services documents may be sent to and taken
+	// from. Empty by default, and while empty no button appears and no
+	// source is accepted.
+	Handoff handoff.Config `json:"handoff"`
 }
 
 type Store struct {
@@ -272,6 +277,8 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "tracking.include_admin", &out.Tracking.IncludeAdmin)
 	decode(values, "tracking.placement", &out.Tracking.Placement)
 	out.Tracking = out.Tracking.Normalize()
+	decode(values, "handoff.peers", &out.Handoff.Peers)
+	out.Handoff = out.Handoff.Normalize()
 
 	out.OIDC.SecretSet = len(secrets["oidc.client_secret"]) > 0
 	out.AI.APIKeySet = len(secrets["ai.api_key"]) > 0
@@ -321,6 +328,7 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		return err
 	}
 	all.Tracking = all.Tracking.Normalize()
+	all.Handoff = all.Handoff.Normalize()
 	plain := map[string]any{
 		"general.service_name": all.General.ServiceName, "general.allow_local_login": all.General.AllowLocalLogin,
 		"general.default_locale": all.General.DefaultLocale, "general.page_size": all.General.PageSize,
@@ -350,6 +358,7 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"tracking.matomo_url": all.Tracking.MatomoURL, "tracking.matomo_site_id": all.Tracking.MatomoSiteID,
 		"tracking.custom_snippet": all.Tracking.CustomSnippet, "tracking.allowed_hosts": all.Tracking.AllowedHosts,
 		"tracking.include_admin": all.Tracking.IncludeAdmin, "tracking.placement": all.Tracking.Placement,
+		"handoff.peers": all.Handoff.Peers,
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -506,5 +515,8 @@ func Validate(all All) error {
 	if all.Ptium.TimeoutSeconds != 0 && (all.Ptium.TimeoutSeconds < 5 || all.Ptium.TimeoutSeconds > 900) {
 		return errors.New("Ptium 제한 시간은 5~900초여야 합니다")
 	}
-	return all.Tracking.Validate()
+	if err := all.Tracking.Validate(); err != nil {
+		return err
+	}
+	return all.Handoff.Validate()
 }

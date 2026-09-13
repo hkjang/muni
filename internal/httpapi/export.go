@@ -46,51 +46,68 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 403, "DOCX_EXPORT_DISABLED", "관리자 정책에서 DOCX 내보내기가 비활성화되어 있습니다.")
 		return
 	}
-	var title, numbering, pageHeader, pageFooter, orientation string
-	var content json.RawMessage
-	if err := s.db.QueryRow(r.Context(), `SELECT title,content_json,heading_numbering,page_header,page_footer,page_orientation FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering, &pageHeader, &pageFooter, &orientation); err != nil {
+	file, found, err := s.renderExport(r.Context(), id, format, p.User.DisplayName)
+	if !found {
 		writeError(w, 404, "DOCUMENT_NOT_FOUND", "문서를 찾을 수 없습니다.")
 		return
-	}
-	// Numbering is applied once, here, so every format sees the same headings
-	// and the contents list picks the numbers up with them.
-	content = numberedContent(content, numbering)
-	landscape := orientation == "LANDSCAPE"
-	filename := safeFilename(title)
-	var body []byte
-	var contentType string
-	var err error
-	switch format {
-	case "txt":
-		body = []byte(renderPlainText(title, content))
-		contentType = "text/plain; charset=utf-8"
-	case "md":
-		body = []byte(renderMarkdown(title, content))
-		contentType = "text/markdown; charset=utf-8"
-	case "html":
-		rendered := s.renderHTMLWithAttachments(r.Context(), id, content)
-		body = []byte(fullHTMLWithDrawing(title, landscape, rendered, htmlHasDiagram(rendered)))
-		contentType = "text/html; charset=utf-8"
-	case "docx":
-		body, err = s.makeDOCX(r.Context(), id, title, content, p.User.DisplayName, pageHeader, pageFooter, landscape)
-		contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-	case "hwpx":
-		body, err = s.makeHWPX(r.Context(), id, title, content, landscape, pageHeader, pageFooter)
-		contentType = "application/hwp+zip"
-	case "pdf":
-		body, err = makePDF(r.Context(), title, pageHeader, pageFooter, landscape, s.renderHTMLWithAttachments(r.Context(), id, content))
-		contentType = "application/pdf"
 	}
 	if err != nil {
 		writeError(w, 500, "EXPORT_FAILED", "문서를 내보내지 못했습니다: "+err.Error())
 		return
 	}
+	body, contentType, filename := file.body, file.contentType, file.filename
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="document.%s"; filename*=UTF-8''%s.%s`, format, urlPathEscape(filename), format))
 	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
 	w.WriteHeader(200)
 	_, _ = w.Write(body)
 	s.audit(r, &p.User.ID, "EXPORT_DOCUMENT", "DOCUMENT", &id, map[string]any{"format": format, "bytes": len(body)})
+}
+
+// exportFile is a document rendered in one format, ready to be sent: to the
+// browser as a download, or to another service that redeems a claim for it.
+type exportFile struct {
+	body        []byte
+	contentType string
+	// filename is the title made safe for a file name, without an extension.
+	filename string
+}
+
+// renderExport reads a document and renders it in one of the export formats.
+// found is false when there is no such document; err is a rendering failure.
+func (s *Server) renderExport(ctx context.Context, id uuid.UUID, format, author string) (file exportFile, found bool, err error) {
+	var title, numbering, pageHeader, pageFooter, orientation string
+	var content json.RawMessage
+	if err := s.db.QueryRow(ctx, `SELECT title,content_json,heading_numbering,page_header,page_footer,page_orientation FROM documents WHERE id=$1`, id).Scan(&title, &content, &numbering, &pageHeader, &pageFooter, &orientation); err != nil {
+		return exportFile{}, false, err
+	}
+	// Numbering is applied once, here, so every format sees the same headings
+	// and the contents list picks the numbers up with them.
+	content = numberedContent(content, numbering)
+	landscape := orientation == "LANDSCAPE"
+	file.filename = safeFilename(title)
+	switch format {
+	case "txt":
+		file.body = []byte(renderPlainText(title, content))
+		file.contentType = "text/plain; charset=utf-8"
+	case "md":
+		file.body = []byte(renderMarkdown(title, content))
+		file.contentType = "text/markdown; charset=utf-8"
+	case "html":
+		rendered := s.renderHTMLWithAttachments(ctx, id, content)
+		file.body = []byte(fullHTMLWithDrawing(title, landscape, rendered, htmlHasDiagram(rendered)))
+		file.contentType = "text/html; charset=utf-8"
+	case "docx":
+		file.body, err = s.makeDOCX(ctx, id, title, content, author, pageHeader, pageFooter, landscape)
+		file.contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case "hwpx":
+		file.body, err = s.makeHWPX(ctx, id, title, content, landscape, pageHeader, pageFooter)
+		file.contentType = "application/hwp+zip"
+	case "pdf":
+		file.body, err = makePDF(ctx, title, pageHeader, pageFooter, landscape, s.renderHTMLWithAttachments(ctx, id, content))
+		file.contentType = "application/pdf"
+	}
+	return file, true, err
 }
 
 // makeDOCX renders a Word file that keeps the document's headings, lists,

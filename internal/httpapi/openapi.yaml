@@ -937,6 +937,43 @@ paths:
       responses:
         '204': { description: 비웠습니다 }
         default: { $ref: '#/components/responses/Error' }
+  /handoff/claims:
+    post:
+      summary: 다른 서비스로 문서를 넘길 표(claim)를 발급 (HANDOFF-STANDARD)
+      description: >-
+        `{resource, format}` 을 받아 그 문서를 그 형식(`markdown` 또는 `docx`)으로
+        지금 렌더링해 두고, 128비트 이상의 난수 표를 돌려줍니다. 표는 5분 안에 한 번만
+        쓸 수 있고, 읽을 수 있는 문서에만 발급됩니다. 응답은
+        `{claim, source, filename, content_type, bytes, expires_at}` 이며 `source` 는
+        받는 쪽이 표를 가져갈 이 서비스의 오리진입니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resource, format]
+              properties:
+                resource: { type: string, description: 문서 id }
+                format: { type: string, enum: [markdown, docx] }
+      responses:
+        '201': { description: 표가 발급됨 }
+        '400': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+  /handoff/claims/{claim}:
+    parameters:
+      - { name: claim, in: path, required: true, schema: { type: string } }
+    get:
+      security: []
+      summary: 표를 내주고 문서 본문을 돌려줌 — 표가 곧 자격
+      description: >-
+        로그인이 필요 없습니다. 표는 한 번 쓰면 사라지고, 이미 쓴 표·만료된 표·없는
+        표는 모두 같은 `404` 로 답합니다. 본문은 표를 만들 때의 `Content-Type` 과
+        `Content-Disposition: attachment; filename*=UTF-8''…` 으로 나갑니다.
+      responses:
+        '200': { description: 문서 본문 }
+        '404': { $ref: '#/components/responses/Error' }
   /admin/tracking/allow:
     post:
       summary: 차단된 출처 하나를 방문 추적 허용 목록에 더함

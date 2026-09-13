@@ -32,7 +32,7 @@
 | `MUNI_CHROMIUM_PATH` | 자동 탐색 | PDF Export에 쓸 headless 브라우저 실행 파일 경로 |
 | `MUNI_PDF_CONCURRENCY` | `2` | 동시에 띄울 Chromium 프로세스 수(1~32) |
 
-`ENCRYPTION_KEY`는 `openssl rand -base64 32`로 생성합니다. **이 키를 잃으면 봉인된 비밀값은 복구할 수 없습니다** — 데이터베이스 백업과 다른 곳에 보관하세요. 백업·복구·키 교체 절차는 [운영 안내](docs/OPERATIONS.md)에 있습니다. 최초 사용자가 생성된 뒤 bootstrap 값은 다시 계정을 덮어쓰지 않습니다. OIDC, AI, 워크플로, 보안, 공유와 Export 정책은 모두 **서비스 관리 → 서비스 설정**에서 변경합니다. 방문 추적 스크립트(Momento 우선, 같은 오리진 프록시, 요청마다 nonce 를 단 CSP)도 거기서 켜며 기본은 꺼짐입니다 — [관리자 가이드](docs/ADMIN_GUIDE.md#방문-추적).
+`ENCRYPTION_KEY`는 `openssl rand -base64 32`로 생성합니다. **이 키를 잃으면 봉인된 비밀값은 복구할 수 없습니다** — 데이터베이스 백업과 다른 곳에 보관하세요. 백업·복구·키 교체 절차는 [운영 안내](docs/OPERATIONS.md)에 있습니다. 최초 사용자가 생성된 뒤 bootstrap 값은 다시 계정을 덮어쓰지 않습니다. OIDC, AI, 워크플로, 보안, 공유와 Export 정책은 모두 **서비스 관리 → 서비스 설정**에서 변경합니다. 방문 추적 스크립트(Momento 우선, 같은 오리진 프록시, 요청마다 nonce 를 단 CSP)도 거기서 켜며 기본은 꺼짐입니다 — [관리자 가이드](docs/ADMIN_GUIDE.md#방문-추적). 문서를 내려받지 않고 다른 사내 서비스로 바로 넘기는 것(사내 HANDOFF 표준: 5분짜리 단일 사용 표, 관리자 허용 목록의 오리진만)도 거기서 목록을 채워야 나타납니다 — [관리자 가이드](docs/ADMIN_GUIDE.md#문서-넘기기).
 
 ## 오프라인 이미지 실행
 

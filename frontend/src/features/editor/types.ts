@@ -22,6 +22,8 @@ export type Suggestion = {
   createdAt: string;
 };
 
+import type { HandoffTarget } from "../../lib/handoff";
+
 export type Capability = {
   workflowEnabled: boolean;
   aiEnabled: boolean;
@@ -30,6 +32,9 @@ export type Capability = {
   /** An administrator has connected a presentation service. */
   presentations: boolean;
   maxAiTokens: number;
+  /** Services the administrator listed that can receive this document.
+   * Empty until one is listed, and the menu shows nothing while empty. */
+  handoffTargets?: HandoffTarget[];
 };
 
 export type Permission = {

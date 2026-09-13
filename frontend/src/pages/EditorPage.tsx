@@ -44,6 +44,7 @@ import {
 import { SearchHighlight } from "../features/editor/extensions/searchHighlight";
 import { ShareDialog } from "../features/editor/sharing/ShareDialog";
 import { PresentationDialog } from "../features/editor/presentations/PresentationDialog";
+import { formatLabels, sendToService } from "../lib/handoff";
 import {
   ArrowBack,
   AutoAwesome,
@@ -56,6 +57,7 @@ import {
   VerticalSplitOutlined,
   DriveFileMoveOutlined,
   PeopleOutline,
+  SendOutlined,
 } from "@mui/icons-material";
 import {
   Alert,
@@ -81,6 +83,7 @@ import {
   TextField,
   Toolbar,
   Tooltip,
+  Snackbar,
   Typography,
   useMediaQuery,
   useTheme,
@@ -123,6 +126,7 @@ export function EditorPage() {
   });
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [templateName, setTemplateName] = useState<string | null>(null);
+  const [handoffError, setHandoffError] = useState("");
   const [approvalOpen, setApprovalOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const [zoom, setZoom] = useState(() => readZoom());
@@ -937,6 +941,29 @@ export function EditorPage() {
         </MenuItem>
         ,
         <Divider key="template-divider" />,
+        {/* One entry per service and format it can take. Nothing is shown
+            until an administrator lists a service (HANDOFF-STANDARD). */}
+        {(capabilities.data?.handoffTargets ?? []).flatMap((target) =>
+          target.formats.map((format) => (
+            <MenuItem
+              key={`handoff-${target.origin}-${format}`}
+              onClick={() => {
+                setExportAnchor(null);
+                sendToService(documentId, target, format).catch((cause) =>
+                  setHandoffError(errorMessage(cause)),
+                );
+              }}
+            >
+              <ListItemIcon>
+                <SendOutlined />
+              </ListItemIcon>
+              {target.name} 으로 보내기 ({formatLabels[format]})
+            </MenuItem>
+          )),
+        )}
+        {(capabilities.data?.handoffTargets?.length ?? 0) > 0 && (
+          <Divider key="handoff-divider" />
+        )}
         {capabilities.data?.docxExport && (
           <MenuItem
             component="a"
@@ -987,6 +1014,16 @@ export function EditorPage() {
           TXT
         </MenuItem>
       </Menu>
+      <Snackbar
+        open={handoffError !== ""}
+        autoHideDuration={8000}
+        onClose={() => setHandoffError("")}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity="error" onClose={() => setHandoffError("")}>
+          다른 서비스로 보내지 못했습니다: {handoffError}
+        </Alert>
+      </Snackbar>
       <Menu
         anchorEl={menuAnchor}
         open={Boolean(menuAnchor)}

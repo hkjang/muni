@@ -126,6 +126,20 @@ function Protected({ children }: { children: React.ReactNode }) {
   return children;
 }
 
+/**
+ * HandoffRoute hands /handoff?source=…&claim=… to the server, which is what
+ * fetches the document from the other service and opens it. The app reaches
+ * this route only when a local login returned the person to it, so the
+ * address is loaded afresh rather than routed within the app.
+ */
+function HandoffRoute() {
+  const location = useLocation();
+  useEffect(() => {
+    window.location.replace(location.pathname + location.search);
+  }, [location.pathname, location.search]);
+  return <LoadingScreen />;
+}
+
 export default function App() {
   return (
     <Loading>
@@ -133,6 +147,9 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         {/* Outside Protected on purpose: whoever opens this has no account. */}
         <Route path="/s/:token" element={<SharedRoute />} />
+        {/* The server answers /handoff itself; the app only ever lands here
+            after a local login sends the person back to it. */}
+        <Route path="/handoff" element={<HandoffRoute />} />
         <Route
           path="/docs/:documentId"
           element={

@@ -158,6 +158,21 @@ export type Settings = {
     timeoutSeconds: number;
   };
   tracking: TrackingSettings;
+  handoff: HandoffSettings;
+};
+
+/** One service documents may be sent to and taken from (HANDOFF-STANDARD).
+ * `receives` is what that service can take; muni offers a "send" entry only
+ * for the formats it sends that the service receives. */
+export type HandoffPeer = {
+  origin: string;
+  name: string;
+  receives: string[];
+};
+
+/** The allow list. Empty by default: nothing is sent, nothing is accepted. */
+export type HandoffSettings = {
+  peers: HandoffPeer[];
 };
 
 export type TrackingProvider =

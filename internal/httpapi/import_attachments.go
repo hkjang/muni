@@ -124,23 +124,10 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	if workspaceKind != "PERSONAL" {
 		visibility = "WORKSPACE"
 	}
-	err = database.WithTx(r.Context(), s.db, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(r.Context(), `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no,page_header,page_footer,page_orientation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$11)`,
-			documentID, workspaceID, folderID, p.User.ID, title, visibility, content, text,
-			truncateRunes(furniture.Header, 200), truncateRunes(furniture.Footer, 200), orientationOf(furniture.Landscape)); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(r.Context(), `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, documentID, content, text, p.User.ID, "import:"+strings.TrimPrefix(extension, ".")); err != nil {
-			return err
-		}
-		for _, attachment := range attachments {
-			sum := sha256.Sum256(attachment.Data)
-			if _, err := tx.Exec(r.Context(), `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-				attachment.ID, documentID, p.User.ID, truncateRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
-				return err
-			}
-		}
-		return nil
+	err = s.storeImportedDocument(r.Context(), importedDocument{
+		id: documentID, workspaceID: workspaceID, folderID: folderID, ownerID: p.User.ID,
+		title: title, visibility: visibility, content: content, text: text, furniture: furniture,
+		reason: "import:" + strings.TrimPrefix(extension, "."), attachments: attachments,
 	})
 	if err != nil {
 		writeError(w, 500, "IMPORT_FAILED", "가져온 문서를 저장하지 못했습니다.")
@@ -148,6 +135,47 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, &p.User.ID, "IMPORT_DOCUMENT", "DOCUMENT", &documentID, map[string]any{"format": strings.TrimPrefix(extension, "."), "bytes": len(body), "images": len(attachments)})
 	s.getDocumentByID(w, r, documentID)
+}
+
+// importedDocument is a document about to be created from a file: what the
+// row needs, the reason its first revision records, and the pictures that
+// become its attachments.
+type importedDocument struct {
+	id          uuid.UUID
+	workspaceID uuid.UUID
+	folderID    *uuid.UUID
+	ownerID     uuid.UUID
+	title       string
+	visibility  string
+	content     json.RawMessage
+	text        string
+	furniture   docx.Meta
+	reason      string
+	attachments []importedAttachment
+}
+
+// storeImportedDocument writes the document, its first revision and its
+// attachments in one transaction, for the upload that makes a document and
+// the handoff that takes one from another service.
+func (s *Server) storeImportedDocument(ctx context.Context, doc importedDocument) error {
+	return database.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no,page_header,page_footer,page_orientation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$11)`,
+			doc.id, doc.workspaceID, doc.folderID, doc.ownerID, doc.title, doc.visibility, doc.content, doc.text,
+			truncateRunes(doc.furniture.Header, 200), truncateRunes(doc.furniture.Footer, 200), orientationOf(doc.furniture.Landscape)); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, doc.id, doc.content, doc.text, doc.ownerID, doc.reason); err != nil {
+			return err
+		}
+		for _, attachment := range doc.attachments {
+			sum := sha256.Sum256(attachment.Data)
+			if _, err := tx.Exec(ctx, `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+				attachment.ID, doc.id, doc.ownerID, truncateRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // upload is what a document file turns into: the content, the pictures it
