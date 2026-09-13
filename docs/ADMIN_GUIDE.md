@@ -111,7 +111,7 @@ key` 로 멈춥니다.
 | 탭 | 여기서 정하는 것 |
 | --- | --- |
 | 일반 | 서비스 표시 이름, 기본 언어, 목록 페이지 크기, 로컬 로그인 허용 여부 |
-| Keycloak OIDC | issuer URL·client ID·client secret, 자동 프로비저닝과 기본 역할. Discovery 연결 테스트가 있습니다 |
+| Keycloak OIDC | issuer URL·client ID·client secret, 자동 프로비저닝과 기본 역할, 로그인 화면 없이 바로 들어가는 자동 로그인(기본 꺼짐, [아래](#자동-로그인silent-sso)). Discovery 연결 테스트가 있습니다 |
 | AI | OpenAI 호환 base URL(`/v1` 까지)·API key·model·timeout·최대 토큰. 상한은 시스템 상한 `262144` 와 관리자 상한 중 작은 값입니다 |
 | 검토·승인 | 결재 흐름 사용 여부, 필요한 승인 수, 본인 승인 허용 여부. 꺼 두면 사용자 메뉴에 「검토 및 승인」이 나타나지 않습니다 |
 | 보안·내보내기 | 세션 유지 시간, API 키 최대 수명, 공개 링크 허용, 업로드 크기 상한(1~1024MB), 읽기 감사 로그, PDF·DOCX 내보내기 허용 |
@@ -127,6 +127,44 @@ key` 로 멈춥니다.
 `https://<muni-host>/api/v1/auth/oidc/callback` 을 등록한 뒤, 이 탭에 issuer·client ID·client
 secret 을 넣고 연결 테스트 → 활성화 → 저장입니다. Endpoint 는 discovery 로 결정하고 scope 기본
 값은 `openid profile email` 입니다.
+
+### 자동 로그인(silent SSO)
+
+Keycloak 에 이미 로그인한 사람이 muni 를 열면 로그인 화면을 거치지 않고 바로 본 화면으로
+들어가게 할 수 있습니다. Keycloak OIDC 탭의 **「Keycloak에 이미 로그인되어 있으면 로그인 화면
+없이 바로 들어가기 (prompt=none)」** 가 그 설정(`oidc.auto_login`)이고 **기본은 꺼짐**입니다.
+꺼진 설치에서는 아무것도 달라지지 않습니다.
+
+| 설정 | 뜻 |
+| --- | --- |
+| `oidc.enabled` | SSO 자체. 이것이 꺼져 있으면 자동 로그인도 없습니다 |
+| `oidc.auto_login` | 세션이 없는 브라우저가 보호된 화면을 열 때 Keycloak 에 조용히 한 번 물어봅니다. 기본 꺼짐 |
+
+**어떻게 동작하는가.** 세션 없는 브라우저가 문서나 홈 같은 보호된 화면을 열면, 로그인 화면을
+그리는 대신 브라우저 창 전체가 `/api/v1/auth/oidc/start?prompt=none&return_to=<원래 주소>` 로
+이동합니다. `prompt=none` 은 Keycloak 에 "이미 있는 세션으로만 답하라" 고 요구하는 OIDC 표준
+매개변수라 **화면을 절대 그리지 않습니다** — 세션이 있으면 인가 코드가 바로 돌아와 평소 로그인과
+같이 끝나고 원래 주소로 돌아가며, 없으면 `error=login_required` 가 돌아옵니다. 이것은 실패가
+아니라 평범한 대답이어서 muni 는 오류 없이 로그인 화면(`/login?sso=none`)으로 보냅니다. 숨은
+iframe 이 아니라 최상위 이동이므로 서드파티 쿠키를 막은 브라우저에서도 동작하고, Keycloak 이
+프레임을 허용하는지 신경 쓰지 않아도 됩니다.
+
+**한 번만 시도합니다.** 거절을 받고 다시 시도하면 브라우저가 Keycloak 과 muni 사이를 끝없이
+오가며 사용자는 깜빡이는 화면만 봅니다. 막는 장치를 세 겹으로 두었습니다.
+
+- 한 탭 세션에 한 번 — 시도했다는 표시를 탭의 `sessionStorage` 에 남깁니다. 새 탭은 다시
+  시도하고, 거절된 뒤 새로 고치면 시도하지 않습니다.
+- 스스로 로그아웃했으면 하지 않습니다 — 로그아웃 직후 다시 조용히 로그인되면 로그아웃이 고장
+  난 것처럼 보입니다. 다시 세션이 생기면 억제가 풀립니다.
+- 거절을 주소에 남깁니다 — 콜백이 `login_required` 를 받으면 `/login?sso=none` 으로 보내므로
+  브라우저 저장소가 지워졌더라도 그 주소에서는 다시 시도하지 않습니다.
+
+사생활 보호 모드처럼 `sessionStorage` 를 읽지 못하는 브라우저는 "이미 시도했다" 로 칩니다.
+로그인·콜백 경로와 `/api`·`/mcp`·`/healthz` 같은 화면이 아닌 경로에서는 시도하지 않습니다.
+
+**서버가 설정을 지킵니다.** `auto_login` 이 꺼져 있으면 누가 주소에 `?prompt=none` 을 붙여
+부르더라도 서버가 조용히 평범한 로그인으로 바꿉니다. 깊은 링크의 `return_to` 는 `/` 로 시작하고
+`//` 로 시작하지 않는 경로만 받아, 이 흐름이 밖으로 내보내는 발판이 되지 않습니다.
 
 ### 방문 추적
 
@@ -300,6 +338,7 @@ curl -fsS http://127.0.0.1:8080/readyz
 | 기동 중 멈춘다 | `database connection failed` / `database migration failed` | DSN, 네트워크, DB 계정의 schema·extension 생성 권한 |
 | 최초 관리자로 못 들어간다 | `bootstrap failed` | `BOOTSTRAP_ADMIN_PASSWORD` 가 12자 이상인지. 계정이 이미 있으면 bootstrap 은 덮어쓰지 않습니다 |
 | `/readyz` 만 실패한다 | 데이터베이스 | DB 는 떴는데 muni 가 못 붙는 상태입니다 |
+| Keycloak 에 로그인되어 있는데 로그인 화면이 나온다 | Keycloak OIDC 탭의 자동 로그인, 주소의 `?sso=none` | 자동 로그인은 기본 꺼짐입니다. `sso=none` 은 Keycloak 이 세션 없음으로 답했다는 표시이고, 같은 탭에서는 한 번만 묻습니다 — 새 탭에서 확인합니다([자동 로그인](#자동-로그인silent-sso)) |
 | 로그인은 되는데 AI·메일이 안 된다 | 「운영 현황」의 연결 상태, 각 탭의 연결 테스트 | 게이트웨이 주소·키. AI 연결 테스트는 실제 호출 endpoint 와 적용된 보정을 함께 보여 줍니다 |
 | PDF 내보내기가 느리거나 거절된다 | `muni_pdf_renders_in_progress` 와 `muni_pdf_renders_limit` | 앞 값이 뒤에 붙어 있으면 줄을 선 것입니다. `MUNI_PDF_CONCURRENCY` 와 메모리를 함께 올립니다 |
 | PDF 만 실패한다 | 로그의 Export 오류, `MUNI_CHROMIUM_PATH` | read-only 컨테이너에서 `/tmp` tmpfs 를 뺐는지 확인합니다 |

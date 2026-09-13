@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/cryptoutil"
 	"github.com/hkjang/muni/internal/database"
+	"github.com/hkjang/muni/internal/settings"
 	"github.com/jackc/pgx/v5"
 	"golang.org/x/oauth2"
 )
@@ -263,18 +264,55 @@ func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) {
 	nonce, _ := cryptoutil.RandomToken(24)
 	verifier := oauth2.GenerateVerifier()
 	returnTo := safeReturnPath(r.URL.Query().Get("return_to"))
-	_, err = s.db.Exec(r.Context(), `INSERT INTO oidc_states(state_hash,verifier,nonce,return_to,expires_at) VALUES($1,$2,$3,$4,now()+interval '10 minutes')`, cryptoutil.SHA256(state), verifier, nonce, returnTo)
+	silent := silentLoginRequested(r, all.OIDC)
+	_, err = s.db.Exec(r.Context(), `INSERT INTO oidc_states(state_hash,verifier,nonce,return_to,silent,expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`, cryptoutil.SHA256(state), verifier, nonce, returnTo, silent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "OIDC_STATE_ERROR", "SSO 요청을 시작하지 못했습니다.")
 		return
 	}
 	config := s.oauthConfig(r, all.OIDC.ClientID, all.OIDC.ClientSecret, all.OIDC.RedirectURL, all.OIDC.Scopes, provider.Endpoint())
-	location := config.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("nonce", nonce))
-	http.Redirect(w, r, location, http.StatusFound)
+	options := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(verifier), oauth2.SetAuthURLParam("nonce", nonce)}
+	if silent {
+		// prompt=none asks the provider to answer from an existing session
+		// only. It never draws a screen: either a code comes straight back or
+		// an error such as login_required does.
+		options = append(options, oauth2.SetAuthURLParam("prompt", "none"))
+	}
+	http.Redirect(w, r, config.AuthCodeURL(state, options...), http.StatusFound)
 }
+
+// silentLoginRequested reports whether this start should be a silent attempt.
+// The browser asks with prompt=none; the administrator setting decides whether
+// that is honoured, so anyone appending it to the address cannot change the
+// flow of a service where auto-login is off.
+func silentLoginRequested(r *http.Request, cfg settings.OIDC) bool {
+	return cfg.AutoLogin && r.URL.Query().Get("prompt") == "none"
+}
+
+// Where the browser lands after a silent attempt the provider turned down.
+// The marker is what stops it from trying again on that page, even if its
+// sessionStorage was cleared in between.
+const silentRefusedPath = "/login?sso=none"
 
 func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	if oidcError := r.URL.Query().Get("error"); oidcError != "" {
+		// A silent attempt gets login_required whenever the provider has no
+		// session. That is the ordinary answer, not a failure: land on the
+		// login screen without an error, keeping the deep link the visitor
+		// came in with. The state row is used up either way.
+		var silent bool
+		var returnTo string
+		if state := r.URL.Query().Get("state"); state != "" {
+			_ = s.db.QueryRow(r.Context(), `DELETE FROM oidc_states WHERE state_hash=$1 RETURNING silent,return_to`, cryptoutil.SHA256(state)).Scan(&silent, &returnTo)
+		}
+		if silent {
+			location := silentRefusedPath
+			if returnTo = safeReturnPath(returnTo); returnTo != "/" {
+				location += "&return_to=" + url.QueryEscape(returnTo)
+			}
+			http.Redirect(w, r, location, http.StatusFound)
+			return
+		}
 		http.Redirect(w, r, "/login?error="+url.QueryEscape(oidcError), http.StatusFound)
 		return
 	}

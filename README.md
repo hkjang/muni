@@ -100,7 +100,7 @@ Import한 이미지는 문서 첨부파일로 저장되며, 같은 그림은 내
 3. muni의 **서비스 관리 → Keycloak OIDC**에서 realm issuer URL, client ID, client secret을 입력합니다.
 4. Discovery 연결 테스트 후 OIDC를 활성화하고 저장합니다.
 
-Issuer 예: `https://keycloak.internal/realms/company`. Endpoint는 discovery로 자동 결정하며 scope 기본값은 `openid profile email`입니다. 자동 프로비저닝과 기본 역할도 같은 화면에서 제어합니다.
+Issuer 예: `https://keycloak.internal/realms/company`. Endpoint는 discovery로 자동 결정하며 scope 기본값은 `openid profile email`입니다. 자동 프로비저닝과 기본 역할도 같은 화면에서 제어합니다. Keycloak에 이미 로그인한 사람을 로그인 화면 없이 바로 들여보내는 자동 로그인(OIDC `prompt=none`, 기본 꺼짐)은 [관리자 가이드](docs/ADMIN_GUIDE.md#자동-로그인silent-sso)에 적었습니다.
 
 ## AI
 

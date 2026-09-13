@@ -35,6 +35,11 @@ type OIDC struct {
 	Scopes        []string `json:"scopes"`
 	AutoProvision bool     `json:"autoProvision"`
 	DefaultRole   string   `json:"defaultRole"`
+	// AutoLogin signs a visitor in without a login screen when the identity
+	// provider still has a session for them (OIDC prompt=none). Off by default:
+	// a fresh install must behave exactly as before, and the browser's request
+	// for a silent attempt is honoured only while this is on.
+	AutoLogin bool `json:"autoLogin"`
 }
 
 type AI struct {
@@ -213,6 +218,7 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "oidc.scopes", &out.OIDC.Scopes)
 	decode(values, "oidc.auto_provision", &out.OIDC.AutoProvision)
 	decode(values, "oidc.default_role", &out.OIDC.DefaultRole)
+	decode(values, "oidc.auto_login", &out.OIDC.AutoLogin)
 	decode(values, "ai.enabled", &out.AI.Enabled)
 	decode(values, "ai.base_url", &out.AI.BaseURL)
 	decode(values, "ai.model", &out.AI.Model)
@@ -320,7 +326,8 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"general.default_locale": all.General.DefaultLocale, "general.page_size": all.General.PageSize,
 		"oidc.enabled": all.OIDC.Enabled, "oidc.issuer_url": all.OIDC.IssuerURL, "oidc.client_id": all.OIDC.ClientID,
 		"oidc.redirect_url": all.OIDC.RedirectURL, "oidc.scopes": all.OIDC.Scopes, "oidc.auto_provision": all.OIDC.AutoProvision,
-		"oidc.default_role": all.OIDC.DefaultRole, "ai.enabled": all.AI.Enabled, "ai.base_url": all.AI.BaseURL,
+		"oidc.default_role": all.OIDC.DefaultRole, "oidc.auto_login": all.OIDC.AutoLogin,
+		"ai.enabled": all.AI.Enabled, "ai.base_url": all.AI.BaseURL,
 		"ai.model": all.AI.Model, "ai.max_tokens": all.AI.MaxTokens, "ai.timeout_seconds": all.AI.TimeoutSeconds,
 		"ai.system_prompt": all.AI.SystemPrompt, "workflow.enabled": all.Workflow.Enabled,
 		"workflow.required_approvals": all.Workflow.RequiredApprovals, "workflow.allow_self_approval": all.Workflow.AllowSelfApproval,

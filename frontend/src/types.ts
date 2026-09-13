@@ -26,6 +26,7 @@ export type PublicSystem = {
   localLoginEnabled: boolean;
   oidcEnabled: boolean;
   oidcLoginUrl: string;
+  oidcAutoLogin: boolean;
   maxAiTokens: number;
 };
 
@@ -101,6 +102,7 @@ export type Settings = {
     scopes: string[];
     autoProvision: boolean;
     defaultRole: "ADMIN" | "USER";
+    autoLogin: boolean;
   };
   ai: {
     enabled: boolean;

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Navigate,
   Route,
@@ -8,6 +8,7 @@ import {
 } from "react-router-dom";
 import { useAuth } from "./contexts/AuthContext";
 import { LoadingScreen } from "./components/LoadingScreen";
+import { beginSilentSso, shouldAttemptSilentSso } from "./lib/silentSso";
 import { AppShell } from "./layouts/AppShell";
 import { LoginPage } from "./pages/LoginPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -90,9 +91,26 @@ function Loading({ children }: { children: React.ReactNode }) {
 }
 
 function Protected({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, system, loading } = useAuth();
   const location = useLocation();
-  if (loading) return <LoadingScreen />;
+  // Somebody with no session here but a live one at Keycloak should be signed
+  // in without seeing the login screen. The decision lives in silentSso.ts;
+  // this is only the place a protected screen is about to turn into a login
+  // screen, which is the one moment it applies. Once the browser has been sent
+  // away, keep showing the loader — rendering the login screen for the
+  // instant before it leaves is the flicker this exists to avoid.
+  const [leaving, setLeaving] = useState(false);
+  const attempt =
+    !loading &&
+    !user &&
+    !leaving &&
+    shouldAttemptSilentSso(system, location);
+  useEffect(() => {
+    if (!attempt) return;
+    setLeaving(true);
+    beginSilentSso(location.pathname + location.search);
+  }, [attempt, location.pathname, location.search]);
+  if (loading || attempt || leaving) return <LoadingScreen />;
   if (!user)
     return (
       <Navigate

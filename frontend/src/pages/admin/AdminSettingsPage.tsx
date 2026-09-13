@@ -52,6 +52,7 @@ const blank: Settings = {
     scopes: ["openid", "profile", "email"],
     autoProvision: true,
     defaultRole: "USER",
+    autoLogin: false,
   },
   ai: {
     enabled: false,
@@ -432,6 +433,17 @@ export function AdminSettingsPage() {
                 />
               </Grid>
             </Grid>
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.oidc.autoLogin}
+                  onChange={(_, checked) =>
+                    setGroup("oidc", { ...form.oidc, autoLogin: checked })
+                  }
+                />
+              }
+              label="Keycloak에 이미 로그인되어 있으면 로그인 화면 없이 바로 들어가기 (prompt=none)"
+            />
             <Button
               variant="outlined"
               onClick={() => testOIDC.mutate()}
