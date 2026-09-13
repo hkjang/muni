@@ -20,6 +20,7 @@ import {
 import { Brand } from "../components/Brand";
 import { useAuth } from "../contexts/AuthContext";
 import { errorMessage } from "../lib/api";
+import { safeReturnTo } from "../lib/silentSso";
 
 export function LoginPage() {
   const { user, system, loading, login } = useAuth();
@@ -30,9 +31,18 @@ export function LoginPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const returnTo =
-    (location.state as { returnTo?: string } | null)?.returnTo ?? "/";
+  // The route guard passes the deep link as state; a silent SSO attempt the
+  // provider turned down arrives here by redirect and can only carry it in
+  // the address (/login?sso=none&return_to=…). Either way, signing in by hand
+  // should still end up where the visitor was going.
+  const returnTo = safeReturnTo(
+    (location.state as { returnTo?: string } | null)?.returnTo ??
+      params.get("return_to") ??
+      "/",
+  );
   useEffect(() => {
+    // ?sso=none is not an error: the provider simply had no session, and the
+    // login screen is the ordinary next step. Only a real failure is shown.
     const code = params.get("error");
     if (code)
       setError(

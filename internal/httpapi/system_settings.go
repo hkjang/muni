@@ -34,6 +34,9 @@ func (s *Server) publicSystem(w http.ResponseWriter, r *http.Request) {
 		"serviceName": all.General.ServiceName, "version": s.info.Version, "commit": s.info.Commit,
 		"localLoginEnabled": all.General.AllowLocalLogin, "oidcEnabled": all.OIDC.Enabled,
 		"oidcLoginUrl": "/api/v1/auth/oidc/start", "maxAiTokens": settings.MaxAITokens,
+		// Published so the browser knows whether to try a silent sign-in before
+		// it shows the login screen. Only meaningful while SSO itself is on.
+		"oidcAutoLogin": all.OIDC.Enabled && all.OIDC.AutoLogin,
 	})
 }
 

@@ -8,6 +8,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { api, jsonBody } from "../lib/api";
+import { clearSilentSsoState, markSignedOut } from "../lib/silentSso";
 import type { BuildInfo, PublicSystem, User } from "../types";
 
 type AuthContextValue = {
@@ -35,6 +36,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       const me = await api<{ user: User; build: BuildInfo }>("/api/v1/auth/me");
       setUser(me.user);
       setBuild(me.build);
+      // A session exists, so the silent sign-in guards can be lifted: the
+      // next time this tab has no session it may try once more.
+      clearSilentSsoState();
     } catch {
       setUser(null);
       setBuild(null);
@@ -58,6 +62,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
 
   const logout = useCallback(async () => {
+    // Before the request, not after: the screen that follows must not sign
+    // the visitor straight back in, whatever happens to the request.
+    markSignedOut();
     await api<void>("/api/v1/auth/logout", { method: "POST" });
     setUser(null);
     setBuild(null);
