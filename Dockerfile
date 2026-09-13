@@ -24,6 +24,17 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
     -o /out/muni ./cmd/muni
 
 FROM debian:bookworm-slim
+# 떠 있는 이미지에서 어느 소스로 만든 것인지 알 수 있게 한다. ARG 는
+# 스테이지마다 다시 선언해야 값이 넘어온다.
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+LABEL org.opencontainers.image.title="Muni" \
+      org.opencontainers.image.description="Muni document workspace server" \
+      org.opencontainers.image.source="https://github.com/hkjang/muni" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_TIME}"
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       ca-certificates chromium curl fonts-noto-cjk tzdata \
     && rm -rf /var/lib/apt/lists/* \
