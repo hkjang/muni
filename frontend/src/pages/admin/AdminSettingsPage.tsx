@@ -10,6 +10,7 @@ import {
   MailOutlined,
   SlideshowOutlined,
   QueryStatsOutlined,
+  SwapHorizOutlined,
   VpnKeyOutlined,
 } from "@mui/icons-material";
 import {
@@ -35,6 +36,7 @@ import { api, errorMessage, jsonBody } from "../../lib/api";
 import type { Settings } from "../../types";
 import { useAuth } from "../../contexts/AuthContext";
 import { TrackingSettings } from "./TrackingSettings";
+import { HandoffSettings } from "./HandoffSettings";
 
 const blank: Settings = {
   general: {
@@ -114,6 +116,7 @@ const blank: Settings = {
     includeAdmin: false,
     placement: "head",
   },
+  handoff: { peers: [] },
 };
 export function AdminSettingsPage() {
   const { refresh } = useAuth();
@@ -281,6 +284,11 @@ export function AdminSettingsPage() {
           icon={<QueryStatsOutlined />}
           iconPosition="start"
           label="방문 추적"
+        />
+        <Tab
+          icon={<SwapHorizOutlined />}
+          iconPosition="start"
+          label="문서 넘기기"
         />
       </Tabs>
       <Card sx={{ p: { xs: 2, sm: 3 }, mt: 2 }}>
@@ -1077,6 +1085,12 @@ export function AdminSettingsPage() {
                 tracking: { ...current.tracking, allowedHosts },
               }))
             }
+          />
+        )}
+        {tab === 9 && (
+          <HandoffSettings
+            value={form.handoff ?? { peers: [] }}
+            onChange={(handoff) => setGroup("handoff", handoff)}
           />
         )}
       </Card>

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hkjang/muni/internal/cryptoutil"
+	"github.com/hkjang/muni/internal/handoff"
 	"github.com/hkjang/muni/internal/realtime"
 	"github.com/hkjang/muni/internal/settings"
 	"github.com/hkjang/muni/internal/tracking"
@@ -203,6 +204,13 @@ func (s *Server) routes() {
 	s.handle("DELETE /api/v1/admin/tracking/violations", s.requireAdmin(http.HandlerFunc(s.clearTrackingViolations)))
 	s.handle("POST /api/v1/admin/tracking/allow", s.requireAdmin(http.HandlerFunc(s.allowTrackingHost)))
 	s.handleFunc(tracking.ProxyPath+"/", s.momentoProxy)
+	// Handing documents to other services (HANDOFF-STANDARD). Redeeming a
+	// claim needs no login — the claim is the credential — and the page a
+	// peer sends the browser to does its own sign-in check so it can send
+	// the person to the login screen and back.
+	s.handle("POST "+handoff.ClaimsPath, s.requireAuth(http.HandlerFunc(s.issueHandoffClaim)))
+	s.handleFunc("GET "+handoff.ClaimsPath+"/{claim}", s.serveHandoffClaim)
+	s.handleFunc("GET "+handoffPagePath, s.receiveHandoff)
 
 	s.handleFunc("/", s.static)
 }
@@ -230,7 +238,7 @@ func (s *Server) requestLog(next http.Handler) http.Handler {
 		next.ServeHTTP(recorder, r)
 		elapsed := time.Since(started)
 		if r.URL.Path != "/healthz" && r.URL.Path != "/readyz" {
-			s.logger.Info("http request", "method", r.Method, "path", r.URL.Path,
+			s.logger.Info("http request", "method", r.Method, "path", logPath(r.URL.Path),
 				"status", recorder.status, "duration_ms", elapsed.Milliseconds())
 		}
 		// The scrape itself is left out: counting it makes a graph of how

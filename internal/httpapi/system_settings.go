@@ -53,6 +53,9 @@ func (s *Server) systemCapabilities(w http.ResponseWriter, r *http.Request) {
 		"docxExport":      all.Export.EnableDOCX,
 		"presentations":   all.Ptium.Enabled && strings.TrimSpace(all.Ptium.BaseURL) != "",
 		"maxAiTokens":     all.AI.MaxTokens,
+		// Where a document can be sent, per the administrator's peer list.
+		// Empty until one is added, and the menu shows nothing while empty.
+		"handoffTargets": all.Handoff.Targets(all.Export.EnableDOCX),
 	})
 }
 
