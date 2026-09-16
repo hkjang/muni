@@ -145,7 +145,7 @@ func (s *Server) mailCredentials(ctx context.Context, user User, password string
 	if err != nil {
 		return false, "설정을 읽지 못했습니다."
 	}
-	if !all.SMTP.Enabled {
+	if !all.Mail.Enabled {
 		return false, "메일 발송이 꺼져 있습니다."
 	}
 	sender := mailerFor(all)
@@ -156,7 +156,7 @@ func (s *Server) mailCredentials(ctx context.Context, user User, password string
 	if service == "" {
 		service = "muni"
 	}
-	web := strings.TrimRight(strings.TrimSpace(all.SMTP.BaseURL), "/")
+	web := strings.TrimRight(strings.TrimSpace(all.Mail.BaseURL), "/")
 	if web == "" {
 		web = "(관리자에게 주소를 문의하세요)"
 	}

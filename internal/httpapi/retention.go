@@ -109,6 +109,15 @@ func (s *Server) applyRetention(ctx context.Context) (RetentionResult, error) {
 		} else {
 			s.logger.Warn("audit retention failed", "error", err)
 		}
+		// The mail delivery log is an audit trail of the same kind — who was
+		// told what, and when — and follows the same period.
+		if tag, err := s.db.Exec(ctx,
+			`DELETE FROM mail_deliveries WHERE created_at < now() - make_interval(days => $1)`,
+			policy.AuditDays); err == nil {
+			result.Audit += tag.RowsAffected()
+		} else {
+			s.logger.Warn("mail delivery retention failed", "error", err)
+		}
 	}
 
 	if policy.AIAuditDays > 0 {
@@ -161,7 +170,8 @@ func (s *Server) retentionPreview(ctx context.Context, policy settings.Retention
 	}
 	if policy.AuditDays > 0 {
 		_ = s.db.QueryRow(ctx,
-			`SELECT count(*) FROM activity_logs WHERE created_at < now() - make_interval(days => $1)`,
+			`SELECT (SELECT count(*) FROM activity_logs WHERE created_at < now() - make_interval(days => $1))
+			      + (SELECT count(*) FROM mail_deliveries WHERE created_at < now() - make_interval(days => $1))`,
 			policy.AuditDays).Scan(&result.Audit)
 	}
 	if policy.AIAuditDays > 0 {

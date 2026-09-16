@@ -127,19 +127,7 @@ export type Settings = {
     auditReads: boolean;
   };
   export: { enablePdf: boolean; enableDocx: boolean };
-  smtp: {
-    enabled: boolean;
-    host: string;
-    port: number;
-    username: string;
-    password?: string;
-    passwordSet: boolean;
-    security: string;
-    from: string;
-    fromName: string;
-    skipVerify: boolean;
-    baseUrl: string;
-  };
+  mail: MailSettings;
   retention: {
     trashDays: number;
     revisionDays: number;
@@ -241,4 +229,40 @@ export type RevisionItem = {
   name?: string;
   createdAt: string;
   author: { id: string; displayName: string };
+};
+
+/** MailSettings mirrors settings.Mail on the server: the relay and one switch
+ * per event. The password never comes back; passwordSet says whether one is
+ * stored. */
+export type MailSettings = {
+  enabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  security: string;
+  skipTlsVerify: boolean;
+  username: string;
+  password?: string;
+  passwordSet: boolean;
+  fromAddress: string;
+  fromName: string;
+  baseUrl: string;
+  timeoutSeconds: number;
+  notify: {
+    approvalRequest: boolean;
+    approvalDecision: boolean;
+    mention: boolean;
+    apiKeyExpiring: boolean;
+  };
+};
+
+/** MailDelivery is one attempt to send one mail — no body, by design. */
+export type MailDelivery = {
+  id: string;
+  event: string;
+  recipient: string;
+  subject: string;
+  notifications: number;
+  status: "sent" | "failed";
+  error: string;
+  createdAt: string;
 };

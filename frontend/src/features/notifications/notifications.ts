@@ -27,6 +27,9 @@ export function notificationTarget(
       return `/docs/${resourceId}`;
     case "WORKSPACE":
       return `/workspace/${resourceId}`;
+    case "API_KEY":
+      // A key is managed in personal settings; there is no page per key.
+      return "/settings";
     default:
       return "";
   }

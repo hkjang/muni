@@ -86,30 +86,53 @@ type Ptium struct {
 	TimeoutSeconds int    `json:"timeoutSeconds"`
 }
 
-// SMTP is the organisation's own mail server.
+// Mail is the organisation's own SMTP relay and what muni sends through it.
 //
 // muni sends through it and nowhere else: there is no hosted sending service
 // and no outbound connection to anywhere an operator did not configure, which
-// is the only arrangement that works on a closed network.
-type SMTP struct {
+// is the only arrangement that works on a closed network. The stored keys
+// (`mail.enabled`, `mail.smtp_host`, ...) are the ones every internal service
+// uses, so an operator who has set one up has set them all up.
+type Mail struct {
 	Enabled  bool   `json:"enabled"`
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
+	SMTPHost string `json:"smtpHost"`
+	// SMTPPort is 25 when unset: an internal relay usually listens there,
+	// without credentials and without TLS.
+	SMTPPort int    `json:"smtpPort"`
 	Username string `json:"username"`
 	Password string `json:"password,omitempty"`
 	// PasswordSet reports whether one is stored, so the form can say so
 	// without ever sending it back.
 	PasswordSet bool `json:"passwordSet"`
-	// Security is "none", "starttls" or "tls".
+	// Security is "auto", "none", "starttls" or "tls". Auto follows what the
+	// relay advertises, which is what a relay nobody documented needs.
 	Security string `json:"security"`
-	From     string `json:"from"`
-	FromName string `json:"fromName"`
-	// SkipVerify accepts a certificate that does not verify, for an internal
-	// server on a private certificate authority.
-	SkipVerify bool `json:"skipVerify"`
+	// SkipTLSVerify accepts a certificate that does not verify, for an
+	// internal server on a private certificate authority.
+	SkipTLSVerify bool   `json:"skipTlsVerify"`
+	FromAddress   string `json:"fromAddress"`
+	FromName      string `json:"fromName"`
 	// BaseURL is what a link in an email points at. Without it the mail says
 	// what happened but not where.
-	BaseURL string `json:"baseUrl"`
+	BaseURL        string `json:"baseUrl"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
+	// Notify switches each kind of mail off on its own, for an administrator
+	// who wants approvals mailed but not mentions.
+	Notify MailNotify `json:"notify"`
+}
+
+// MailNotify is one switch per event muni mails about. Every switch is on
+// unless it was stored off, so a new event never needs a settings change.
+type MailNotify struct {
+	ApprovalRequest  bool `json:"approvalRequest"`
+	ApprovalDecision bool `json:"approvalDecision"`
+	Mention          bool `json:"mention"`
+	APIKeyExpiring   bool `json:"apiKeyExpiring"`
+}
+
+// AllMailNotifications is the default: every event mailed.
+func AllMailNotifications() MailNotify {
+	return MailNotify{ApprovalRequest: true, ApprovalDecision: true, Mention: true, APIKeyExpiring: true}
 }
 
 // Retention is how long muni keeps what it no longer needs.
@@ -166,7 +189,7 @@ type All struct {
 	Export    Export    `json:"export"`
 	Ptium     Ptium     `json:"ptium"`
 	Retention Retention `json:"retention"`
-	SMTP      SMTP      `json:"smtp"`
+	Mail      Mail      `json:"mail"`
 	// Tracking is the visitor tracking snippet. Off by default: a fresh
 	// install serves the page exactly as before until an administrator asks.
 	Tracking tracking.Config `json:"tracking"`
@@ -175,6 +198,10 @@ type All struct {
 	// source is accepted.
 	Handoff handoff.Config `json:"handoff"`
 }
+
+// legacyMailPasswordKey is where the relay password was stored before the
+// mail keys took their standard names. See migration 019.
+const legacyMailPasswordKey = "smtp.password"
 
 type Store struct {
 	db     *pgxpool.Pool
@@ -240,15 +267,21 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	decode(values, "security.audit_reads", &out.Security.AuditReads)
 	decode(values, "export.enable_pdf", &out.Export.EnablePDF)
 	decode(values, "export.enable_docx", &out.Export.EnableDOCX)
-	decode(values, "smtp.enabled", &out.SMTP.Enabled)
-	decode(values, "smtp.host", &out.SMTP.Host)
-	decode(values, "smtp.port", &out.SMTP.Port)
-	decode(values, "smtp.username", &out.SMTP.Username)
-	decode(values, "smtp.security", &out.SMTP.Security)
-	decode(values, "smtp.from", &out.SMTP.From)
-	decode(values, "smtp.from_name", &out.SMTP.FromName)
-	decode(values, "smtp.skip_verify", &out.SMTP.SkipVerify)
-	decode(values, "smtp.base_url", &out.SMTP.BaseURL)
+	out.Mail.Notify = AllMailNotifications()
+	decode(values, "mail.enabled", &out.Mail.Enabled)
+	decode(values, "mail.smtp_host", &out.Mail.SMTPHost)
+	decode(values, "mail.smtp_port", &out.Mail.SMTPPort)
+	decode(values, "mail.username", &out.Mail.Username)
+	decode(values, "mail.security", &out.Mail.Security)
+	decode(values, "mail.from_address", &out.Mail.FromAddress)
+	decode(values, "mail.from_name", &out.Mail.FromName)
+	decode(values, "mail.skip_tls_verify", &out.Mail.SkipTLSVerify)
+	decode(values, "mail.base_url", &out.Mail.BaseURL)
+	decode(values, "mail.timeout_seconds", &out.Mail.TimeoutSeconds)
+	decode(values, "mail.notify_approval_request", &out.Mail.Notify.ApprovalRequest)
+	decode(values, "mail.notify_approval_decision", &out.Mail.Notify.ApprovalDecision)
+	decode(values, "mail.notify_mention", &out.Mail.Notify.Mention)
+	decode(values, "mail.notify_api_key_expiring", &out.Mail.Notify.APIKeyExpiring)
 	decode(values, "retention.trash_days", &out.Retention.TrashDays)
 	decode(values, "retention.revision_days", &out.Retention.RevisionDays)
 	decode(values, "retention.revision_keep", &out.Retention.RevisionKeep)
@@ -283,7 +316,15 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 	out.OIDC.SecretSet = len(secrets["oidc.client_secret"]) > 0
 	out.AI.APIKeySet = len(secrets["ai.api_key"]) > 0
 	out.Ptium.APIKeySet = len(secrets["ptium.api_key"]) > 0
-	out.SMTP.PasswordSet = len(secrets["smtp.password"]) > 0
+	// The password was stored under its old name before the keys were
+	// renamed, and a sealed value cannot be renamed in place: the name is
+	// part of what it is sealed with. The old row keeps working until an
+	// administrator saves a new password, which is written under the new one.
+	passwordKey := "mail.password"
+	if len(secrets[passwordKey]) == 0 && len(secrets[legacyMailPasswordKey]) > 0 {
+		passwordKey = legacyMailPasswordKey
+	}
+	out.Mail.PasswordSet = len(secrets[passwordKey]) > 0
 	if includeSecrets {
 		if out.OIDC.SecretSet {
 			plain, err := s.sealer.Open(secrets["oidc.client_secret"], "setting:oidc.client_secret")
@@ -306,12 +347,12 @@ func (s *Store) GetAll(ctx context.Context, includeSecrets bool) (All, error) {
 			}
 			out.Ptium.APIKey = string(plain)
 		}
-		if out.SMTP.PasswordSet {
-			plain, err := s.sealer.Open(secrets["smtp.password"], "setting:smtp.password")
+		if out.Mail.PasswordSet {
+			plain, err := s.sealer.Open(secrets[passwordKey], "setting:"+passwordKey)
 			if err != nil {
 				return All{}, err
 			}
-			out.SMTP.Password = string(plain)
+			out.Mail.Password = string(plain)
 		}
 	}
 	return out, nil
@@ -348,10 +389,13 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 		"retention.trash_days":  all.Retention.TrashDays, "retention.revision_days": all.Retention.RevisionDays,
 		"retention.revision_keep": all.Retention.RevisionKeep, "retention.audit_days": all.Retention.AuditDays,
 		"retention.ai_audit_days": all.Retention.AIAuditDays,
-		"smtp.enabled":            all.SMTP.Enabled, "smtp.host": all.SMTP.Host, "smtp.port": all.SMTP.Port,
-		"smtp.username": all.SMTP.Username, "smtp.security": all.SMTP.Security,
-		"smtp.from": all.SMTP.From, "smtp.from_name": all.SMTP.FromName,
-		"smtp.skip_verify": all.SMTP.SkipVerify, "smtp.base_url": all.SMTP.BaseURL,
+		"mail.enabled":            all.Mail.Enabled, "mail.smtp_host": all.Mail.SMTPHost, "mail.smtp_port": all.Mail.SMTPPort,
+		"mail.username": all.Mail.Username, "mail.security": all.Mail.Security,
+		"mail.from_address": all.Mail.FromAddress, "mail.from_name": all.Mail.FromName,
+		"mail.skip_tls_verify": all.Mail.SkipTLSVerify, "mail.base_url": all.Mail.BaseURL,
+		"mail.timeout_seconds":         all.Mail.TimeoutSeconds,
+		"mail.notify_approval_request": all.Mail.Notify.ApprovalRequest, "mail.notify_approval_decision": all.Mail.Notify.ApprovalDecision,
+		"mail.notify_mention": all.Mail.Notify.Mention, "mail.notify_api_key_expiring": all.Mail.Notify.APIKeyExpiring,
 		"tracking.enabled": all.Tracking.Enabled, "tracking.provider": all.Tracking.Provider,
 		"tracking.momento_url": all.Tracking.MomentoURL, "tracking.momento_site_id": all.Tracking.MomentoSiteID,
 		"tracking.momento_proxy": all.Tracking.MomentoProxy, "tracking.measurement_id": all.Tracking.MeasurementID,
@@ -370,9 +414,15 @@ func (s *Store) Save(ctx context.Context, all All, actor uuid.UUID) error {
 			return err
 		}
 	}
-	for key, value := range map[string]string{"oidc.client_secret": all.OIDC.ClientSecret, "ai.api_key": all.AI.APIKey, "ptium.api_key": all.Ptium.APIKey, "smtp.password": all.SMTP.Password} {
+	for key, value := range map[string]string{"oidc.client_secret": all.OIDC.ClientSecret, "ai.api_key": all.AI.APIKey, "ptium.api_key": all.Ptium.APIKey, "mail.password": all.Mail.Password} {
 		if value == "" { // Empty input preserves an already configured secret.
 			continue
+		}
+		if key == "mail.password" {
+			// A new password under the new name retires the one under the old.
+			if _, err := tx.Exec(ctx, `DELETE FROM app_settings WHERE key=$1`, legacyMailPasswordKey); err != nil {
+				return err
+			}
 		}
 		encrypted, err := s.sealer.Seal([]byte(value), "setting:"+key)
 		if err != nil {
@@ -412,18 +462,26 @@ func putPlain(ctx context.Context, db execer, key string, value any, actor uuid.
 }
 
 func Validate(all All) error {
-	if all.SMTP.Enabled {
-		if strings.TrimSpace(all.SMTP.Host) == "" {
+	if all.Mail.Enabled {
+		if strings.TrimSpace(all.Mail.SMTPHost) == "" {
 			return errors.New("메일 서버 주소가 필요합니다")
 		}
-		if strings.TrimSpace(all.SMTP.From) == "" && strings.TrimSpace(all.SMTP.Username) == "" {
+		if strings.TrimSpace(all.Mail.FromAddress) == "" && strings.TrimSpace(all.Mail.Username) == "" {
 			return errors.New("보내는 주소가 필요합니다")
 		}
-		if all.SMTP.Port < 0 || all.SMTP.Port > 65535 {
+		if all.Mail.SMTPPort < 0 || all.Mail.SMTPPort > 65535 {
 			return errors.New("메일 서버 포트가 올바르지 않습니다")
 		}
-		if all.SMTP.BaseURL != "" {
-			base, err := url.Parse(all.SMTP.BaseURL)
+		switch strings.ToLower(strings.TrimSpace(all.Mail.Security)) {
+		case "", "auto", "none", "starttls", "tls":
+		default:
+			return errors.New("메일 보안 방식은 auto·none·starttls·tls 중 하나여야 합니다")
+		}
+		if all.Mail.TimeoutSeconds < 0 || all.Mail.TimeoutSeconds > 300 {
+			return errors.New("메일 제한 시간은 0~300초여야 합니다")
+		}
+		if all.Mail.BaseURL != "" {
+			base, err := url.Parse(all.Mail.BaseURL)
 			if err != nil || base.Scheme == "" || base.Host == "" {
 				return errors.New("메일에 넣을 서비스 주소가 올바르지 않습니다")
 			}
