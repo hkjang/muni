@@ -185,10 +185,18 @@ export function EditorPage() {
     ],
     [collaboration.provider, collaboration.ydoc, user?.displayName, user?.id],
   );
+  // Not rendered immediately: useEditor would otherwise build the editor
+  // during render and destroy it a millisecond later unless the page had
+  // mounted by then. A hard load of this chunk misses that window, and the
+  // first commit's effects then reach a destroyed editor — "Cannot read
+  // properties of null (reading 'commands')" behind the error screen. Built
+  // in the mount effect there is no such window; the loading screen below
+  // already covers the render without an editor.
   const editor = useEditor(
     {
       extensions,
       editable: false,
+      immediatelyRender: false,
       onUpdate: ({ editor: current }) => scheduleSave(current),
     },
     [documentId],
@@ -233,7 +241,8 @@ export function EditorPage() {
   }, [documentId]);
   // Reopening a twenty-page report at the top means scrolling back every time.
   useEffect(() => {
-    if (!editor || !collaboration.syncedAt || restored.current) return;
+    if (!editor || editor.isDestroyed || !collaboration.syncedAt || restored.current)
+      return;
     restored.current = true;
     const position = recallPosition(window.localStorage, documentId);
     const size = editor.state.doc.content.size;
@@ -272,12 +281,18 @@ export function EditorPage() {
     if (editor) editor.setEditable(Boolean(canEdit && mode === "editing"));
   }, [editor, canEdit, mode]);
   // The scheme arrives with the document, and changes when anyone edits it.
+  // Moving from one document to another rebuilds the editor, and the effects
+  // of that same commit are still handed the one useEditor has just
+  // destroyed — the scheme changes with the document, so this one runs. The
+  // replacement arrives with the next render and takes the scheme then.
   useEffect(() => {
-    editor?.commands.setHeadingNumbering(numbering);
+    if (!editor || editor.isDestroyed) return;
+    editor.commands.setHeadingNumbering(numbering);
   }, [editor, numbering]);
   useEffect(() => {
     if (
       !editor ||
+      editor.isDestroyed ||
       !document?.content ||
       !collaboration.syncedAt ||
       seeded.current
