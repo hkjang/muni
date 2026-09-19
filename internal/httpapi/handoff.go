@@ -224,10 +224,18 @@ func (s *Server) storeHandoff(ctx context.Context, ownerID uuid.UUID, peer hando
 	if title == "" {
 		title = "받은 문서"
 	}
+	title = truncateRunes(title, 240)
+	// A peer that is itself a muni wrote the title as the first heading of the
+	// Markdown it sent; the same rule as the upload keeps it from showing twice.
+	if parsed.markdown {
+		if content, err = dropLeadingTitle(content, title); err != nil {
+			return uuid.Nil, err
+		}
+	}
 	documentID := uuid.New()
 	err = s.storeImportedDocument(ctx, importedDocument{
 		id: documentID, workspaceID: workspaceID, ownerID: ownerID,
-		title: truncateRunes(title, 240), visibility: "RESTRICTED", content: content, text: extractDocumentText(content),
+		title: title, visibility: "RESTRICTED", content: content, text: extractDocumentText(content),
 		furniture: parsed.furniture, reason: "handoff:" + peer.Origin, attachments: attachments,
 	})
 	if err != nil {

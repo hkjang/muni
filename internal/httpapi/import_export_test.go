@@ -24,6 +24,106 @@ func TestMarkdownImport(t *testing.T) {
 	}
 }
 
+// blocksAfterTitle imports the Markdown and applies the title rule, returning
+// the blocks that would be stored.
+func blocksAfterTitle(t *testing.T, markdown, title string) (json.RawMessage, []*richdoc.Node) {
+	t.Helper()
+	imported, _, err := markdownDocument(markdown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := dropLeadingTitle(imported, title)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := richdoc.Parse(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stored, document.Content
+}
+
+func TestMarkdownRoundTripDropsTheTitleHeading(t *testing.T) {
+	content := json.RawMessage(`{"type":"doc","content":[
+		{"type":"paragraph","content":[{"type":"text","text":"첫 문단"}]},
+		{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"본문의 H1"}]},
+		{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"항목"}]}]}]}
+	]}`)
+	exported := renderMarkdown("회의록", content)
+	if !strings.HasPrefix(exported, "# 회의록\n") {
+		t.Fatalf("export does not start with the title: %s", exported)
+	}
+	imported, _, err := markdownDocument(exported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := richdoc.Parse(imported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Content) != 4 || before.Content[0].Type != "heading" {
+		t.Fatalf("import before the rule: %d blocks, first %q", len(before.Content), before.Content[0].Type)
+	}
+	_, after := blocksAfterTitle(t, exported, "회의록")
+	if len(after) != 3 {
+		t.Fatalf("stored %d blocks, want 3: %v", len(after), after)
+	}
+	for index, block := range after {
+		want, _ := json.Marshal(before.Content[index+1])
+		got, _ := json.Marshal(block)
+		if string(want) != string(got) {
+			t.Errorf("block %d changed:\n want %s\n got  %s", index, want, got)
+		}
+	}
+	// The later H1 is the author's, and stays.
+	if after[1].Type != "heading" || strings.TrimSpace(after[1].PlainText()) != "본문의 H1" {
+		t.Errorf("second heading lost: %v", after[1])
+	}
+}
+
+func TestMarkdownKeepsAHeadingThatIsNotTheTitle(t *testing.T) {
+	cases := map[string]struct{ markdown, title string }{
+		"different words": {"# 제목\n\n본문", "다른 제목"},
+		"second level":    {"## 제목\n\n본문", "제목"},
+		"paragraph first": {"들머리\n\n# 제목\n\n본문", "제목"},
+		"file name stem":  {"# 계획/2026\n\n본문", safeFilename("계획/2026")},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			imported, _, err := markdownDocument(tc.markdown)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, _ := blocksAfterTitle(t, tc.markdown, tc.title)
+			if string(stored) != string(imported) {
+				t.Fatalf("content changed:\n before %s\n after  %s", imported, stored)
+			}
+		})
+	}
+}
+
+func TestMarkdownTitleMatchesAfterUnescaping(t *testing.T) {
+	content := json.RawMessage(`{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"본문"}]}]}`)
+	exported := renderMarkdown("A_B*C", content)
+	if !strings.Contains(exported, `# A\_B\*C`) {
+		t.Fatalf("export did not escape the title: %s", exported)
+	}
+	_, after := blocksAfterTitle(t, exported, "A_B*C")
+	if len(after) != 1 || after[0].Type != "paragraph" {
+		t.Fatalf("stored blocks: %v", after)
+	}
+}
+
+func TestMarkdownTitleOnlyLeavesAnEmptyDocument(t *testing.T) {
+	stored, after := blocksAfterTitle(t, "# 제목", "제목")
+	if !validDocumentJSON(stored) {
+		t.Fatalf("invalid document: %s", stored)
+	}
+	if len(after) != 1 || after[0].Type != "paragraph" || len(after[0].Content) != 0 {
+		t.Fatalf("stored blocks: %s", stored)
+	}
+}
+
 func TestHTMLImportDropsScript(t *testing.T) {
 	document, _, err := htmlDocument([]byte(`<html><body><h1>안전한 제목</h1><p>본문</p><script>alert('x')</script></body></html>`))
 	if err != nil {
