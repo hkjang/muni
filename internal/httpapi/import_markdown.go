@@ -24,6 +24,40 @@ func markdownDocument(value string) (json.RawMessage, []richdoc.Asset, error) {
 	return content, context.assets, nil
 }
 
+// dropLeadingTitle removes a first block that is a level-1 heading saying
+// exactly what the document's title says.
+//
+// muni's own Markdown export writes the title as "# 제목" on the first line and
+// names the file after it, so a file that comes back — re-imported, or handed
+// from one muni to another — would otherwise show its title twice: once above
+// the page and once as the first line. Only an exact match (after trimming
+// whitespace) is taken as the title's echo; any other heading is the author's
+// and stays. Content that is not touched is returned as it was, byte for byte.
+func dropLeadingTitle(content json.RawMessage, title string) (json.RawMessage, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return content, nil
+	}
+	document, err := richdoc.Parse(content)
+	if err != nil {
+		return nil, err
+	}
+	if len(document.Content) == 0 {
+		return content, nil
+	}
+	first := document.Content[0]
+	if first == nil || first.Type != "heading" || first.AttrInt("level", 1) != 1 {
+		return content, nil
+	}
+	if strings.TrimSpace(first.PlainText()) != title {
+		return content, nil
+	}
+	document.Content = document.Content[1:]
+	// A file that was only its title becomes an empty document, and JSON()
+	// gives that its one empty paragraph.
+	return document.JSON()
+}
+
 func splitLines(value string) []string {
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	value = strings.ReplaceAll(value, "\r", "\n")

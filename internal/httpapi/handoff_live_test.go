@@ -216,6 +216,12 @@ func TestReceivingTakesOnlyFromAListedSource(t *testing.T) {
 			_, _ = w.Write([]byte("PK"))
 		case strings.HasPrefix(claim, "gone-already-used"):
 			http.NotFound(w, r)
+		case strings.HasPrefix(claim, "from-another-muni"):
+			// What muni's own export sends: the title as the first heading,
+			// and the file named after it.
+			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''%EC%BA%94%EB%B2%84%EC%8A%A4%20%EC%83%9D%EA%B0%81.md`)
+			_, _ = w.Write([]byte("# 캔버스 생각\n\n첫 문단.\n\n## 소제목\n\n- 하나\n"))
 		default:
 			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 			w.Header().Set("Content-Disposition", `attachment; filename*=UTF-8''%EC%BA%94%EB%B2%84%EC%8A%A4%20%EC%83%9D%EA%B0%81.md`)
@@ -305,6 +311,24 @@ func TestReceivingTakesOnlyFromAListedSource(t *testing.T) {
 	resp.Body.Close()
 	if !strings.Contains(string(exported), "첫 문단.") || !strings.Contains(string(exported), "- 둘") {
 		t.Errorf("the received document lost its body: %s", exported)
+	}
+	// The peer's heading said something other than the file name, so it is
+	// the author's and stays.
+	if first, _ := firstBlockType(t, srv, documentID.String()); first != "heading" {
+		t.Errorf("first block of the received document = %q, want the peer's heading", first)
+	}
+
+	// A document from another muni carries its title as its first heading;
+	// received, the title is shown once — above the page, not in it too.
+	page = receive(t, srv.admin, srv.URL, peer.URL, "from-another-muni-0000")
+	if page.status != http.StatusFound || !strings.HasPrefix(page.location, "/docs/") {
+		t.Fatalf("muni claim = %d → %q: %s", page.status, page.location, page.body)
+	}
+	fromMuni := strings.TrimPrefix(page.location, "/docs/")
+	_ = srv.db.QueryRow(context.Background(), `SELECT title FROM documents WHERE id=$1`, uuid.MustParse(fromMuni)).Scan(&title)
+	first, text := firstBlockType(t, srv, fromMuni)
+	if title != "캔버스 생각" || first != "paragraph" || strings.Contains(text, "캔버스 생각") || !strings.Contains(text, "소제목") {
+		t.Errorf("from another muni: title=%q first=%q text=%q", title, first, text)
 	}
 
 	// Now that a peer is listed which receives markdown, the menu offers it.
