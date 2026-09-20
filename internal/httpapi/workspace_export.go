@@ -114,7 +114,8 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	archive := zip.NewWriter(w)
 	defer archive.Close()
 
-	used := map[string]bool{}
+	const manifestName = "목록.md"
+	used := map[string]bool{manifestName: true}
 	var manifest strings.Builder
 	fmt.Fprintf(&manifest, "# %s\n\n내보낸 시각: %s\n문서 %d건\n\n",
 		workspaceName, time.Now().Format(time.RFC3339), len(items))
@@ -155,7 +156,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	if len(items) == maxWorkspaceExport {
 		fmt.Fprintf(&manifest, "\n문서가 %d건을 넘어 그만큼만 담았습니다.\n", maxWorkspaceExport)
 	}
-	if entry, err := archive.Create("목록.md"); err == nil {
+	if entry, err := archive.Create(manifestName); err == nil {
 		_, _ = entry.Write([]byte(manifest.String()))
 	}
 
