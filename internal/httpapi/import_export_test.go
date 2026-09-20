@@ -81,6 +81,60 @@ func TestMarkdownRoundTripDropsTheTitleHeading(t *testing.T) {
 	}
 }
 
+// The HTML export writes the title the same way — as the first heading of
+// the body — and the same rule takes it back out.
+func TestHTMLRoundTripDropsTheTitleHeading(t *testing.T) {
+	content := json.RawMessage(`{"type":"doc","content":[
+		{"type":"paragraph","content":[{"type":"text","text":"첫 문단"}]},
+		{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"본문의 H1"}]},
+		{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"항목"}]}]}]}
+	]}`)
+	exported := fullHTMLWithDrawing("회의록", false, renderHTML(content), false)
+	if !strings.Contains(exported, `<h1 class="doc-title">회의록</h1>`) {
+		t.Fatalf("export does not write the title as the first heading: %s", exported)
+	}
+	imported, _, err := htmlDocument([]byte(exported))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := richdoc.Parse(imported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Content) != 4 || before.Content[0].Type != "heading" {
+		t.Fatalf("import before the rule: %d blocks, first %q", len(before.Content), before.Content[0].Type)
+	}
+	stored, err := dropLeadingTitle(imported, "회의록")
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, err := richdoc.Parse(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Content) != 3 {
+		t.Fatalf("stored %d blocks, want 3: %v", len(after.Content), after.Content)
+	}
+	for index, block := range after.Content {
+		want, _ := json.Marshal(before.Content[index+1])
+		got, _ := json.Marshal(block)
+		if string(want) != string(got) {
+			t.Errorf("block %d changed:\n want %s\n got  %s", index, want, got)
+		}
+	}
+	if after.Content[1].Type != "heading" || strings.TrimSpace(after.Content[1].PlainText()) != "본문의 H1" {
+		t.Errorf("second heading lost: %v", after.Content[1])
+	}
+	// Under another title the export's heading is kept, byte for byte.
+	kept, err := dropLeadingTitle(imported, "9월 회의")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(kept) != string(imported) {
+		t.Fatalf("content changed under another title:\n before %s\n after  %s", imported, kept)
+	}
+}
+
 func TestMarkdownKeepsAHeadingThatIsNotTheTitle(t *testing.T) {
 	cases := map[string]struct{ markdown, title string }{
 		"different words": {"# 제목\n\n본문", "다른 제목"},

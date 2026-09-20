@@ -119,3 +119,59 @@ func TestAnExportedMarkdownFileImportsWithoutItsTitleTwice(t *testing.T) {
 		t.Errorf("dropped file lost its heading: title=%v %s", data["title"], content)
 	}
 }
+
+// An HTML file muni exported writes its title as the first heading of the
+// body too, and the same rule applies: the file is what the export function
+// writes, so a change to the export's shape is felt here.
+func TestAnExportedHTMLFileImportsWithoutItsTitleTwice(t *testing.T) {
+	srv := newServerUnderTest(t)
+	workspaceID := adminWorkspace(t, srv)
+
+	body := json.RawMessage(`{"type":"doc","content":[
+		{"type":"paragraph","content":[{"type":"text","text":"첫 문단."}]},
+		{"type":"heading","attrs":{"level":1},"content":[{"type":"text","text":"안건"}]},
+		{"type":"paragraph","content":[{"type":"text","text":"둘째 문단."}]}
+	]}`)
+	exported := []byte(fullHTMLWithDrawing("회의록", false, renderHTML(body), false))
+	document := importFile(t, srv, workspaceID, "회의록.html", "", exported)
+	if document["title"] != "회의록" {
+		t.Fatalf("title = %v", document["title"])
+	}
+	first, text := firstBlockType(t, srv, document["id"].(string))
+	if first != "paragraph" {
+		t.Errorf("first block = %q, want the paragraph after the title", first)
+	}
+	if strings.Contains(text, "회의록") || !strings.Contains(text, "안건") {
+		t.Errorf("search text = %q", text)
+	}
+
+	// Under another title the export's heading is the author's and stays.
+	document = importFile(t, srv, workspaceID, "회의록.html", "9월 회의", exported)
+	if document["title"] != "9월 회의" {
+		t.Fatalf("title = %v", document["title"])
+	}
+	first, text = firstBlockType(t, srv, document["id"].(string))
+	if first != "heading" || !strings.Contains(text, "회의록") {
+		t.Errorf("first block = %q, text = %q: the author's heading was taken for the title", first, text)
+	}
+
+	// A plain text file never had a title written into it; its first line
+	// stays even when it says what the title says.
+	document = importFile(t, srv, workspaceID, "회의록.txt", "", []byte("회의록\n\n첫 문단.\n"))
+	if document["title"] != "회의록" {
+		t.Fatalf("title = %v", document["title"])
+	}
+	if _, text = firstBlockType(t, srv, document["id"].(string)); !strings.HasPrefix(text, "회의록") {
+		t.Errorf("plain text lost its first line: %q", text)
+	}
+
+	// Dropped on an open document the rule does not apply.
+	status, data := importIntoDocument(t, srv, document["id"].(string), "회의록.html", exported)
+	if status != 200 {
+		t.Fatalf("import into document = %d %v", status, data)
+	}
+	content, _ := json.Marshal(data["content"])
+	if !strings.Contains(string(content), `"heading"`) || data["title"] != "회의록" {
+		t.Errorf("dropped file lost its heading: title=%v %s", data["title"], content)
+	}
+}
