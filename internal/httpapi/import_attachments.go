@@ -119,10 +119,11 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 		title = "가져온 문서"
 	}
 	title = truncateRunes(title, 240)
-	// A Markdown file muni exported carries its title as the first heading;
-	// now that the title is decided, that echo leaves the body — before the
-	// search text is taken from it, so the title is not indexed twice.
-	if parsed.markdown {
+	// A Markdown or HTML file muni exported carries its title as the first
+	// heading; now that the title is decided, that echo leaves the body —
+	// before the search text is taken from it, so the title is not indexed
+	// twice.
+	if parsed.titleInBody {
 		content, err = dropLeadingTitle(content, title)
 		if err != nil {
 			writeError(w, 400, "IMPORT_PARSE_FAILED", "가져온 문서를 변환하지 못했습니다: "+err.Error())
@@ -195,9 +196,10 @@ type upload struct {
 	assets    []richdoc.Asset
 	title     string
 	furniture docx.Meta
-	// markdown says the file was Markdown, whose first heading may be the
-	// title written into the body by muni's own export (dropLeadingTitle).
-	markdown bool
+	// titleInBody says the file is a format whose first heading may be the
+	// title written into the body by muni's own Markdown or HTML export
+	// (dropLeadingTitle).
+	titleInBody bool
 }
 
 var errUnsupportedUpload = errors.New("지원 형식은 PDF, DOCX, HWP, HWPX, Markdown, TXT, HTML입니다.")
@@ -211,15 +213,16 @@ func parseUpload(ctx context.Context, extension string, body []byte) (upload, er
 	embeddedTitle := ""
 	var furniture docx.Meta
 	var err error
-	markdown := false
+	titleInBody := false
 	switch extension {
 	case ".txt":
 		content, err = plainTextDocument(string(body))
 	case ".md", ".markdown":
 		content, assets, err = markdownDocument(string(body))
-		markdown = true
+		titleInBody = true
 	case ".html", ".htm":
 		content, assets, err = htmlDocument(body)
+		titleInBody = true
 	case ".docx":
 		content, assets, furniture, err = docxImport(body)
 	case ".hwpx":
@@ -238,7 +241,7 @@ func parseUpload(ctx context.Context, extension string, body []byte) (upload, er
 	if err != nil {
 		return upload{}, err
 	}
-	return upload{content: content, assets: assets, title: embeddedTitle, furniture: furniture, markdown: markdown}, nil
+	return upload{content: content, assets: assets, title: embeddedTitle, furniture: furniture, titleInBody: titleInBody}, nil
 }
 
 // importIntoDocument reads a file dropped on an open document and returns

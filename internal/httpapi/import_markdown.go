@@ -27,10 +27,11 @@ func markdownDocument(value string) (json.RawMessage, []richdoc.Asset, error) {
 // dropLeadingTitle removes a first block that is a level-1 heading saying
 // exactly what the document's title says.
 //
-// muni's own Markdown export writes the title as "# 제목" on the first line and
-// names the file after it, so a file that comes back — re-imported, or handed
-// from one muni to another — would otherwise show its title twice: once above
-// the page and once as the first line. Only an exact match (after trimming
+// muni's own Markdown export writes the title as "# 제목" on the first line, the
+// HTML export as the body's first <h1>, and both name the file after it, so a
+// file that comes back — re-imported, or handed from one muni to another —
+// would otherwise show its title twice: once above the page and once as the
+// first line. Only an exact match (after trimming
 // whitespace) is taken as the title's echo; any other heading is the author's
 // and stays. Content that is not touched is returned as it was, byte for byte.
 func dropLeadingTitle(content json.RawMessage, title string) (json.RawMessage, error) {

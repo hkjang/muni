@@ -227,7 +227,7 @@ func (s *Server) storeHandoff(ctx context.Context, ownerID uuid.UUID, peer hando
 	title = truncateRunes(title, 240)
 	// A peer that is itself a muni wrote the title as the first heading of the
 	// Markdown it sent; the same rule as the upload keeps it from showing twice.
-	if parsed.markdown {
+	if parsed.titleInBody {
 		if content, err = dropLeadingTitle(content, title); err != nil {
 			return uuid.Nil, err
 		}
