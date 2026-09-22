@@ -1,9 +1,64 @@
 package httpapi
 
 import (
+	"path"
 	"strings"
 	"testing"
 )
+
+func TestAFolderNamedDotOrDotDotIsNotAPathElement(t *testing.T) {
+	// A folder may be called anything the name check lets through, and `.` and
+	// `..` mean something to every unpacking tool. Everything else has to come
+	// out of the helper byte for byte as it went in.
+	cases := []struct {
+		name string
+		want string
+	}{
+		{"2026", "2026"},
+		{"회의 자료", "회의 자료"},
+		{"...", "..."},
+		{"..보관", "..보관"},
+		{"a/b", "a-b"},
+		{"a/..", "a-.."},  // the slash already made it something else
+		{"./..", ".-.."},  // and so did this one
+		{"\\..", "-.."},   // a backslash goes the same way
+		{".", "_."},       // the two that do not
+		{"..", "_.."},     //
+		{"  ..  ", "_.."}, // surrounding space is trimmed before the check
+		{"", "muni-document"},
+	}
+	for _, c := range cases {
+		if got := safeFolderSegment(c.name); got != c.want {
+			t.Errorf("safeFolderSegment(%q) = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestAFolderNameCannotWalkOutOfTheArchive(t *testing.T) {
+	// The segment is joined onto a prefix, and path.Join cleans as it goes: a
+	// `..` element climbs out of the archive root, and a `.` element folds the
+	// folder into its parent. Neither may survive the helper.
+	names := []string{".", "..", "  ..  ", "./..", "a/..", "...", "보고서"}
+	for _, name := range names {
+		segment := safeFolderSegment(name)
+		for _, prefix := range []string{"", "휴지통", "2026"} {
+			joined := path.Join(prefix, segment)
+			for _, element := range strings.Split(joined, "/") {
+				if element == ".." || element == "." {
+					t.Errorf("path.Join(%q, safeFolderSegment(%q)) = %q escapes the archive", prefix, name, joined)
+				}
+			}
+			// A document under a folder in the trash stays in the trash.
+			if prefix == "휴지통" && !strings.HasPrefix(joined, "휴지통/") {
+				t.Errorf("trashed folder %q landed at %q, outside 휴지통", name, joined)
+			}
+			// Two different folders never become one directory.
+			if prefix == "" && joined == "" {
+				t.Errorf("folder %q collapsed onto the archive root", name)
+			}
+		}
+	}
+}
 
 func TestTwoDocumentsWithOneTitleBecomeTwoFiles(t *testing.T) {
 	// Otherwise the second overwrites the first and the export quietly loses a
