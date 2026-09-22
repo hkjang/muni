@@ -209,7 +209,7 @@ func (s *Server) folderPaths(r *http.Request, workspaceID uuid.UUID) (map[string
 		if entry.parent != nil {
 			prefix = resolve(*entry.parent, depth+1)
 		}
-		result := path.Join(prefix, safeFilename(entry.name))
+		result := path.Join(prefix, safeFolderSegment(entry.name))
 		paths[id.String()] = result
 		return result
 	}
@@ -224,6 +224,24 @@ func folderKey(id *uuid.UUID) string {
 		return ""
 	}
 	return id.String()
+}
+
+// safeFolderSegment turns a folder name into one element of an archive path.
+//
+// safeFilename already takes the separators out, so what comes back can only be
+// a single element — except for the two names every path reader treats as
+// navigation. A folder called `..` walks the entry out of the archive root
+// (`../문서.md`, which a naive unpacker writes outside the target directory),
+// and both `.` and `..` fold the folder into its parent, so a trashed document
+// lands back among the live ones and two different folders become one. Prefixing
+// those two leaves every other name — Korean, spaces, dots anywhere else —
+// exactly as safeFilename left it.
+func safeFolderSegment(name string) string {
+	safe := safeFilename(name)
+	if safe == "." || safe == ".." {
+		return "_" + safe
+	}
+	return safe
 }
 
 // uniqueEntryName keeps two documents with the same title from becoming one
