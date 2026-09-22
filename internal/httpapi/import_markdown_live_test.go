@@ -119,3 +119,47 @@ func TestAnExportedMarkdownFileImportsWithoutItsTitleTwice(t *testing.T) {
 		t.Errorf("dropped file lost its heading: title=%v %s", data["title"], content)
 	}
 }
+
+// Markdown written elsewhere may leave off the optional trailing delimiter.
+// Uploaded that way, a pipe the last cell escaped is part of the cell text and
+// must survive as far as the stored document and its search text.
+func TestAnUploadedMarkdownTableKeepsAnEscapedPipeInItsLastCell(t *testing.T) {
+	srv := newServerUnderTest(t)
+	workspaceID := adminWorkspace(t, srv)
+
+	uploaded := []byte("| 좌 | 우 |\n| --- | --- |\n| 가 | 나\\|\n")
+	document := importFile(t, srv, workspaceID, "표.md", "", uploaded)
+
+	var content json.RawMessage
+	var text string
+	if err := srv.db.QueryRow(t.Context(), `SELECT content_json,content_text FROM documents WHERE id=$1`,
+		uuid.MustParse(document["id"].(string))).Scan(&content, &text); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "나|") {
+		t.Errorf("search text = %q, want the cell to keep its pipe\n%s", text, content)
+	}
+	if strings.Contains(text, `나\`) {
+		t.Errorf("search text = %q kept the backslash instead of the pipe", text)
+	}
+	// Both rows must still have the two cells the header declared.
+	var stored struct {
+		Content []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Content []json.RawMessage `json:"content"`
+			} `json:"content"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(content, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.Content) == 0 || stored.Content[0].Type != "table" {
+		t.Fatalf("first block is not a table: %s", content)
+	}
+	for index, row := range stored.Content[0].Content {
+		if len(row.Content) != 2 {
+			t.Errorf("row %d has %d cells, want 2: %s", index, len(row.Content), content)
+		}
+	}
+}

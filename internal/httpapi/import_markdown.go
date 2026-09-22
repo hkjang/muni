@@ -577,24 +577,32 @@ func isTableDelimiterRow(line string) bool {
 func splitTableRow(line string) []string {
 	trimmed := strings.TrimSpace(line)
 	trimmed = strings.TrimPrefix(trimmed, "|")
-	trimmed = strings.TrimSuffix(trimmed, "|")
 	cells := make([]string, 0, 4)
 	var current strings.Builder
+	// The trailing pipe is optional, so it is only a delimiter when it is not
+	// escaped. Dropping it before the scan would eat an escaped pipe that ends
+	// the last cell.
+	endedWithDelimiter := false
 	runes := []rune(trimmed)
 	for index := 0; index < len(runes); index++ {
 		if runes[index] == '\\' && index+1 < len(runes) && runes[index+1] == '|' {
 			current.WriteRune('|')
 			index++
+			endedWithDelimiter = false
 			continue
 		}
 		if runes[index] == '|' {
 			cells = append(cells, current.String())
 			current.Reset()
+			endedWithDelimiter = true
 			continue
 		}
 		current.WriteRune(runes[index])
+		endedWithDelimiter = false
 	}
-	cells = append(cells, current.String())
+	if !endedWithDelimiter {
+		cells = append(cells, current.String())
+	}
 	return cells
 }
 
