@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/hkjang/muni/internal/docx"
@@ -310,7 +311,33 @@ func safeFilename(value string) string {
 	if value == "" {
 		return "muni-document"
 	}
-	return truncateRunes(value, 100)
+	return cutFilenameRunes(value, 100)
+}
+
+// cutFilenameRunes shortens a title to a file name, and only that.
+//
+// The obvious helper to reach for here is truncateRunes, and this used to. But
+// that one is written for an AI prompt: when it cuts, it says so, appending a
+// newline and a sentence telling the model the context was shortened. In a
+// prompt that sentence is the point. In a file name it is the whole failure —
+// a title over 100 runes (the API allows 240, so an ordinary long report title
+// gets there) came out as a download called `…금합\n[…문서 컨텍스트가 길어 일부
+// 생략됨…].md`, and the newline reached the Content-Disposition header, where
+// net/http turns it into a space and a header parser then rejects the entire
+// value as an invalid parameter. The archive has no such sanitising, so the
+// notice and the line break landed in the zip entry name as written.
+//
+// So the cut for names keeps nothing but the name: no marker, and no trailing
+// space, because the cut can land just after one and a name ending in a space
+// is one an unpacker or a file system may quietly rewrite. A value at or under
+// the limit is returned untouched — safeFilename has already trimmed its ends,
+// so only the cut itself can leave a space behind.
+func cutFilenameRunes(value string, max int) string {
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return strings.TrimRightFunc(string(runes[:max]), unicode.IsSpace)
 }
 
 func urlPathEscape(value string) string {
