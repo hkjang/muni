@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -15,14 +14,15 @@ import (
 // mailerFor builds a sender from the stored settings.
 func mailerFor(all settings.All) mailer.Config {
 	return mailer.Config{
-		Host:       all.SMTP.Host,
-		Port:       all.SMTP.Port,
-		Username:   all.SMTP.Username,
-		Password:   all.SMTP.Password,
-		Security:   all.SMTP.Security,
-		From:       all.SMTP.From,
-		FromName:   all.SMTP.FromName,
-		SkipVerify: all.SMTP.SkipVerify,
+		Host:       all.Mail.SMTPHost,
+		Port:       all.Mail.SMTPPort,
+		Username:   all.Mail.Username,
+		Password:   all.Mail.Password,
+		Security:   all.Mail.Security,
+		From:       all.Mail.FromAddress,
+		FromName:   all.Mail.FromName,
+		SkipVerify: all.Mail.SkipTLSVerify,
+		Timeout:    time.Duration(all.Mail.TimeoutSeconds) * time.Second,
 	}.Normalize()
 }
 
@@ -55,11 +55,18 @@ func (s *Server) StartNotificationMail(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(outboxInterval)
 		defer ticker.Stop()
+		var lastKeyScan time.Time
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
+			}
+			if time.Since(lastKeyScan) >= keyExpiryScanInterval {
+				lastKeyScan = time.Now()
+				if err := s.remindExpiringAPIKeys(ctx); err != nil {
+					s.logger.Warn("api key expiry reminders failed", "error", err)
+				}
 			}
 			if sent, err := s.flushNotificationMail(ctx); err != nil {
 				s.logger.Warn("notification mail failed", "error", err)
@@ -72,6 +79,7 @@ func (s *Server) StartNotificationMail(ctx context.Context) {
 
 type pendingMail struct {
 	id           uuid.UUID
+	userID       uuid.UUID
 	email        string
 	displayName  string
 	kind         string
@@ -81,12 +89,16 @@ type pendingMail struct {
 	resourceID   *uuid.UUID
 }
 
+// flushNotificationMail sends what is waiting and reports how many mails
+// left. One person gets one mail per pass however many notifications are
+// waiting for them: a comment that mentions somebody twice, or a busy minute,
+// is one message and not a burst that teaches them to filter muni out.
 func (s *Server) flushNotificationMail(ctx context.Context) (int, error) {
 	all, err := s.settings.GetAll(ctx, true)
 	if err != nil {
 		return 0, err
 	}
-	if !all.SMTP.Enabled {
+	if !all.Mail.Enabled {
 		return 0, nil
 	}
 	sender := mailerFor(all)
@@ -95,15 +107,16 @@ func (s *Server) flushNotificationMail(ctx context.Context) (int, error) {
 	}
 
 	rows, err := s.db.Query(ctx, `
-		SELECT n.id, u.email, u.display_name, n.type, n.title, n.body, n.resource_type, n.resource_id
+		SELECT n.id, u.id, u.email, u.display_name, n.type, n.title, n.body, n.resource_type, n.resource_id
 		FROM notifications n JOIN users u ON u.id = n.user_id
 		WHERE n.emailed_at IS NULL
 			AND n.email_attempts < $1
 			AND n.created_at > now() - make_interval(hours => $2)
+			AND n.type = ANY($3)
 			AND u.status = 'ACTIVE'
 			AND coalesce(btrim(u.email), '') <> ''
-		ORDER BY n.created_at LIMIT $3`,
-		maxEmailAttempts, int(outboxHorizon.Hours()), outboxBatch)
+		ORDER BY n.created_at LIMIT $4`,
+		maxEmailAttempts, int(outboxHorizon.Hours()), mailedNotificationTypes(all.Mail.Notify), outboxBatch)
 	if err != nil {
 		return 0, err
 	}
@@ -111,7 +124,7 @@ func (s *Server) flushNotificationMail(ctx context.Context) (int, error) {
 	for rows.Next() {
 		var item pendingMail
 		var resourceType *string
-		if rows.Scan(&item.id, &item.email, &item.displayName, &item.kind,
+		if rows.Scan(&item.id, &item.userID, &item.email, &item.displayName, &item.kind,
 			&item.title, &item.body, &resourceType, &item.resourceID) == nil {
 			if resourceType != nil {
 				item.resourceType = *resourceType
@@ -125,28 +138,68 @@ func (s *Server) flushNotificationMail(ctx context.Context) (int, error) {
 	}
 
 	sent := 0
-	for _, item := range pending {
+	for _, bundle := range bundleByRecipient(pending) {
+		ids := make([]uuid.UUID, 0, len(bundle))
+		for _, item := range bundle {
+			ids = append(ids, item.id)
+		}
 		// The attempt is counted before it is made: a send that fails in a way
 		// that repeats would otherwise be retried every minute forever.
-		if _, err := s.db.Exec(ctx, `UPDATE notifications SET email_attempts = email_attempts + 1 WHERE id=$1`, item.id); err != nil {
+		if _, err := s.db.Exec(ctx, `UPDATE notifications SET email_attempts = email_attempts + 1 WHERE id = ANY($1)`, ids); err != nil {
 			continue
 		}
 		message := mailer.Message{
-			To:      item.email,
-			Subject: item.title,
-			Body:    notificationBody(item, all.General.ServiceName, all.SMTP.BaseURL),
+			To:      bundle[0].email,
+			Subject: mailSubject(bundle, all.General.ServiceName),
+			Body:    notificationBody(bundle, all.General.ServiceName, all.Mail.BaseURL),
 		}
-		if err := sender.Send(message); err != nil {
+		err := sender.Send(message)
+		s.recordMailDelivery(ctx, mailDelivery{
+			event: mailEventOf(bundle), recipient: message.To, subject: message.Subject,
+			userID: &bundle[0].userID, notifications: len(bundle), err: err,
+		})
+		if err != nil {
 			s.logger.Warn("notification mail was not delivered",
-				"notification", item.id, "error", err)
+				"notifications", len(bundle), "error", err)
 			continue
 		}
-		if _, err := s.db.Exec(ctx, `UPDATE notifications SET emailed_at = now() WHERE id=$1`, item.id); err != nil {
-			s.logger.Warn("notification was sent but not marked", "notification", item.id, "error", err)
+		if _, err := s.db.Exec(ctx, `UPDATE notifications SET emailed_at = now() WHERE id = ANY($1)`, ids); err != nil {
+			s.logger.Warn("notification was sent but not marked", "error", err)
 		}
 		sent++
 	}
 	return sent, nil
+}
+
+// bundleByRecipient groups what is waiting by the person it is for, keeping
+// the order things happened in both across people and within one person's
+// bundle.
+func bundleByRecipient(pending []pendingMail) [][]pendingMail {
+	index := map[uuid.UUID]int{}
+	bundles := make([][]pendingMail, 0, len(pending))
+	for _, item := range pending {
+		at, seen := index[item.userID]
+		if !seen {
+			at = len(bundles)
+			index[item.userID] = at
+			bundles = append(bundles, nil)
+		}
+		bundles[at] = append(bundles[at], item)
+	}
+	return bundles
+}
+
+// mailSubject is the notification's own title when there is one, and a count
+// when several are travelling together — the first title is kept so the
+// subject still says what kind of thing is inside.
+func mailSubject(bundle []pendingMail, serviceName string) string {
+	if strings.TrimSpace(serviceName) == "" {
+		serviceName = "muni"
+	}
+	if len(bundle) == 1 {
+		return bundle[0].title
+	}
+	return fmt.Sprintf("[%s] %s 외 %d건", serviceName, bundle[0].title, len(bundle)-1)
 }
 
 // notificationBody writes the mail.
@@ -154,18 +207,25 @@ func (s *Server) flushNotificationMail(ctx context.Context) (int, error) {
 // Plain text, the reader's name, what happened, and a link if there is
 // somewhere to point. Nothing from the document itself: a notification that
 // carries content sends that content to whatever mail system the recipient
-// forwards to.
-func notificationBody(item pendingMail, serviceName, baseURL string) string {
+// forwards to. A bundle lists each notification in turn, oldest first.
+func notificationBody(bundle []pendingMail, serviceName, baseURL string) string {
 	if strings.TrimSpace(serviceName) == "" {
 		serviceName = "muni"
 	}
 	var out strings.Builder
-	fmt.Fprintf(&out, "%s님,\n\n", item.displayName)
-	out.WriteString(strings.TrimSpace(item.body))
-	out.WriteString("\n")
-
-	if link := notificationLink(baseURL, item.resourceType, item.resourceID); link != "" {
-		out.WriteString("\n" + link + "\n")
+	fmt.Fprintf(&out, "%s님,\n\n", bundle[0].displayName)
+	for index, item := range bundle {
+		if len(bundle) > 1 {
+			fmt.Fprintf(&out, "%d. %s\n", index+1, strings.TrimSpace(item.title))
+		}
+		out.WriteString(strings.TrimSpace(item.body))
+		out.WriteString("\n")
+		if link := notificationLink(baseURL, item.resourceType, item.resourceID); link != "" {
+			out.WriteString(link + "\n")
+		}
+		if index < len(bundle)-1 {
+			out.WriteString("\n")
+		}
 	}
 	fmt.Fprintf(&out, "\n—\n%s에서 보낸 알림입니다. 이 메일에는 답장할 수 없습니다.\n", serviceName)
 	return out.String()
@@ -181,56 +241,9 @@ func notificationLink(baseURL, resourceType string, resourceID *uuid.UUID) strin
 		return base + "/docs/" + resourceID.String()
 	case "WORKSPACE":
 		return base + "/workspace/" + resourceID.String()
+	case "API_KEY":
+		return base + "/settings"
 	default:
 		return base
 	}
-}
-
-// testSMTP sends one message to the administrator asking for the test.
-//
-// A mail server that is nearly configured looks exactly like one that is: the
-// only way to know is to send something and see it arrive.
-func (s *Server) testSMTP(w http.ResponseWriter, r *http.Request) {
-	var input settings.SMTP
-	if !decodeJSON(w, r, &input) {
-		return
-	}
-	if input.Password == "" {
-		// The form does not send a password back, so an unchanged one has to
-		// come from what is stored.
-		all, _ := s.settings.GetAll(r.Context(), true)
-		input.Password = all.SMTP.Password
-	}
-	p, _ := principalFrom(r.Context())
-	recipient := strings.TrimSpace(p.User.Email)
-	if recipient == "" {
-		writeError(w, 409, "NO_ADMIN_EMAIL", "관리자 계정에 이메일 주소가 없어 시험 메일을 보낼 수 없습니다.")
-		return
-	}
-
-	sender := mailerFor(settings.All{SMTP: input})
-	if !sender.Usable() {
-		writeError(w, 400, "SMTP_CONFIG_REQUIRED", "메일 서버 주소와 보내는 주소가 필요합니다.")
-		return
-	}
-
-	all, _ := s.settings.GetAll(r.Context(), false)
-	serviceName := strings.TrimSpace(all.General.ServiceName)
-	if serviceName == "" {
-		serviceName = "muni"
-	}
-	err := sender.Send(mailer.Message{
-		To:      recipient,
-		Subject: serviceName + " 메일 설정 시험",
-		Body: "이 메일이 도착했다면 " + serviceName +
-			"이 사내 메일 서버로 알림을 보낼 수 있습니다.\n\n" +
-			"보낸 서버: " + sender.Host + ":" + fmt.Sprint(sender.Port) +
-			" (" + sender.Security + ")\n",
-	})
-	if err != nil {
-		writeError(w, 502, "SMTP_TEST_FAILED", err.Error())
-		return
-	}
-	s.audit(r, &p.User.ID, "TEST_SMTP", "SETTINGS", nil, map[string]any{"host": sender.Host})
-	writeData(w, 200, map[string]any{"ok": true, "sentTo": recipient})
 }

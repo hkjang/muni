@@ -10,6 +10,11 @@ describe("notificationTarget", () => {
     expect(notificationTarget("WORKSPACE", "abc")).toBe("/workspace/abc");
   });
 
+  it("opens personal settings for an expiring API key", () => {
+    // The mail points at the same place, so both roads land on the keys.
+    expect(notificationTarget("API_KEY", "abc")).toBe("/settings");
+  });
+
   it("goes nowhere when there is no screen for it", () => {
     expect(notificationTarget("SETTINGS", "abc")).toBe("");
     expect(notificationTarget("DOCUMENT", undefined)).toBe("");

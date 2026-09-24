@@ -19,6 +19,11 @@ import (
 
 // Security is how the connection is protected.
 const (
+	// SecurityAuto follows what the relay advertises: it upgrades with
+	// STARTTLS when offered and carries on in the clear when not. It is the
+	// default because an internal relay on port 25 is usually one nobody
+	// documented, and the operator should not have to find out first.
+	SecurityAuto = "auto"
 	// SecurityNone is a plain connection, for a server on the same network
 	// that does not offer TLS.
 	SecurityNone = "none"
@@ -56,9 +61,13 @@ type Message struct {
 	Body string
 }
 
-const defaultTimeout = 20 * time.Second
+const defaultTimeout = 10 * time.Second
 
 // Normalize fills in what an administrator left out.
+//
+// The defaults are the common internal relay: port 25, no credentials, and
+// whatever protection the server offers. Authentication and encryption are
+// there when a relay wants them, not required before anything can be sent.
 func (c Config) Normalize() Config {
 	c.Host = strings.TrimSpace(c.Host)
 	c.Username = strings.TrimSpace(c.Username)
@@ -66,17 +75,21 @@ func (c Config) Normalize() Config {
 	c.FromName = strings.TrimSpace(c.FromName)
 	c.Security = strings.ToLower(strings.TrimSpace(c.Security))
 	switch c.Security {
-	case SecurityNone, SecurityStartTLS, SecurityTLS:
+	case SecurityAuto, SecurityNone, SecurityStartTLS, SecurityTLS:
 	default:
-		c.Security = SecurityStartTLS
+		c.Security = SecurityAuto
 	}
 	if c.Port <= 0 || c.Port > 65535 {
 		switch c.Security {
 		case SecurityTLS:
 			c.Port = 465
 		default:
-			c.Port = 587
+			c.Port = 25
 		}
+	}
+	// A relay on the implicit TLS port needs no extra configuration.
+	if c.Security == SecurityAuto && c.Port == 465 {
+		c.Security = SecurityTLS
 	}
 	if c.Timeout <= 0 {
 		c.Timeout = defaultTimeout
@@ -160,14 +173,17 @@ func (c Config) connect() (*smtp.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if c.Security == SecurityStartTLS {
-		if ok, _ := client.Extension("STARTTLS"); !ok {
+	if c.Security == SecurityStartTLS || c.Security == SecurityAuto {
+		offered, _ := client.Extension("STARTTLS")
+		if !offered && c.Security == SecurityStartTLS {
 			_ = client.Close()
 			return nil, errors.New("메일 서버가 STARTTLS를 지원하지 않습니다. 보안 방식을 확인해 주세요")
 		}
-		if err := client.StartTLS(c.tlsConfig()); err != nil {
-			_ = client.Close()
-			return nil, fmt.Errorf("STARTTLS에 실패했습니다: %w", err)
+		if offered {
+			if err := client.StartTLS(c.tlsConfig()); err != nil {
+				_ = client.Close()
+				return nil, fmt.Errorf("STARTTLS에 실패했습니다: %w", err)
+			}
 		}
 	}
 	return client, nil
@@ -183,7 +199,7 @@ func (c Config) tlsConfig() *tls.Config {
 // which is right, and several corporate servers only offer LOGIN — so both are
 // implemented and both are held to the same rule.
 func (c Config) authenticate(client *smtp.Client) error {
-	encrypted := c.Security != SecurityNone
+	encrypted := c.Security == SecurityStartTLS || c.Security == SecurityTLS
 	if state, ok := client.TLSConnectionState(); ok && state.HandshakeComplete {
 		encrypted = true
 	}

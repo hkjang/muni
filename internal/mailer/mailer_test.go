@@ -280,14 +280,55 @@ func TestNormalizePicksThePortForTheSecurity(t *testing.T) {
 	if got := (Config{Host: "mail", Security: SecurityTLS}).Normalize().Port; got != 465 {
 		t.Fatalf("implicit TLS should default to 465, got %d", got)
 	}
-	if got := (Config{Host: "mail"}).Normalize().Port; got != 587 {
-		t.Fatalf("submission should default to 587, got %d", got)
+	// An internal relay listens on 25 without credentials or TLS; that is the
+	// common case and so the default.
+	if got := (Config{Host: "mail"}).Normalize().Port; got != 25 {
+		t.Fatalf("a relay should default to 25, got %d", got)
+	}
+	if got := (Config{Host: "mail", Port: 465}).Normalize().Security; got != SecurityTLS {
+		t.Fatalf("the implicit TLS port should imply TLS, got %q", got)
 	}
 }
 
-func TestNormalizeFallsBackToStartTLS(t *testing.T) {
-	if got := (Config{Host: "mail", Security: "nonsense"}).Normalize().Security; got != SecurityStartTLS {
-		t.Fatalf("an unknown security mode should become starttls, got %q", got)
+func TestNormalizeFallsBackToAuto(t *testing.T) {
+	if got := (Config{Host: "mail", Security: "nonsense"}).Normalize().Security; got != SecurityAuto {
+		t.Fatalf("an unknown security mode should become auto, got %q", got)
+	}
+	if got := (Config{Host: "mail"}).Normalize().Timeout; got != 10*time.Second {
+		t.Fatalf("the default timeout should be 10s, got %s", got)
+	}
+}
+
+func TestAutoSendsInTheClearWhenTheRelayOffersNoTLS(t *testing.T) {
+	// The common internal relay: port 25, no STARTTLS, no AUTH. Auto must not
+	// demand what the server never offered.
+	server := startFake(t, "", false)
+	config := server.config()
+	config.Security = SecurityAuto
+	if err := config.Send(Message{To: "a@example.com", Subject: "x", Body: "y"}); err != nil {
+		t.Fatalf("auto should carry on without TLS: %v", err)
+	}
+	if !strings.Contains(server.lastMessage(t), "To: a@example.com") {
+		t.Fatal("the message did not arrive")
+	}
+}
+
+func TestAutoStillKeepsCredentialsOffAClearConnection(t *testing.T) {
+	// Auto adapts the transport, not the rule: with no TLS on offer and a
+	// password configured, the password stays home.
+	server := startFake(t, "PLAIN LOGIN", false)
+	config := server.config()
+	config.Security = SecurityAuto
+	config.Username = "muni"
+	config.Password = "secret"
+	err := config.Send(Message{To: "a@example.com", Subject: "x", Body: "y"})
+	if err == nil || !strings.Contains(err.Error(), "암호화") {
+		t.Fatalf("expected the clear-text authentication to be refused, got %v", err)
+	}
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if len(server.auth) != 0 {
+		t.Fatalf("credentials reached the server: %v", server.auth)
 	}
 }
 
