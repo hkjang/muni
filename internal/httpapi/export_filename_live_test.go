@@ -18,11 +18,11 @@ import (
 // the routes actually send: the download header a browser saves by, and the
 // entry names an unpacker writes to disk.
 
-// longTitledDocument creates a document the way the editor does — over the API,
-// so the 240-rune title limit the endpoint enforces is the one in play — and
-// takes it back out afterwards, because the administrator's workspace outlives
-// the test.
-func longTitledDocument(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID, title string) uuid.UUID {
+// documentTitledOverTheAPI creates a document the way the editor does — over
+// the API, so the 240-rune title limit the endpoint enforces is the one in play
+// — and takes it back out afterwards, because the administrator's workspace
+// outlives the test.
+func documentTitledOverTheAPI(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID, title string) uuid.UUID {
 	t.Helper()
 	status, data := postJSON(t, srv.admin, srv.URL+"/api/v1/documents", map[string]any{
 		"workspaceId": workspaceID.String(),
@@ -50,7 +50,7 @@ func TestALongTitleDoesNotPutAContextNoticeInTheDownloadName(t *testing.T) {
 	if got := len([]rune(overLongTitle)); got != 120 {
 		t.Fatalf("the fixture title is %d runes, not the 120 this test is about", got)
 	}
-	document := longTitledDocument(t, srv, adminWorkspace(t, srv), overLongTitle)
+	document := documentTitledOverTheAPI(t, srv, adminWorkspace(t, srv), overLongTitle)
 
 	resp, err := srv.admin.Get(srv.URL + "/api/v1/documents/" + document.String() + "/export/md")
 	if err != nil {
@@ -66,13 +66,13 @@ func TestALongTitleDoesNotPutAContextNoticeInTheDownloadName(t *testing.T) {
 
 	disposition := resp.Header.Get("Content-Disposition")
 
-	// The name the browser saves by is the filename* parameter. The only
-	// character of this title that the route's escaper touches is the space,
-	// so the expected parameter is spelled out here rather than run through
-	// the production escaper, which would only agree with itself.
-	want := strings.ReplaceAll(string([]rune(overLongTitle)[:100])+".md", " ", "%20")
-	if !strings.Contains(disposition, "filename*=UTF-8''"+want) {
-		t.Errorf("Content-Disposition = %q,\nwant it to carry filename*=UTF-8''%s", disposition, want)
+	// The name the browser saves by is the filename* parameter, so the check is
+	// made through a header parser rather than against the production escaper,
+	// which would only agree with itself.
+	if _, params, err := mime.ParseMediaType(disposition); err != nil {
+		t.Errorf("mime.ParseMediaType(%q) = %v", disposition, err)
+	} else if want := string([]rune(overLongTitle)[:100]) + ".md"; params["filename"] != want {
+		t.Errorf("filename read back = %q,\nwant %q (from %q)", params["filename"], want, disposition)
 	}
 	if strings.Contains(disposition, "생략됨") || strings.Contains(disposition, "%EC%83%9D%EB%9E%B5%EB%90%A8") {
 		t.Errorf("the header carries the AI context notice: %q", disposition)
@@ -82,17 +82,6 @@ func TestALongTitleDoesNotPutAContextNoticeInTheDownloadName(t *testing.T) {
 	// than as an injected header. Either way the parameter stops being one.
 	if strings.ContainsAny(disposition, "\r\n[]") {
 		t.Errorf("the header carries a line break or a bracket: %q", disposition)
-	}
-
-	// Known gap, deliberately not asserted as a pass: this header still does
-	// not survive mime.ParseMediaType, because the route's escaper leaves the
-	// Korean bytes raw in the ext-value where RFC 5987 wants them percent
-	// encoded. That is true of every Korean title, short or long, and has
-	// nothing to do with the cut — fixing it means widening the escaper, which
-	// is its own change. Recorded here so the next reader does not mistake it
-	// for a regression of this one.
-	if _, _, err := mime.ParseMediaType(disposition); err == nil {
-		t.Logf("Content-Disposition now parses — the ext-value escaping was fixed elsewhere; this note can go")
 	}
 }
 

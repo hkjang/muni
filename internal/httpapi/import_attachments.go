@@ -649,7 +649,7 @@ func (s *Server) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="attachment"; filename*=UTF-8''%s`, disposition, urlPathEscape(name)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="attachment"; filename*=UTF-8''%s`, disposition, extValueEscape(name)))
 	w.WriteHeader(200)
 	_, _ = w.Write(body)
 	s.audit(r, &p.User.ID, "DOWNLOAD_ATTACHMENT", "DOCUMENT", &documentID, map[string]any{"attachmentId": id})
