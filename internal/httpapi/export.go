@@ -58,7 +58,7 @@ func (s *Server) exportDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	body, contentType, filename := file.body, file.contentType, file.filename
 	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="document.%s"; filename*=UTF-8''%s.%s`, format, urlPathEscape(filename), format))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="document.%s"; filename*=UTF-8''%s.%s`, format, extValueEscape(filename), format))
 	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
 	w.WriteHeader(200)
 	_, _ = w.Write(body)
@@ -340,9 +340,53 @@ func cutFilenameRunes(value string, max int) string {
 	return strings.TrimRightFunc(string(runes[:max]), unicode.IsSpace)
 }
 
-func urlPathEscape(value string) string {
-	replacer := strings.NewReplacer("%", "%25", " ", "%20", "#", "%23", "?", "%3F", "\"", "%22")
-	return replacer.Replace(value)
+// extValueEscape encodes a file name for the `filename*` parameter of
+// Content-Disposition — an ext-value in the words of RFC 8187, which is what
+// every download route here puts a document title into.
+//
+// The rule is narrow and it is not the URL rule. An ext-value is a header
+// token, so the only characters allowed to stand as themselves are attr-char:
+// letters, digits, and twelve marks — !#$&+-.^_|~ and the backtick. Everything
+// else — a space, a semicolon, a quote, and every byte of every Korean syllable
+// — is percent encoded, byte by byte, upper-case hex, the way the RFC's own
+// example spells it.
+//
+// This used to be a five-character replacer borrowed from URL building (`%`,
+// space, `#`, `?`, `"`), and the two ways it fell short were both silent. A
+// Korean title left its UTF-8 bytes raw in the parameter, which a header parser
+// does not accept at all: mime.ParseMediaType rejected the whole value as an
+// invalid parameter, so a taker reading the name back — internal/handoff's
+// filenameOf does exactly that on a header muni sent — got nothing and fell
+// back to the ASCII `filename="document.md"`. That was true of every Korean
+// title, short or long. Worse, a title containing a semicolon parsed fine and
+// parsed wrong: the semicolon ended the parameter, so `구분;키=값.md` came back
+// as `구분`, a name truncated with no error anywhere. Escaping to the attr-char
+// boundary is what closes both, and it is one rule for all the routes rather
+// than a different near-miss in each.
+func extValueEscape(value string) string {
+	const hex = "0123456789ABCDEF"
+	var out strings.Builder
+	out.Grow(len(value))
+	for i := 0; i < len(value); i++ {
+		if b := value[i]; isAttrChar(b) {
+			out.WriteByte(b)
+			continue
+		}
+		out.WriteByte('%')
+		out.WriteByte(hex[value[i]>>4])
+		out.WriteByte(hex[value[i]&0x0F])
+	}
+	return out.String()
+}
+
+// isAttrChar is the attr-char production of RFC 8187 — the characters an
+// ext-value may carry unencoded.
+func isAttrChar(b byte) bool {
+	switch {
+	case b >= 'a' && b <= 'z', b >= 'A' && b <= 'Z', b >= '0' && b <= '9':
+		return true
+	}
+	return strings.IndexByte("!#$&+-.^_`|~", b) >= 0
 }
 
 func intFrom(value any, fallback int) int {

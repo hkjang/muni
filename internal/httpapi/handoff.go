@@ -143,8 +143,11 @@ func (s *Server) serveHandoffClaim(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", contentType)
 	// The name is percent-encoded in full (RFC 8187), not just its awkward
 	// characters: the taker is a program parsing the header, not a browser
-	// guessing at raw UTF-8, and a Korean title must survive the trip.
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="document%s"; filename*=UTF-8''%s`, filepath.Ext(filename), url.PathEscape(filename)))
+	// guessing at raw UTF-8, and a Korean title must survive the trip. It goes
+	// through the same escaper as every other download here — url.PathEscape
+	// was close but leaves `=`, `:` and `@` standing, and an `=` inside the
+	// parameter is enough for a header parser to reject the whole value.
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="document%s"; filename*=UTF-8''%s`, filepath.Ext(filename), extValueEscape(filename)))
 	w.Header().Set("Content-Length", fmt.Sprint(len(body)))
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)

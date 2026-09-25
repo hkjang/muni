@@ -241,7 +241,7 @@ func (s *Server) downloadPresentation(w http.ResponseWriter, r *http.Request) {
 	filename := safeFilename(link.Title)
 	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="presentation.%s"; filename*=UTF-8''%s.%s`,
-		format, urlPathEscape(filename), format))
+		format, extValueEscape(filename), format))
 	w.WriteHeader(200)
 	if _, err := io.Copy(w, body); err != nil {
 		s.logger.Warn("presentation download was interrupted", "id", link.ID, "error", err)
