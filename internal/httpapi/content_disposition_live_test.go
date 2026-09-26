@@ -1,11 +1,15 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"mime"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 // The unit tests next door build the header the way the routes build it. These
@@ -83,6 +87,59 @@ func TestAnAttachmentDownloadNamesTheFileSoAParserReadsItBack(t *testing.T) {
 	if got := filenameFrom(t, disposition); got != name {
 		t.Errorf("filename read back = %q, want %q (from %q)", got, name, disposition)
 	}
+}
+
+// The workspace archive names itself after the workspace, and a workspace name
+// is checked for length and nothing else — so the quote in a name like
+// `연구 "특별"` went straight into the quoted-string and ended it early, and a
+// Korean name was raw UTF-8 where only ASCII belongs. This is the same route a
+// person clicks, and the name is read back with the same parser as the rest.
+func TestAWorkspaceArchiveNamesItselfSoAParserReadsTheNameBack(t *testing.T) {
+	srv := newServerUnderTest(t)
+	workspaceID := workspaceNamed(t, srv, awkwardTitle, "quote-zip")
+
+	resp, err := srv.admin.Get(srv.URL + "/api/v1/workspaces/" + workspaceID.String() + "/export.zip?format=md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export = %d", resp.StatusCode)
+	}
+
+	disposition := resp.Header.Get("Content-Disposition")
+	day := time.Now().Format("20060102")
+	if want := safeFilename(awkwardTitle) + "-" + day + ".zip"; filenameFrom(t, disposition) != want {
+		t.Errorf("filename read back = %q, want %q (from %q)", filenameFrom(t, disposition), want, disposition)
+	}
+	// The fallback carries only what ASCII can: the day the archive was made.
+	if want := `filename="workspace-` + day + `.zip"`; !strings.Contains(disposition, want) {
+		t.Errorf("the plain filename fallback is %q, want it to contain %q", disposition, want)
+	}
+}
+
+// workspaceNamed makes a workspace over the API, the way the admin screen does.
+func workspaceNamed(t *testing.T, srv *serverUnderTest, name, slug string) uuid.UUID {
+	t.Helper()
+	status, data := postJSON(t, srv.admin, srv.URL+"/api/v1/workspaces", map[string]any{"name": name, "slug": slug})
+	if status != http.StatusCreated {
+		t.Fatalf("create workspace = %d %v", status, data)
+	}
+	id, err := uuid.Parse(data["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// liveServer only clears the accounts these tests make, so a workspace left
+	// behind would collide on its slug the next time this runs.
+	t.Cleanup(func() {
+		ctx := context.Background()
+		_, _ = srv.db.Exec(ctx, `DELETE FROM workspace_members WHERE workspace_id=$1`, id)
+		_, _ = srv.db.Exec(ctx, `DELETE FROM workspaces WHERE id=$1`, id)
+	})
+	return id
 }
 
 // The handoff route is the one with a real program on the other end: another
