@@ -106,9 +106,16 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	// The headers go out before the first document is rendered: the archive is
 	// written straight to the connection so a large workspace never has to fit
 	// in memory or on disk.
-	filename := safeFilename(workspaceName) + "-" + time.Now().Format("20060102")
+	//
+	// This was the last route naming its download only in the quoted-string,
+	// and a workspace name is checked for length alone — so one double quote in
+	// a name ended the parameter where it stood and a parser threw the whole
+	// header out. The name travels in `filename*` with the rest of them now,
+	// and the fallback keeps just the day, which is ASCII whatever the name is.
+	day := time.Now().Format("20060102")
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`.zip"`)
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="workspace-%s.zip"; filename*=UTF-8''%s-%s.zip`,
+		day, extValueEscape(safeFilename(workspaceName)), day))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 
 	archive := zip.NewWriter(w)
