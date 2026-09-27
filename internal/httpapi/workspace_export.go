@@ -24,6 +24,12 @@ import (
 // long past anything a browser will wait for.
 const maxWorkspaceExport = 2000
 
+// workspaceManifestName is the index of the archive — what every document in it
+// is called, who owns it and when it was last touched. The name is fixed so a
+// reader knows where to look, which also makes it a name a document may not
+// take.
+const workspaceManifestName = "목록.md"
+
 // exportWorkspace streams every document in a workspace as one archive.
 func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	workspaceID, ok := pathUUID(w, r, "id")
@@ -121,7 +127,18 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	archive := zip.NewWriter(w)
 	defer archive.Close()
 
-	used := map[string]bool{}
+	// The index is an entry in the same archive, so it takes part in the same
+	// bookkeeping the documents do. It is written last, which is exactly why it
+	// has to be claimed first: a document titled 목록 at the root of a workspace
+	// exported as md produced a second entry under this very name, and an
+	// unpacker writing entries in the order it finds them keeps one file where
+	// there should be two — the same quiet loss uniqueEntryName was written to
+	// prevent, arriving from the one name that never went through it. Claiming
+	// it here moves the document to `목록 (2).md` and leaves the index where
+	// every reader of this archive expects it. Nothing else shifts: the name is
+	// at the archive root, so 목록 inside a folder is not a clash, and under
+	// html or txt a document never reaches this name at all.
+	used := map[string]bool{workspaceManifestName: true}
 	var manifest strings.Builder
 	fmt.Fprintf(&manifest, "# %s\n\n내보낸 시각: %s\n문서 %d건\n\n",
 		workspaceName, time.Now().Format(time.RFC3339), len(items))
@@ -162,7 +179,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	if len(items) == maxWorkspaceExport {
 		fmt.Fprintf(&manifest, "\n문서가 %d건을 넘어 그만큼만 담았습니다.\n", maxWorkspaceExport)
 	}
-	if entry, err := archive.Create("목록.md"); err == nil {
+	if entry, err := archive.Create(workspaceManifestName); err == nil {
 		_, _ = entry.Write([]byte(manifest.String()))
 	}
 

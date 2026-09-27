@@ -90,6 +90,89 @@ func exportEntryNames(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID)
 	return names
 }
 
+func TestADocumentTitledLikeTheIndexKeepsItsOwnEntry(t *testing.T) {
+	// uniqueEntryName exists because two documents with one title would become
+	// one file, and that is how an export loses a document without saying so.
+	// The index the export writes last is a file in the same archive under a
+	// fixed name, and it never went through that bookkeeping — so a document
+	// called 목록 sitting at the root of the workspace produces 목록.md, the
+	// index is written as 목록.md too, and an unpacker writing entries in order
+	// leaves one file where there should be two.
+	srv := newServerUnderTest(t)
+	workspaceID := adminWorkspace(t, srv)
+	documentInFolder(t, srv, workspaceID, nil, "목록", false)
+	// A second document under a folder of the same name is untouched by any of
+	// this: only the archive root can clash with the index.
+	folder := folderNamed(t, srv, workspaceID, "회의", nil)
+	documentInFolder(t, srv, workspaceID, &folder, "목록", false)
+
+	names := exportEntryNames(t, srv, workspaceID)
+
+	seen := map[string]bool{}
+	for _, name := range names {
+		if seen[name] {
+			t.Errorf("two entries are called %q; one of them will not survive unpacking:\n%v", name, names)
+		}
+		seen[name] = true
+	}
+	if !seen["목록.md"] {
+		t.Fatalf("the index is missing from the archive: %v", names)
+	}
+	if !seen["회의/목록.md"] {
+		t.Errorf("the document in a folder changed name: %v", names)
+	}
+	// The root document has to be in there under some name of its own, and the
+	// index has to point at that name rather than at itself.
+	root := ""
+	for _, name := range names {
+		if !strings.Contains(name, "/") && name != "목록.md" && strings.HasPrefix(name, "목록") {
+			root = name
+		}
+	}
+	if root == "" {
+		t.Fatalf("the document titled 목록 has no entry of its own: %v", names)
+	}
+	manifest := exportManifest(t, srv, workspaceID)
+	if !strings.Contains(manifest, "- "+root+" —") {
+		t.Errorf("목록.md does not list %q; it says:\n%s", root, manifest)
+	}
+}
+
+// exportManifest reads the index the workspace archive carries.
+func exportManifest(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID) string {
+	t.Helper()
+	resp, err := srv.admin.Get(srv.URL + "/api/v1/workspaces/" + workspaceID.String() + "/export.zip?format=md&trash=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range archive.File {
+		if file.Name != "목록.md" {
+			continue
+		}
+		body, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer body.Close()
+		text, err := io.ReadAll(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(text)
+	}
+	t.Fatalf("the archive has no 목록.md")
+	return ""
+}
+
 func TestAWorkspaceArchiveStaysInsideItsOwnRoot(t *testing.T) {
 	srv := newServerUnderTest(t)
 	ctx := context.Background()
