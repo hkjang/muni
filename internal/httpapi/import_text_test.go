@@ -344,6 +344,71 @@ func TestMarkdownImportStoresInlineImages(t *testing.T) {
 	}
 }
 
+// A picture's description becomes its file name, and a description can be a
+// whole sentence — longer than the 200 runes a name is allowed. What the cut
+// leaves behind is the name a person then sees in the attachment list and
+// saves by, so it has to be nothing but the description: no notice about a
+// shortened context, and above all no line break, which the conversion just
+// above went to the trouble of stripping out of the description itself.
+func TestALongImageDescriptionIsCutWithoutANotice(t *testing.T) {
+	pixel := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	description := strings.Repeat("가", 201)
+	want := strings.Repeat("가", 200) + ".png"
+
+	for _, tc := range []struct {
+		source string
+		parse  func() ([]richdoc.Asset, error)
+	}{
+		{"html", func() ([]richdoc.Asset, error) {
+			_, assets, err := htmlDocument([]byte(`<body><p><img src="` + pixel + `" alt="` + description + `"></p></body>`))
+			return assets, err
+		}},
+		{"markdown", func() ([]richdoc.Asset, error) {
+			_, assets, err := markdownDocument("![" + description + "](" + pixel + ")\n")
+			return assets, err
+		}},
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			assets, err := tc.parse()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(assets) != 1 {
+				t.Fatalf("inline image not captured: %+v", assets)
+			}
+			if strings.ContainsAny(assets[0].Name, "\r\n") {
+				t.Errorf("the name carries a line break: %q", assets[0].Name)
+			}
+			if assets[0].Name != want {
+				t.Errorf("name = %q, want %q", assets[0].Name, want)
+			}
+		})
+	}
+}
+
+// The cut is the only thing that changed, so every description that never
+// reaches it has to come out exactly as it did before.
+func TestAShortImageDescriptionIsUntouched(t *testing.T) {
+	for _, tc := range []struct{ alt, mediaType, want string }{
+		{"회의 사진", "image/png", "회의 사진.png"},
+		{"회의 사진", "image/jpeg", "회의 사진.jpg"},
+		{"회의 사진", "image/gif", "회의 사진.gif"},
+		{"회의 사진", "image/webp", "회의 사진.webp"},
+		{"", "image/png", "image.png"},
+		{"   ", "image/png", "image.png"},
+		{"표지.png", "image/png", "표지.png"},
+		{"표지.PNG", "image/png", "표지.PNG"},
+		{"a/b\\c", "image/png", "abc.png"},
+		{"줄\n바꿈", "image/png", "줄바꿈.png"},
+		{strings.Repeat("가", 200), "image/png", strings.Repeat("가", 200) + ".png"},
+		{strings.Repeat("가", 196) + ".png", "image/png", strings.Repeat("가", 196) + ".png"},
+	} {
+		if got := imageAssetName(tc.alt, tc.mediaType); got != tc.want {
+			t.Errorf("imageAssetName(%q, %q) = %q, want %q", tc.alt, tc.mediaType, got, tc.want)
+		}
+	}
+}
+
 func TestPlainTextImportKeepsParagraphs(t *testing.T) {
 	content, err := plainTextDocument("첫 문단 첫 줄\n첫 문단 둘째 줄\n\n둘째 문단\n")
 	if err != nil {

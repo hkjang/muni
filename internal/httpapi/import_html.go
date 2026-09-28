@@ -62,10 +62,19 @@ func imageAssetName(alt, mediaType string) string {
 	case "image/webp":
 		extension = ".webp"
 	}
+	// The cut here is cutFilenameRunes and not truncateRunes, even though the
+	// two look interchangeable. truncateRunes is written for an AI prompt: when
+	// it shortens a value it says so, appending a newline and a sentence about
+	// the context being cut. That is exactly what the replacer two lines up has
+	// just taken the trouble to remove — a description over 200 runes came back
+	// out as `<200 runes>\n[…문서 컨텍스트가 길어 일부 생략됨…].png`, and that is
+	// the name stored on the attachment row and handed to whoever downloads the
+	// picture. cutFilenameRunes cuts and says nothing, which is what a name
+	// wants.
 	if strings.HasSuffix(strings.ToLower(name), extension) {
-		return truncateRunes(name, 200)
+		return cutFilenameRunes(name, 200)
 	}
-	return truncateRunes(name, 200) + extension
+	return cutFilenameRunes(name, 200) + extension
 }
 
 // htmlDocument converts an HTML file into a document, keeping headings, lists,

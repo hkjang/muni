@@ -89,6 +89,46 @@ func TestAnAttachmentDownloadNamesTheFileSoAParserReadsItBack(t *testing.T) {
 	}
 }
 
+// An attachment does not have to be uploaded by hand to get a name. A picture
+// carried inside an imported file is stored as one too, and its name is the
+// description the file gave it — a value from outside, of any length. This
+// walks the whole way a description travels: the import route, the attachments
+// row it is written to, and the header the download hands a client, read back
+// with the same parser as everything else here.
+func TestAnImportedImageNamesItselfWithoutAContextNotice(t *testing.T) {
+	srv := newServerUnderTest(t)
+	pixel := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	description := strings.Repeat("긴", 201)
+	want := strings.Repeat("긴", 200) + ".png"
+
+	imported := importFile(t, srv, adminWorkspace(t, srv), "그림.html", "",
+		[]byte(`<html><body><p><img src="`+pixel+`" alt="`+description+`"></p></body></html>`))
+	documentID := uuid.MustParse(imported["id"].(string))
+
+	var attachmentID uuid.UUID
+	var stored string
+	if err := srv.db.QueryRow(t.Context(), `SELECT id,name FROM attachments WHERE document_id=$1`, documentID).Scan(&attachmentID, &stored); err != nil {
+		t.Fatal(err)
+	}
+	if stored != want {
+		t.Errorf("stored attachment name = %q, want %q", stored, want)
+	}
+
+	resp, err := srv.admin.Get(srv.URL + "/api/v1/attachments/" + attachmentID.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("download = %d %s", resp.StatusCode, body)
+	}
+	disposition := resp.Header.Get("Content-Disposition")
+	if got := filenameFrom(t, disposition); got != want {
+		t.Errorf("filename read back = %q, want %q (from %q)", got, want, disposition)
+	}
+}
+
 // The workspace archive names itself after the workspace, and a workspace name
 // is checked for length and nothing else — so the quote in a name like
 // `연구 "특별"` went straight into the quoted-string and ended it early, and a
