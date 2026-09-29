@@ -675,10 +675,45 @@ func (s *Server) downloadAttachment(w http.ResponseWriter, r *http.Request) {
 	} else {
 		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	}
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="attachment"; filename*=UTF-8''%s`, disposition, extValueEscape(name)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`%s; filename="attachment%s"; filename*=UTF-8''%s`, disposition, asciiFallbackExt(name), extValueEscape(name)))
 	w.WriteHeader(200)
 	_, _ = w.Write(body)
 	s.audit(r, &p.User.ID, "DOWNLOAD_ATTACHMENT", "DOCUMENT", &documentID, map[string]any{"attachmentId": id})
+}
+
+// asciiFallbackExt picks the extension the ASCII `filename` of an attachment
+// download may carry, or nothing at all.
+//
+// The fallback exists for a client that cannot read `filename*` — an old
+// browser, a plain HTTP client, a closed-network tool — and for that client the
+// extension is the whole difference between a file the desktop opens and one it
+// does not. The other four download routes here have always had one, because
+// the name they build it from is a format they chose. This one's name is not:
+// it is the uploader's own file name, cut to 240 runes and otherwise passed
+// through untouched, so it can hold a double quote — which ends the
+// quoted-string early and makes a header parser reject the entire value,
+// `filename*` and all. That trade is the wrong way round: a missing extension
+// costs a file association, a broken header costs the name itself.
+//
+// So the extension is adopted only when it cannot possibly need quoting or
+// encoding: a leading dot, then nothing but ASCII letters and digits, and short
+// enough to be a real extension rather than the tail of a sentence that
+// happened to follow a dot. Everything else — a quote, a space, a Korean
+// suffix, `.tar.gz`'s sibling cases — falls back to the bare word, which is
+// exactly what every attachment used to get.
+func asciiFallbackExt(name string) string {
+	ext := filepath.Ext(name)
+	// A lone "." carries no extension, and 12 with the dot clears every format
+	// muni reads or writes (".properties" is eleven) without admitting prose.
+	if len(ext) < 2 || len(ext) > 12 {
+		return ""
+	}
+	for _, r := range ext[1:] {
+		if (r < '0' || r > '9') && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+			return ""
+		}
+	}
+	return ext
 }
 
 func safeInlineImageType(value string) bool {
