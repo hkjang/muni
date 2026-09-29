@@ -68,7 +68,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 		FROM documents d JOIN users u ON u.id = d.owner_id
 		WHERE d.workspace_id = $1 AND ($2 OR d.deleted_at IS NULL)
 		ORDER BY d.folder_id NULLS FIRST, d.title
-		LIMIT $3`, workspaceID, includeTrash, maxWorkspaceExport)
+		LIMIT $3`, workspaceID, includeTrash, maxWorkspaceExport+1)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "문서를 불러오지 못했습니다.")
 		return
@@ -101,6 +101,14 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	if err := rows.Err(); err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "문서를 불러오지 못했습니다.")
 		return
+	}
+
+	// Read one document beyond the cap to distinguish a full archive from an
+	// incomplete one. The extra row is evidence of an omission, not an entry:
+	// trim it before counting, rendering or recording the exported documents.
+	truncated := len(items) > maxWorkspaceExport
+	if truncated {
+		items = items[:maxWorkspaceExport]
 	}
 
 	folders, err := s.folderPaths(r, workspaceID)
@@ -176,7 +184,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(&manifest, "- %s — %s, %s\n", name, item.owner, item.updated.Format("2006-01-02"))
 	}
 
-	if len(items) == maxWorkspaceExport {
+	if truncated {
 		fmt.Fprintf(&manifest, "\n문서가 %d건을 넘어 그만큼만 담았습니다.\n", maxWorkspaceExport)
 	}
 	if entry, err := archive.Create(workspaceManifestName); err == nil {
