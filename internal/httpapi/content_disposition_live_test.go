@@ -89,6 +89,63 @@ func TestAnAttachmentDownloadNamesTheFileSoAParserReadsItBack(t *testing.T) {
 	}
 }
 
+// The other half of an attachment's Content-Disposition is the ASCII fallback,
+// and that half is all a client gets when it cannot read `filename*` at all —
+// an old browser, a plain HTTP client, one of the closed-network tools this is
+// deployed next to. Four of the five download routes put an extension in theirs
+// (`document.md`, `presentation.pdf`, `workspace-20260929.zip`, `document.xlsx`);
+// this one said `attachment` flat, so a spreadsheet saved by such a client
+// arrived as an extensionless file that nothing on the machine would open.
+//
+// The extension cannot simply be pasted in, which is why this is a table rather
+// than one case. An attachment's name is the uploader's own file name cut to
+// length and nothing else — no character is replaced on the way in — so it may
+// hold the quote that ends a quoted-string early, or runes that have no business
+// in an ASCII fallback. For those the fallback has to stay the bare word it was,
+// and the header as a whole has to keep parsing, because losing `filename*`
+// would cost more than the missing extension ever did.
+func TestAnAttachmentDownloadPutsTheExtensionInTheAsciiFallback(t *testing.T) {
+	srv := newServerUnderTest(t)
+	document := markdownDocumentOwnedByAdmin(t, srv, "fallback 확장자 확인")
+
+	for _, testCase := range []struct {
+		name     string
+		upload   string
+		fallback string
+	}{
+		{"an ordinary spreadsheet keeps its extension", "회의록.xlsx", `filename="attachment.xlsx"`},
+		{"a name with no extension stays the bare word", "회의록", `filename="attachment"`},
+		{"a quote inside the extension is refused", `보고서.p"g`, `filename="attachment"`},
+		{"a non-ASCII extension is refused", "자료.한글확장자", `filename="attachment"`},
+		{"an implausibly long extension is refused", "자료.abcdefghijkl", `filename="attachment"`},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			attachment := uploadAttachment(t, srv, document, testCase.upload, []byte("내용"))
+
+			resp, err := srv.admin.Get(srv.URL + "/api/v1/attachments/" + attachment.String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("download = %d %s", resp.StatusCode, body)
+			}
+
+			disposition := resp.Header.Get("Content-Disposition")
+			if !strings.Contains(disposition, testCase.fallback) {
+				t.Errorf("the ASCII fallback in %q does not contain %q", disposition, testCase.fallback)
+			}
+			// Whatever the fallback ends up saying, the parameter that carries
+			// the real name is untouched and the header still parses — read back
+			// with the production parser, as everything else here is.
+			if got := filenameFrom(t, disposition); got != testCase.upload {
+				t.Errorf("filename read back = %q, want %q (from %q)", got, testCase.upload, disposition)
+			}
+		})
+	}
+}
+
 // An attachment does not have to be uploaded by hand to get a name. A picture
 // carried inside an imported file is stored as one too, and its name is the
 // description the file gave it — a value from outside, of any length. This
