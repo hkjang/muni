@@ -4,12 +4,83 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 )
+
+func TestAWorkspaceExportWarnsOnlyWhenDocumentsAreOmitted(t *testing.T) {
+	srv := newServerUnderTest(t)
+	for _, count := range []int{1999, 2000, 2001} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			status, data := postJSON(t, srv.admin, srv.URL+"/api/v1/workspaces", map[string]any{
+				"name": "내보내기 경계", "slug": "export-" + uuid.NewString(),
+			})
+			if status != 201 {
+				t.Fatalf("create workspace = %d %v", status, data)
+			}
+			workspaceID := uuid.MustParse(data["id"].(string))
+			t.Cleanup(func() {
+				if _, err := srv.db.Exec(context.Background(), `DELETE FROM workspaces WHERE id=$1`, workspaceID); err != nil {
+					t.Error(err)
+				}
+			})
+			// Bulk seed real rows so the production query, its LIMIT and the ZIP
+			// writer are all exercised without thousands of setup HTTP requests.
+			if _, err := srv.db.Exec(t.Context(), `
+				INSERT INTO documents(workspace_id,owner_id,title)
+				SELECT w.id,w.owner_id,'문서-' || lpad(n::text,4,'0')
+				FROM workspaces w CROSS JOIN generate_series(1,$2::int) n
+				WHERE w.id=$1`, workspaceID, count); err != nil {
+				t.Fatal(err)
+			}
+			resp, err := srv.admin.Get(srv.URL + "/api/v1/workspaces/" + workspaceID.String() + "/export.zip?format=md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			raw, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != 200 {
+				t.Fatalf("export = %d: %s", resp.StatusCode, raw)
+			}
+			archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantCount := min(count, 2000)
+			if len(archive.File) != wantCount+1 {
+				t.Fatalf("ZIP entries = %d, want %d documents and one index", len(archive.File), wantCount)
+			}
+			index, err := archive.Open("목록.md")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer index.Close()
+			body, err := io.ReadAll(index)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest := string(body)
+			if got := strings.Contains(manifest, "그만큼만 담았습니다"); got != (count > 2000) {
+				t.Errorf("omission warning = %t for %d documents, want %t", got, count, count > 2000)
+			}
+			if !strings.Contains(manifest, fmt.Sprintf("문서 %d건\n", wantCount)) || strings.Count(manifest, "\n- ") != wantCount {
+				t.Error("index count does not match the exported documents")
+			}
+			for _, file := range archive.File {
+				if file.Name != "목록.md" && !strings.Contains(manifest, "- "+file.Name+" —") {
+					t.Errorf("index does not list exported entry %q", file.Name)
+				}
+			}
+		})
+	}
+}
 
 // A folder name goes into the workspace archive as a path element, and the name
 // check on a folder lets through anything non-empty under 120 runes — `..`
