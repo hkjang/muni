@@ -227,7 +227,11 @@ func (s *Server) storeHandoff(ctx context.Context, ownerID uuid.UUID, peer hando
 	if title == "" {
 		title = "받은 문서"
 	}
-	title = truncateRunes(title, 240)
+	// A handed-over title is stored, not prompted — the same cut as the upload
+	// import, so a peer sending an over-long title cannot put the AI context
+	// notice into this muni's document list. cutFilenameRunes shortens and
+	// appends nothing; the 240 is unchanged.
+	title = cutFilenameRunes(title, 240)
 	// A peer that is itself a muni wrote the title as the first heading of the
 	// Markdown it sent; the same rule as the upload keeps it from showing twice.
 	if parsed.markdown {

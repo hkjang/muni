@@ -118,7 +118,17 @@ func (s *Server) importDocument(w http.ResponseWriter, r *http.Request) {
 	if title == "" {
 		title = "가져온 문서"
 	}
-	title = truncateRunes(title, 240)
+	// The ceiling is cut with cutFilenameRunes rather than truncateRunes, and
+	// the difference is the whole point. truncateRunes exists for an AI prompt:
+	// when it shortens a value it says so, appending a newline and a sentence
+	// telling the model the context was trimmed. A title is not a prompt — it
+	// is a row in documents, and this one goes on to the document list, the
+	// search index built over the title, and the 목록.md inside a workspace
+	// archive. A title over 240 runes was stored with that sentence attached
+	// and every one of those places showed it. cutFilenameRunes shortens and
+	// says nothing, which is what stored data needs; the 240 itself is
+	// unchanged.
+	title = cutFilenameRunes(title, 240)
 	// A Markdown file muni exported carries its title as the first heading;
 	// now that the title is decided, that echo leaves the body — before the
 	// search text is taken from it, so the title is not indexed twice.
@@ -179,8 +189,14 @@ func (s *Server) storeImportedDocument(ctx context.Context, doc importedDocument
 		}
 		for _, attachment := range doc.attachments {
 			sum := sha256.Sum256(attachment.Data)
+			// Same cut as the title above, and for a sharper reason: this name
+			// leaves again in the download's Content-Disposition, so a prompt's
+			// "context was shortened" sentence would end up in the file a
+			// person saves. All three places that write attachments.name use
+			// cutFilenameRunes, so the same picture keeps the same name however
+			// it arrived.
 			if _, err := tx.Exec(ctx, `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-				attachment.ID, doc.id, doc.ownerID, truncateRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
+				attachment.ID, doc.id, doc.ownerID, cutFilenameRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
 				return err
 			}
 		}
@@ -309,7 +325,7 @@ func (s *Server) importIntoDocument(w http.ResponseWriter, r *http.Request) {
 		for _, attachment := range attachments {
 			sum := sha256.Sum256(attachment.Data)
 			if _, err := tx.Exec(r.Context(), `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
-				attachment.ID, documentID, p.User.ID, truncateRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
+				attachment.ID, documentID, p.User.ID, cutFilenameRunes(attachment.Name, 240), attachment.MediaType, len(attachment.Data), hex.EncodeToString(sum[:]), attachment.Data); err != nil {
 				return err
 			}
 		}
@@ -325,8 +341,14 @@ func (s *Server) importIntoDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, &p.User.ID, "IMPORT_INTO_DOCUMENT", "DOCUMENT", &documentID, map[string]any{"format": strings.TrimPrefix(extension, "."), "bytes": len(body), "images": len(attachments)})
 	writeData(w, 200, map[string]any{
-		"content":   content,
-		"title":     truncateRunes(title, 240),
+		"content": content,
+		// This title is not a log line: the editor reads it out of this
+		// response and puts it in the title box, so it becomes a documents row
+		// as surely as the one importDocument writes. Cutting it the same way
+		// keeps the two import paths agreed — importing the same over-long
+		// title into a new document and into an open one now gives the same
+		// title, where before only one of them carried the prompt's notice.
+		"title":     cutFilenameRunes(title, 240),
 		"header":    truncateRunes(parsed.furniture.Header, 200),
 		"footer":    truncateRunes(parsed.furniture.Footer, 200),
 		"landscape": parsed.furniture.Landscape,
@@ -567,7 +589,11 @@ func (s *Server) uploadAttachment(w http.ResponseWriter, r *http.Request) {
 	}
 	sum := sha256.Sum256(body)
 	id := uuid.New()
-	_, err = s.db.Exec(r.Context(), `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, documentID, p.User.ID, truncateRunes(filepath.Base(header.Filename), 240), mediaType, len(body), hex.EncodeToString(sum[:]), body)
+	// The shortest path from a person's own file name to an attachments row:
+	// the multipart part carries whatever the browser had and nothing before
+	// here measures it. cutFilenameRunes is the cut for a stored name — see the
+	// note on the import's copy of this INSERT.
+	_, err = s.db.Exec(r.Context(), `INSERT INTO attachments(id,document_id,uploader_id,name,media_type,size_bytes,sha256,data) VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, id, documentID, p.User.ID, cutFilenameRunes(filepath.Base(header.Filename), 240), mediaType, len(body), hex.EncodeToString(sum[:]), body)
 	if err != nil {
 		writeError(w, 500, "ATTACHMENT_SAVE_FAILED", "첨부파일을 저장하지 못했습니다.")
 		return
