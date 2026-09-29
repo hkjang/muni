@@ -464,3 +464,82 @@ func TestBlockIDsSurviveTheHTMLRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// buildDOCXFile uses the real writer so its Title style and body structure
+// exercise the same round trip as an exported file uploaded by a user.
+func buildDOCXFile(t *testing.T, title, body string) []byte {
+	t.Helper()
+	document, err := richdoc.Parse(json.RawMessage(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := docx.Build(document, docx.Options{Title: title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+const docxTitleBody = `{"type":"doc","content":[
+	{"type":"paragraph","content":[{"type":"text","marks":[{"type":"bold"}],"text":"첫 문단"}]},
+	{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"안건"}]},
+	{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"항목"}]}]}]}
+]}`
+
+func TestDOCXRoundTripDropsOnlyTheTitleHeading(t *testing.T) {
+	file := buildDOCXFile(t, "회의록", docxTitleBody)
+	parsed, err := parseUpload(t.Context(), ".docx", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := richdoc.Parse(parsed.content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before.Content) != 4 || before.Content[0].Type != "heading" || before.Content[0].AttrInt("level", 0) != 1 {
+		t.Fatalf("writer title was not read as H1: %s", parsed.content)
+	}
+	stored := parsed.content
+	if parsed.titleInBody {
+		stored, err = dropLeadingTitle(stored, "회의록")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := richdoc.Parse(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Content) != 3 {
+		t.Fatalf("stored %d blocks, want the three original body blocks", len(after.Content))
+	}
+	for i, block := range after.Content {
+		want, _ := json.Marshal(before.Content[i+1])
+		got, _ := json.Marshal(block)
+		if string(got) != string(want) {
+			t.Errorf("body block %d changed: got %s, want %s", i, got, want)
+		}
+	}
+}
+
+func TestDOCXTitleOnlyLeavesAnEmptyDocument(t *testing.T) {
+	file := buildDOCXFile(t, "회의록", `{"type":"doc"}`)
+	parsed, err := parseUpload(t.Context(), ".docx", file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored := parsed.content
+	if parsed.titleInBody {
+		stored, err = dropLeadingTitle(stored, "회의록")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	after, err := richdoc.Parse(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validDocumentJSON(stored) || len(after.Content) != 1 || after.Content[0].Type != "paragraph" || after.Content[0].PlainText() != "" {
+		t.Fatalf("want one empty paragraph: %s", stored)
+	}
+}
