@@ -209,6 +209,89 @@ func TestADocumentTitledLikeTheIndexKeepsItsOwnEntry(t *testing.T) {
 	}
 }
 
+func TestTwoTitlesDifferingOnlyInCaseStayTwoEntries(t *testing.T) {
+	// The archive is unpacked wherever it is downloaded, and the deployment
+	// target is Windows — where `Report.md` and `report.md` are one file name.
+	// An unpacker writing entries in the order it finds them therefore keeps one
+	// of the two, which is the same quiet loss uniqueEntryName was written to
+	// prevent; it just never saw it, because its bookkeeping compared the names
+	// byte for byte. What this can prove on a case-sensitive file system is the
+	// entry names themselves: no two of them may differ only in case.
+	srv := newServerUnderTest(t)
+	workspaceID := adminWorkspace(t, srv)
+	documentInFolder(t, srv, workspaceID, nil, "Report", false)
+	documentInFolder(t, srv, workspaceID, nil, "report", false)
+	// The same question one level down: the clash is in the whole path, so two
+	// folders that differ only in case have to be told apart as well.
+	upper := folderNamed(t, srv, workspaceID, "Report", nil)
+	lower := folderNamed(t, srv, workspaceID, "report", nil)
+	documentInFolder(t, srv, workspaceID, &upper, "회의록", false)
+	documentInFolder(t, srv, workspaceID, &lower, "회의록", false)
+
+	names := exportEntryNames(t, srv, workspaceID)
+
+	folded := map[string]string{}
+	for _, name := range names {
+		key := strings.ToLower(name)
+		if first, ok := folded[key]; ok {
+			t.Errorf("entries %q and %q differ only in case; on a case-insensitive file system one of them will not survive unpacking:\n%v", first, name, names)
+		}
+		folded[key] = name
+	}
+
+	roots := []string{}
+	for _, name := range names {
+		if !strings.Contains(name, "/") && strings.HasPrefix(strings.ToLower(name), "report") {
+			roots = append(roots, name)
+		}
+	}
+	if len(roots) != 2 {
+		t.Fatalf("the two documents did not produce two entries of their own: %v", names)
+	}
+	// Folding belongs to the bookkeeping and not to the name anyone unpacks: one
+	// entry still reads Report and the other report, exactly as they were typed.
+	upperRoots, lowerRoots, suffixed := 0, 0, 0
+	for _, name := range roots {
+		if strings.HasPrefix(name, "Report") {
+			upperRoots++
+		}
+		if strings.HasPrefix(name, "report") {
+			lowerRoots++
+		}
+		if strings.Contains(name, " (2).") {
+			suffixed++
+		}
+	}
+	if upperRoots != 1 || lowerRoots != 1 {
+		t.Errorf("a title lost the casing it was given: %v", roots)
+	}
+	if suffixed != 1 {
+		t.Errorf("exactly one of the two should carry the (2) suffix: %v", roots)
+	}
+
+	inFolders := []string{}
+	for _, name := range names {
+		if strings.Contains(strings.ToLower(name), "report/") {
+			inFolders = append(inFolders, name)
+		}
+	}
+	if len(inFolders) != 2 {
+		t.Fatalf("the two folders did not produce two entries: %v", names)
+	}
+	upperDir, lowerDir := false, false
+	for _, name := range inFolders {
+		if strings.HasPrefix(name, "Report/") {
+			upperDir = true
+		}
+		if strings.HasPrefix(name, "report/") {
+			lowerDir = true
+		}
+	}
+	if !upperDir || !lowerDir {
+		t.Errorf("a folder lost the casing it was given: %v", inFolders)
+	}
+}
+
 // exportManifest reads the index the workspace archive carries.
 func exportManifest(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID) string {
 	t.Helper()

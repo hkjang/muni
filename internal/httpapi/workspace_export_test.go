@@ -98,6 +98,31 @@ func TestADocumentWithNoTitleStillGetsAFile(t *testing.T) {
 	}
 }
 
+func TestTwoTitlesDifferingOnlyInCaseAreStillTwoNames(t *testing.T) {
+	// On the file systems this archive is unpacked on, a name differing only in
+	// case is the same name — so the bookkeeping compares names folded, and the
+	// second of the pair has to be moved aside just as an identical title is.
+	used := map[string]bool{}
+	first := uniqueEntryName(used, "", "Report", "md")
+	second := uniqueEntryName(used, "", "report", "md")
+	if first != "Report.md" {
+		t.Fatalf("first = %q; the title's own casing is what the user unpacks", first)
+	}
+	if second != "report (2).md" {
+		t.Fatalf("second = %q, want %q", second, "report (2).md")
+	}
+	// A directory that differs only in case is the same clash: the whole path is
+	// what the unpacker resolves, and the folder keeps its casing too.
+	inUpper := uniqueEntryName(used, "회의/Report", "회의록", "md")
+	inLower := uniqueEntryName(used, "회의/report", "회의록", "md")
+	if inUpper != "회의/Report/회의록.md" {
+		t.Fatalf("inUpper = %q", inUpper)
+	}
+	if inLower != "회의/report/회의록 (2).md" {
+		t.Fatalf("inLower = %q", inLower)
+	}
+}
+
 func TestAnEntryAtTheTopHasNoDirectory(t *testing.T) {
 	used := map[string]bool{}
 	if name := uniqueEntryName(used, "", "보고서", "html"); name != "보고서.html" {
