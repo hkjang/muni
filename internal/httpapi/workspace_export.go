@@ -146,7 +146,7 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 	// every reader of this archive expects it. Nothing else shifts: the name is
 	// at the archive root, so 목록 inside a folder is not a clash, and under
 	// html or txt a document never reaches this name at all.
-	used := map[string]bool{workspaceManifestName: true}
+	used := map[string]bool{entryKey(workspaceManifestName): true}
 	var manifest strings.Builder
 	fmt.Fprintf(&manifest, "# %s\n\n내보낸 시각: %s\n문서 %d건\n\n",
 		workspaceName, time.Now().Format(time.RFC3339), len(items))
@@ -276,6 +276,20 @@ func safeFolderSegment(name string) string {
 	return safe
 }
 
+// entryKey is how one archive entry name is compared with another.
+//
+// Not byte for byte: the archive is unpacked on whatever machine downloaded it,
+// and on Windows — the deployment target — as on macOS out of the box, a file
+// name differing only in case is the same file name. So `Report.md` and
+// `report.md` are two entries that an unpacker writing them in order turns into
+// one file, which is precisely the quiet loss of a document uniqueEntryName
+// exists to prevent. Folding the case here is the only thing this affects: the
+// name that goes into the archive, and that a user then sees, keeps every
+// letter as it was typed.
+func entryKey(name string) string {
+	return strings.ToLower(name)
+}
+
 // uniqueEntryName keeps two documents with the same title from becoming one
 // file in the archive, which is how an export quietly loses a document.
 func uniqueEntryName(used map[string]bool, directory, base, extension string) string {
@@ -283,14 +297,14 @@ func uniqueEntryName(used map[string]bool, directory, base, extension string) st
 		base = "제목 없는 문서"
 	}
 	name := path.Join(directory, base+"."+extension)
-	if !used[name] {
-		used[name] = true
+	if !used[entryKey(name)] {
+		used[entryKey(name)] = true
 		return name
 	}
 	for suffix := 2; ; suffix++ {
 		candidate := path.Join(directory, fmt.Sprintf("%s (%d).%s", base, suffix, extension))
-		if !used[candidate] {
-			used[candidate] = true
+		if !used[entryKey(candidate)] {
+			used[entryKey(candidate)] = true
 			return candidate
 		}
 	}
