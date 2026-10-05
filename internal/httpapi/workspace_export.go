@@ -198,8 +198,12 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 // folderPaths reads the workspace's folders as directory paths, so the archive
 // comes out arranged the way the workspace is.
 func (s *Server) folderPaths(r *http.Request, workspaceID uuid.UUID) (map[string]string, error) {
+	// The order matters now that a second folder of one name is given a
+	// suffix: a map iteration would hand that suffix to a different folder on
+	// every request, so the same workspace downloaded twice would come out
+	// arranged two different ways.
 	rows, err := s.db.Query(r.Context(),
-		`SELECT id, parent_id, name FROM folders WHERE workspace_id=$1 AND deleted_at IS NULL`, workspaceID)
+		`SELECT id, parent_id, name FROM folders WHERE workspace_id=$1 AND deleted_at IS NULL ORDER BY name, id`, workspaceID)
 	if err != nil {
 		return nil, err
 	}
@@ -210,12 +214,17 @@ func (s *Server) folderPaths(r *http.Request, workspaceID uuid.UUID) (map[string
 		name   string
 	}
 	all := map[uuid.UUID]folder{}
+	// The query's order survives only in a slice; `all` is for the parent
+	// lookups resolve makes, and ranging a map would throw the order away
+	// again.
+	order := make([]uuid.UUID, 0, 16)
 	for rows.Next() {
 		var id uuid.UUID
 		var parent *uuid.UUID
 		var name string
 		if rows.Scan(&id, &parent, &name) == nil {
 			all[id] = folder{parent: parent, name: name}
+			order = append(order, id)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -223,6 +232,22 @@ func (s *Server) folderPaths(r *http.Request, workspaceID uuid.UUID) (map[string
 	}
 
 	paths := map[string]string{"": ""}
+	// Two folders are allowed to carry one name — the check on a folder name
+	// looks at emptiness and length alone, nothing at its siblings — and
+	// path.Join then hands both of them the same directory string. The archive
+	// has no way to say "two directories spelled alike", so the two folders a
+	// user was looking at unpack as one and the arrangement they were
+	// downloading is gone; the documents survive only because uniqueEntryName
+	// moves the second of two equal file names aside. So a directory is
+	// claimed here as it is built, and a folder arriving at a name another
+	// folder already took steps to `기획 (2)` — the same move, one level up.
+	//
+	// The claim is keyed through entryKey for the reason the entry names are:
+	// the archive is unpacked on whatever machine downloaded it, and on
+	// Windows — the deployment target — `Report` and `report` are one
+	// directory. Only the key is folded; the path this returns, and that the
+	// archive and the user then carry, keeps the casing the folder was given.
+	claimed := map[string]bool{}
 	var resolve func(id uuid.UUID, depth int) string
 	resolve = func(id uuid.UUID, depth int) string {
 		if existing, ok := paths[id.String()]; ok {
@@ -241,11 +266,16 @@ func (s *Server) folderPaths(r *http.Request, workspaceID uuid.UUID) (map[string
 		if entry.parent != nil {
 			prefix = resolve(*entry.parent, depth+1)
 		}
-		result := path.Join(prefix, safeFolderSegment(entry.name))
+		segment := safeFolderSegment(entry.name)
+		result := path.Join(prefix, segment)
+		for suffix := 2; claimed[entryKey(result)]; suffix++ {
+			result = path.Join(prefix, fmt.Sprintf("%s (%d)", segment, suffix))
+		}
+		claimed[entryKey(result)] = true
 		paths[id.String()] = result
 		return result
 	}
-	for id := range all {
+	for _, id := range order {
 		resolve(id, 0)
 	}
 	return paths, nil
