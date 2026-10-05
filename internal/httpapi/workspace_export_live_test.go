@@ -433,6 +433,154 @@ func exportManifest(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID) s
 	return ""
 }
 
+// documentWithTheDefaultTitle makes a document the way the editor's new-document
+// button does — with no title at all — so the title it ends up with is whatever
+// createDocument gives an untitled one, and not a string this test chose. The
+// body says which document it is, because that is the only thing in the archive
+// that tells these documents apart.
+func documentWithTheDefaultTitle(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID, marker string) uuid.UUID {
+	t.Helper()
+	status, data := postJSON(t, srv.admin, srv.URL+"/api/v1/documents", map[string]any{
+		"workspaceId": workspaceID.String(),
+		"content": map[string]any{"type": "doc", "content": []any{
+			map[string]any{"type": "paragraph", "content": []any{
+				map[string]any{"type": "text", "text": marker},
+			}},
+		}},
+	})
+	if status != 200 {
+		t.Fatalf("create untitled document %q = %d %v", marker, status, data)
+	}
+	id, err := uuid.Parse(data["id"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The admin's workspace outlives the test, so what goes into it has to come
+	// back out or the next run reads this run's documents too.
+	t.Cleanup(func() {
+		_, _ = srv.db.Exec(context.Background(), `DELETE FROM documents WHERE id=$1`, id)
+	})
+	return id
+}
+
+// exportEntryBodies downloads the workspace archive and reads every entry, so a
+// caller can check which document ended up under which name rather than only
+// which names came out.
+func exportEntryBodies(t *testing.T, srv *serverUnderTest, workspaceID uuid.UUID) map[string]string {
+	t.Helper()
+	resp, err := srv.admin.Get(srv.URL + "/api/v1/workspaces/" + workspaceID.String() + "/export.zip?format=md&trash=true")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 200 {
+		t.Fatalf("export = %d: %s", resp.StatusCode, raw)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodies := make(map[string]string, len(archive.File))
+	for _, file := range archive.File {
+		body, err := file.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, err := io.ReadAll(body)
+		body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodies[file.Name] = string(text)
+	}
+	return bodies
+}
+
+func TestDocumentsSharingOneTitleKeepTheEntryTheyWereGiven(t *testing.T) {
+	// Two documents of one title is not an edge case here: createDocument calls
+	// every untitled document 제목 없는 문서, so a workspace where nobody renames
+	// anything is a workspace where every document has the same title. The
+	// document query ordered by folder and title alone, which leaves all of
+	// those rows tied — and PostgreSQL does not promise an order among tied
+	// rows. That order is what decides which of them keeps 제목 없는 문서.md and
+	// which is moved to 제목 없는 문서 (2).md, so downloading an unchanged
+	// workspace twice could swap the contents of those two files and swap the
+	// authors 목록.md credits them to. Breaking the tie on d.id settles it.
+	//
+	// The set of entry names is the same either way — both names come out in
+	// every order — so a test comparing names would pass on the broken code.
+	// What has to hold still is the pairing, which is why this reads the bodies.
+	srv := newServerUnderTest(t)
+	workspaceID := adminWorkspace(t, srv)
+	markers := []string{"본문 가", "본문 나", "본문 다", "본문 라"}
+	ids := make([]uuid.UUID, 0, len(markers))
+	for _, marker := range markers {
+		ids = append(ids, documentWithTheDefaultTitle(t, srv, workspaceID, marker))
+	}
+
+	pairing := exportEntryBodies(t, srv, workspaceID)
+	entryOf := func(bodies map[string]string, marker string) string {
+		t.Helper()
+		for name, body := range bodies {
+			if name != workspaceManifestName && strings.Contains(body, marker) {
+				return name
+			}
+		}
+		t.Fatalf("%s is in no entry of the archive: %v", marker, bodies)
+		return ""
+	}
+	want := map[string]string{}
+	for _, marker := range markers {
+		want[marker] = entryOf(pairing, marker)
+	}
+	// All four documents must actually be competing for the one name, or there
+	// is no tie to break and this test proves nothing.
+	if len(want) != len(markers) {
+		t.Fatalf("the four documents did not land in four entries: %v", want)
+	}
+	for _, marker := range markers {
+		if !strings.HasPrefix(want[marker], "제목 없는 문서") {
+			t.Fatalf("%s came out as %q, so these documents are not sharing one title", marker, want[marker])
+		}
+	}
+
+	// Rewriting one row moves it to the end of the sequential scan, and that
+	// scan is where the sort gets its input order — so with the tie unbroken
+	// the row that was read first is now read last, and the sort has no reason
+	// to put it back. Exactly one row is rewritten on purpose: rewriting all of
+	// them in order would move them all to the end in the order they already
+	// had, and the pairing would survive by luck rather than by the fix.
+	//
+	// The title is written back as itself, so every column the archive reports
+	// — title, body, owner, timestamp — is byte for byte what it was. Nothing
+	// about this workspace has changed, which is why the archive must not
+	// change either.
+	if _, err := srv.db.Exec(t.Context(), `UPDATE documents SET title=title WHERE id=$1`, ids[0]); err != nil {
+		t.Fatal(err)
+	}
+	// Twelve more downloads on top of that, because a tie can also come out
+	// differently from one request to the next without anything being written.
+	for attempt := range 12 {
+		bodies := exportEntryBodies(t, srv, workspaceID)
+		for _, marker := range markers {
+			if got := entryOf(bodies, marker); got != want[marker] {
+				t.Fatalf("download %d put %s in %q, but the first download put it in %q; the same unchanged workspace downloaded twice hands these files different contents",
+					attempt+2, marker, got, want[marker])
+			}
+		}
+		manifest := bodies[workspaceManifestName]
+		for _, marker := range markers {
+			if !strings.Contains(manifest, "- "+want[marker]+" —") {
+				t.Errorf("download %d: 목록.md does not list %q; it says:\n%s", attempt+2, want[marker], manifest)
+			}
+		}
+	}
+}
+
 func TestAWorkspaceArchiveStaysInsideItsOwnRoot(t *testing.T) {
 	srv := newServerUnderTest(t)
 	ctx := context.Background()
