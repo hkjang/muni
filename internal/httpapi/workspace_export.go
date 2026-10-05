@@ -63,11 +63,25 @@ func (s *Server) exportWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The document id ends the ordering because folder and title together do not
+	// tell these rows apart. Sharing a title is the ordinary case rather than the
+	// exception: createDocument names every untitled document 제목 없는 문서, so
+	// in a workspace where nobody has renamed anything every row is tied with
+	// every other. PostgreSQL promises nothing about the order of tied rows —
+	// this sorts them with a quicksort, and the order it hands back follows the
+	// order the rows came off the heap, which moves whenever a row is rewritten.
+	//
+	// What hangs on that order is which document keeps 제목 없는 문서.md and which
+	// uniqueEntryName moves to 제목 없는 문서 (2).md, and which documents fall
+	// outside the maxWorkspaceExport cut. Downloading an unchanged workspace
+	// twice could therefore swap the contents of those two files and swap the
+	// authors 목록.md credits them to. The id is unique, so adding it leaves no
+	// tie for any of that to turn on.
 	rows, err := s.db.Query(r.Context(), `
 		SELECT d.id, d.title, d.content_json, d.folder_id, d.updated_at, d.deleted_at, u.display_name, d.page_orientation
 		FROM documents d JOIN users u ON u.id = d.owner_id
 		WHERE d.workspace_id = $1 AND ($2 OR d.deleted_at IS NULL)
-		ORDER BY d.folder_id NULLS FIRST, d.title
+		ORDER BY d.folder_id NULLS FIRST, d.title, d.id
 		LIMIT $3`, workspaceID, includeTrash, maxWorkspaceExport+1)
 	if err != nil {
 		writeError(w, 500, "DATABASE_ERROR", "문서를 불러오지 못했습니다.")
