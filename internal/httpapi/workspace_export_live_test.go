@@ -269,26 +269,132 @@ func TestTwoTitlesDifferingOnlyInCaseStayTwoEntries(t *testing.T) {
 		t.Errorf("exactly one of the two should carry the (2) suffix: %v", roots)
 	}
 
+	// One level down the two folders are told apart the same way, and that is
+	// why the directory part is no longer `report/` for both: folding the entry
+	// name only kept the two documents from becoming one file, while the two
+	// directories stayed one directory. folderPaths now claims a directory as
+	// it builds it, so the second of the pair comes out as `report (2)/` —
+	// which is what these expectations moved for. The filter has to be loose
+	// enough to find that name, so it matches the prefix rather than `report/`.
 	inFolders := []string{}
 	for _, name := range names {
-		if strings.Contains(strings.ToLower(name), "report/") {
+		if strings.HasPrefix(strings.ToLower(name), "report") && strings.Contains(name, "/") {
 			inFolders = append(inFolders, name)
 		}
 	}
 	if len(inFolders) != 2 {
 		t.Fatalf("the two folders did not produce two entries: %v", names)
 	}
-	upperDir, lowerDir := false, false
+	upperDir, lowerDir, suffixedDirs := 0, 0, 0
+	directories := []string{}
 	for _, name := range inFolders {
-		if strings.HasPrefix(name, "Report/") {
-			upperDir = true
+		directory := name[:strings.Index(name, "/")]
+		directories = append(directories, directory)
+		if strings.HasPrefix(directory, "Report") {
+			upperDir++
 		}
-		if strings.HasPrefix(name, "report/") {
-			lowerDir = true
+		if strings.HasPrefix(directory, "report") {
+			lowerDir++
+		}
+		if strings.Contains(directory, " (2)") {
+			suffixedDirs++
 		}
 	}
-	if !upperDir || !lowerDir {
-		t.Errorf("a folder lost the casing it was given: %v", inFolders)
+	if strings.EqualFold(directories[0], directories[1]) {
+		t.Errorf("directories %q and %q are one directory on Windows: %v", directories[0], directories[1], names)
+	}
+	// Folding belongs to the bookkeeping here too: one directory still reads
+	// Report and the other report. Which of them takes the suffix is not pinned
+	// down — resolve walks parents before siblings.
+	if upperDir != 1 || lowerDir != 1 {
+		t.Errorf("a folder lost the casing it was given: %v", directories)
+	}
+	if suffixedDirs != 1 {
+		t.Errorf("exactly one of %q and %q should carry a suffix", directories[0], directories[1])
+	}
+}
+
+func TestTwoFoldersWithOneNameStayTwoDirectories(t *testing.T) {
+	// Nothing stops two folders from carrying the same name: the folder name
+	// check looks at emptiness and length alone, so the editor makes this pair
+	// without complaint, and a user who has one 기획 folder per team sees two
+	// folders in the sidebar. The archive flattened them into the one path
+	// string, so both teams' documents came out of the same directory and the
+	// structure the user was looking at was gone from the download. The
+	// documents themselves survived — uniqueEntryName moves the second one to
+	// `문서 (2).md` — which is why this is only visible in the directory part of
+	// the entry names, and why that is what this reads off the wire.
+	srv := newServerUnderTest(t)
+	workspaceID := adminWorkspace(t, srv)
+	first := folderNamed(t, srv, workspaceID, "기획", nil)
+	second := folderNamed(t, srv, workspaceID, "기획", nil)
+	documentInFolder(t, srv, workspaceID, &first, "첫째 문서", false)
+	documentInFolder(t, srv, workspaceID, &second, "둘째 문서", false)
+	// And what must not move, in the same archive so one request proves both: a
+	// folder whose name nothing else shares keeps every letter it was given —
+	// casing included — a child still sits under its parent, and a deleted
+	// document still sits under 휴지통.
+	plain := folderNamed(t, srv, workspaceID, "README", nil)
+	child := folderNamed(t, srv, workspaceID, "하위", &plain)
+	documentInFolder(t, srv, workspaceID, &plain, "그대로 문서", false)
+	documentInFolder(t, srv, workspaceID, &child, "중첩 문서", false)
+	documentInFolder(t, srv, workspaceID, &child, "버린 문서", true)
+
+	names := exportEntryNames(t, srv, workspaceID)
+
+	// Every entry is read as directory plus base name; the titles above are
+	// unique, so each one names the directory its folder produced.
+	directories := map[string]string{}
+	for _, name := range names {
+		base := name[strings.LastIndex(name, "/")+1:]
+		directories[base] = strings.TrimSuffix(name, base)
+	}
+	firstDir, secondDir := directories["첫째 문서.md"], directories["둘째 문서.md"]
+	if firstDir == "" || secondDir == "" {
+		t.Fatalf("a document in one of the two 기획 folders is missing: %v", names)
+	}
+	if firstDir == secondDir {
+		t.Errorf("both 기획 folders became the one directory %q, so two folders unpack as one: %v", firstDir, names)
+	}
+	// Which of the two keeps the plain name is deliberately not pinned down:
+	// resolve walks parents before siblings, so a folder with children can
+	// claim its name ahead of a sibling listed before it.
+	suffixed := 0
+	for _, directory := range []string{firstDir, secondDir} {
+		if !strings.HasPrefix(directory, "기획") {
+			t.Errorf("a folder lost the name it was given: %q", directory)
+		}
+		if strings.Contains(directory, " (2)") {
+			suffixed++
+		}
+	}
+	if suffixed != 1 {
+		t.Errorf("exactly one of %q and %q should carry a suffix", firstDir, secondDir)
+	}
+	// No two directories in the archive may differ only in case either, for the
+	// same reason no two entry names may: on Windows they are one directory.
+	folded := map[string]string{}
+	for _, name := range names {
+		base := name[strings.LastIndex(name, "/")+1:]
+		directory := strings.TrimSuffix(name, base)
+		if directory == "" {
+			continue
+		}
+		key := strings.ToLower(directory)
+		if other, ok := folded[key]; ok && other != directory {
+			t.Errorf("directories %q and %q differ only in case: %v", other, directory, names)
+		}
+		folded[key] = directory
+	}
+
+	if got := directories["그대로 문서.md"]; got != "README/" {
+		t.Errorf("a folder nothing clashes with changed shape: %q", got)
+	}
+	if got := directories["중첩 문서.md"]; got != "README/하위/" {
+		t.Errorf("a nested folder left its parent: %q", got)
+	}
+	if got := directories["버린 문서.md"]; got != "휴지통/README/하위/" {
+		t.Errorf("a deleted document left 휴지통 or its folder: %q", got)
 	}
 }
 
