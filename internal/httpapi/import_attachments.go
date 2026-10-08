@@ -179,9 +179,10 @@ type importedDocument struct {
 // the handoff that takes one from another service.
 func (s *Server) storeImportedDocument(ctx context.Context, doc importedDocument) error {
 	return database.WithTx(ctx, s.db, func(tx pgx.Tx) error {
+		// Page furniture is user text; shortening it must not append an AI context notice.
 		if _, err := tx.Exec(ctx, `INSERT INTO documents(id,workspace_id,folder_id,owner_id,title,visibility,content_json,content_text,revision_no,page_header,page_footer,page_orientation) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,$11)`,
 			doc.id, doc.workspaceID, doc.folderID, doc.ownerID, doc.title, doc.visibility, doc.content, doc.text,
-			truncateRunes(doc.furniture.Header, 200), truncateRunes(doc.furniture.Footer, 200), orientationOf(doc.furniture.Landscape)); err != nil {
+			cutFilenameRunes(doc.furniture.Header, 200), cutFilenameRunes(doc.furniture.Footer, 200), orientationOf(doc.furniture.Landscape)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO document_revisions(document_id,revision_no,content_json,content_text,author_id,reason) VALUES($1,1,$2,$3,$4,$5)`, doc.id, doc.content, doc.text, doc.ownerID, doc.reason); err != nil {
@@ -348,9 +349,10 @@ func (s *Server) importIntoDocument(w http.ResponseWriter, r *http.Request) {
 		// keeps the two import paths agreed — importing the same over-long
 		// title into a new document and into an open one now gives the same
 		// title, where before only one of them carried the prompt's notice.
-		"title":     cutFilenameRunes(title, 240),
-		"header":    truncateRunes(parsed.furniture.Header, 200),
-		"footer":    truncateRunes(parsed.furniture.Footer, 200),
+		"title": cutFilenameRunes(title, 240),
+		// The editor receives the same notice-free furniture as a new import stores.
+		"header":    cutFilenameRunes(parsed.furniture.Header, 200),
+		"footer":    cutFilenameRunes(parsed.furniture.Footer, 200),
 		"landscape": parsed.furniture.Landscape,
 		"format":    strings.TrimPrefix(extension, "."),
 		"images":    len(attachments),
