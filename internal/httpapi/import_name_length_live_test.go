@@ -1,12 +1,16 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/hkjang/muni/internal/hwpx"
+	"github.com/hkjang/muni/internal/richdoc"
 )
 
 // contextNoticeFragment is the middle of the sentence truncateRunes appends
@@ -76,6 +80,142 @@ func TestALongAttachmentFilenameIsStoredWithoutAContextNotice(t *testing.T) {
 			disposition := resp.Header.Get("Content-Disposition")
 			if got := filenameFrom(t, disposition); got != stored {
 				t.Errorf("filename read back = %q, want the stored name %q (from %q)", got, stored, disposition)
+			}
+		})
+	}
+}
+
+// HWPX carries long furniture through the real writer and reader. DOCX would
+// hide this regression because its reader already cuts furniture to 200 runes.
+func pageFurnitureCases() []struct {
+	name, header, footer, wantHeader, wantFooter string
+	landscape                                    bool
+} {
+	return []struct {
+		name, header, footer, wantHeader, wantFooter string
+		landscape                                    bool
+	}{
+		{"201 runes", strings.Repeat("머", 200) + "끝", strings.Repeat("꼬", 200) + "끝", strings.Repeat("머", 200), strings.Repeat("꼬", 200), true},
+		{"empty", "", "", "", "", false},
+		{"short", "회의록 대외비", "기획 부서", "회의록 대외비", "기획 부서", true},
+		{"exactly 200 runes", strings.Repeat("가", 200), strings.Repeat("나", 200), strings.Repeat("가", 200), strings.Repeat("나", 200), false},
+		{"space at the cut", strings.Repeat("머", 199) + " 끝", strings.Repeat("꼬", 199) + " 끝", strings.Repeat("머", 199), strings.Repeat("꼬", 199), true},
+	}
+}
+
+func hwpxWithPageFurniture(t *testing.T, header, footer string, landscape bool) []byte {
+	t.Helper()
+	file, err := hwpx.Build(richdoc.Doc(richdoc.Paragraph(richdoc.Text("가져온 본문입니다."))), hwpx.Options{
+		Title: "파일 안 제목", Header: header, Footer: footer, Landscape: landscape,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, meta, err := hwpx.Parse(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.Header != header || meta.Footer != footer || meta.Landscape != landscape {
+		t.Fatalf("HWPX writer/reader changed furniture before HTTP: %+v", meta)
+	}
+	return file
+}
+
+func checkPageFurniture(t *testing.T, where, got, want string) {
+	t.Helper()
+	if got != want {
+		t.Errorf("%s = %q, want %q", where, got, want)
+	}
+	if strings.Contains(got, contextNoticeFragment) || strings.ContainsAny(got, "\r\n") {
+		t.Errorf("%s carries an AI context notice or line break: %q", where, got)
+	}
+}
+
+func cleanupFurnitureDocument(t *testing.T, srv *serverUnderTest, id string) {
+	t.Helper()
+	t.Cleanup(func() {
+		if _, err := srv.db.Exec(context.Background(), `DELETE FROM documents WHERE id=$1`, uuid.MustParse(id)); err != nil {
+			t.Errorf("clean up imported document: %v", err)
+		}
+	})
+}
+
+func TestImportedPageFurnitureIsStoredWithoutAContextNotice(t *testing.T) {
+	srv := newServerUnderTest(t)
+	workspace := adminWorkspace(t, srv)
+	for _, tc := range pageFurnitureCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			file := hwpxWithPageFurniture(t, tc.header, tc.footer, tc.landscape)
+			imported := importFile(t, srv, workspace, "보고서.hwpx", "가져온 제목", file)
+			id := imported["id"].(string)
+			cleanupFurnitureDocument(t, srv, id)
+
+			var header, footer, title, body, orientation string
+			if err := srv.db.QueryRow(t.Context(), `SELECT page_header,page_footer,title,content_text,page_orientation FROM documents WHERE id=$1`, uuid.MustParse(id)).Scan(&header, &footer, &title, &body, &orientation); err != nil {
+				t.Fatal(err)
+			}
+			checkPageFurniture(t, "stored header", header, tc.wantHeader)
+			checkPageFurniture(t, "stored footer", footer, tc.wantFooter)
+			checkPageFurniture(t, "response pageHeader", imported["pageHeader"].(string), tc.wantHeader)
+			checkPageFurniture(t, "response pageFooter", imported["pageFooter"].(string), tc.wantFooter)
+			wantOrientation := "PORTRAIT"
+			if tc.landscape {
+				wantOrientation = "LANDSCAPE"
+			}
+			if title != "가져온 제목" || imported["title"] != title || orientation != wantOrientation || imported["pageOrientation"] != wantOrientation {
+				t.Errorf("title/orientation changed: stored %q/%q, response %v/%v", title, orientation, imported["title"], imported["pageOrientation"])
+			}
+			content, err := json.Marshal(imported["content"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if body != "가져온 본문입니다." || extractDocumentText(content) != body {
+				t.Errorf("imported body changed: stored %q, response %s", body, content)
+			}
+		})
+	}
+}
+
+func TestInsertedPageFurnitureIsReturnedWithoutAContextNotice(t *testing.T) {
+	srv := newServerUnderTest(t)
+	created := importFile(t, srv, adminWorkspace(t, srv), "기존.md", "기존 제목", []byte("기존 본문입니다."))
+	id := created["id"].(string)
+	cleanupFurnitureDocument(t, srv, id)
+	if _, err := srv.db.Exec(t.Context(), `UPDATE documents SET page_header='기존 머리말',page_footer='기존 꼬리말' WHERE id=$1`, uuid.MustParse(id)); err != nil {
+		t.Fatal(err)
+	}
+	// Snapshot only this document, including both body representations and its
+	// revision. The editor must decide when to save the returned import data.
+	snapshot := func(t *testing.T) string {
+		t.Helper()
+		var state string
+		if err := srv.db.QueryRow(t.Context(), `SELECT jsonb_build_array(title,page_header,page_footer,content_json,content_text,revision_no,page_orientation)::text FROM documents WHERE id=$1`, uuid.MustParse(id)).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+	before := snapshot(t)
+	for _, tc := range pageFurnitureCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			file := hwpxWithPageFurniture(t, tc.header, tc.footer, tc.landscape)
+			status, data := importIntoDocument(t, srv, id, "보고서.hwpx", file)
+			if status != http.StatusOK {
+				t.Fatalf("import into document = %d %v", status, data)
+			}
+			checkPageFurniture(t, "response header", data["header"].(string), tc.wantHeader)
+			checkPageFurniture(t, "response footer", data["footer"].(string), tc.wantFooter)
+			if data["title"] != "보고서" || data["landscape"] != tc.landscape || data["format"] != "hwpx" {
+				t.Errorf("title/orientation/format changed: %v", data)
+			}
+			content, err := json.Marshal(data["content"])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if extractDocumentText(content) != "가져온 본문입니다." {
+				t.Errorf("returned body changed: %s", content)
+			}
+			if after := snapshot(t); after != before {
+				t.Errorf("insertion changed the target document: before %s, after %s", before, after)
 			}
 		})
 	}
