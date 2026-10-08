@@ -209,6 +209,154 @@ func TestADocumentTitledLikeTheIndexKeepsItsOwnEntry(t *testing.T) {
 	}
 }
 
+func TestAFolderNamedLikeTheIndexKeepsItsDocuments(t *testing.T) {
+	srv := newServerUnderTest(t)
+	titles := []string{"하위", "둘째", "셋째", "넷째"}
+	for _, tc := range []struct {
+		name  string
+		roots []string
+	}{
+		{"lowercase", []string{"목록.md"}},
+		{"uppercase", []string{"목록.MD"}},
+		{"competing folders", []string{"목록.md", "목록.MD", "목록.md", "목록.md (2)"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, data := postJSON(t, srv.admin, srv.URL+"/api/v1/workspaces", map[string]any{
+				"name": "안내와 폴더 보존", "slug": "export-" + uuid.NewString(),
+			})
+			if status != 201 {
+				t.Fatalf("create workspace = %d %v", status, data)
+			}
+			workspaceID := uuid.MustParse(data["id"].(string))
+			t.Cleanup(func() {
+				if _, err := srv.db.Exec(context.Background(), `DELETE FROM workspaces WHERE id=$1`, workspaceID); err != nil {
+					t.Error(err)
+				}
+			})
+			for i, name := range tc.roots {
+				folder := folderNamed(t, srv, workspaceID, name, nil)
+				child := folderNamed(t, srv, workspaceID, "자식", &folder)
+				documentInFolder(t, srv, workspaceID, &folder, titles[i], false)
+				documentInFolder(t, srv, workspaceID, &child, fmt.Sprintf("중첩%d", i), false)
+				documentInFolder(t, srv, workspaceID, &child, fmt.Sprintf("버린 문서%d", i), true)
+			}
+			ordinary := folderNamed(t, srv, workspaceID, "README", nil)
+			nested := folderNamed(t, srv, workspaceID, "목록.md", &ordinary)
+			documentInFolder(t, srv, workspaceID, &ordinary, "그대로", false)
+			documentInFolder(t, srv, workspaceID, &nested, "중첩 그대로", false)
+			documentInFolder(t, srv, workspaceID, nil, "목록", false)
+			// Give each document a distinct body, so an entry with only a title
+			// cannot masquerade as a preserved document.
+			if _, err := srv.db.Exec(t.Context(), `UPDATE documents SET content_json =
+				jsonb_build_object('type','doc','content',jsonb_build_array(
+					jsonb_build_object('type','paragraph','content',jsonb_build_array(
+						jsonb_build_object('type','text','text','보존 본문 ' || title)))))
+				WHERE workspace_id=$1`, workspaceID); err != nil {
+				t.Fatal(err)
+			}
+			for _, format := range []string{"md", "html", "txt"} {
+				for _, trash := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/trash=%t", format, trash), func(t *testing.T) {
+						resp, err := srv.admin.Get(fmt.Sprintf("%s/api/v1/workspaces/%s/export.zip?format=%s&trash=%t", srv.URL, workspaceID, format, trash))
+						if err != nil {
+							t.Fatal(err)
+						}
+						defer resp.Body.Close()
+						raw, err := io.ReadAll(resp.Body)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if resp.StatusCode != 200 {
+							t.Fatalf("export = %d: %s", resp.StatusCode, raw)
+						}
+						archive, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+						if err != nil {
+							t.Fatal(err)
+						}
+						bodies := map[string]string{}
+						seen := map[string]bool{}
+						indexCount := 0
+						for _, file := range archive.File {
+							key := strings.ToLower(file.Name)
+							if seen[key] {
+								t.Errorf("duplicate archive path %q", file.Name)
+							}
+							seen[key] = true
+							if strings.HasPrefix(key, "목록.md/") {
+								t.Errorf("index file 목록.md is a directory prefix of document %q", file.Name)
+							}
+							if file.Name == "목록.md" {
+								indexCount++
+							}
+							body, err := file.Open()
+							if err != nil {
+								t.Fatal(err)
+							}
+							content, err := io.ReadAll(body)
+							body.Close()
+							if err != nil {
+								t.Fatal(err)
+							}
+							bodies[file.Name] = string(content)
+						}
+						if indexCount != 1 {
+							t.Errorf("index entries = %d, want exactly one", indexCount)
+						}
+						want := map[string]string{
+							"README/그대로." + format:          "그대로",
+							"README/목록.md/중첩 그대로." + format: "중첩 그대로",
+						}
+						rootDocument := "목록." + format
+						if format == "md" {
+							rootDocument = "목록 (2).md"
+						}
+						want[rootDocument] = "목록"
+						directories := map[string]bool{}
+						for i, root := range tc.roots {
+							title := titles[i]
+							directory := ""
+							for name := range bodies {
+								if strings.HasSuffix(name, "/"+title+"."+format) {
+									directory = strings.TrimSuffix(name, "/"+title+"."+format)
+								}
+							}
+							valid := directory == root && strings.ToLower(root) != "목록.md"
+							for suffix := 2; suffix <= len(tc.roots)+1; suffix++ {
+								valid = valid || directory == fmt.Sprintf("%s (%d)", root, suffix)
+							}
+							if !valid {
+								t.Errorf("folder %q exported as %q, want a distinct directory preserving its case", root, directory)
+							}
+							if directories[strings.ToLower(directory)] {
+								t.Errorf("user folders merged into %q", directory)
+							}
+							directories[strings.ToLower(directory)] = true
+							want[directory+"/"+title+"."+format] = title
+							childTitle := fmt.Sprintf("중첩%d", i)
+							want[directory+"/자식/"+childTitle+"."+format] = childTitle
+							if trash {
+								trashTitle := fmt.Sprintf("버린 문서%d", i)
+								want["휴지통/"+directory+"/자식/"+trashTitle+"."+format] = trashTitle
+							}
+						}
+						if len(archive.File) != len(want)+1 {
+							t.Errorf("ZIP entries = %d, want %d documents and one index", len(archive.File), len(want))
+						}
+						for name, title := range want {
+							if !strings.Contains(bodies[name], "보존 본문 "+title) {
+								t.Errorf("document body missing at %q", name)
+							}
+							if !strings.Contains(bodies["목록.md"], "- "+name+" —") {
+								t.Errorf("index does not list final document path %q", name)
+							}
+						}
+					})
+				}
+			}
+		})
+	}
+}
+
 func TestTwoTitlesDifferingOnlyInCaseStayTwoEntries(t *testing.T) {
 	// The archive is unpacked wherever it is downloaded, and the deployment
 	// target is Windows — where `Report.md` and `report.md` are one file name.
