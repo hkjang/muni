@@ -261,7 +261,10 @@ func (s *Server) folderPaths(r *http.Request, workspaceID uuid.UUID) (map[string
 	// Windows — the deployment target — `Report` and `report` are one
 	// directory. Only the key is folded; the path this returns, and that the
 	// archive and the user then carry, keeps the casing the folder was given.
-	claimed := map[string]bool{}
+	//
+	// Every export format includes the root index file; a directory at that
+	// path would prevent the index and its documents from unpacking together.
+	claimed := map[string]bool{entryKey(workspaceManifestName): true}
 	var resolve func(id uuid.UUID, depth int) string
 	resolve = func(id uuid.UUID, depth int) string {
 		if existing, ok := paths[id.String()]; ok {
